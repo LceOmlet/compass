@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "local_root": ".local-runs",
+  "git_tracked": false,
+  "source": "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill/reflection-bridge",
+  "captured_at": "2026-07-28T09:38:11+08:00",
+  "files": {
+    "11_ifbench_terminal_dep_e08_k3_20260724_v16_reversible_masks/candidate_tree.html": "ae511b4ceb221d4e5dc0b62019245dcea89d03037f45372ac82c83457f163321",
+    "11_ifbench_terminal_dep_e08_k3_20260724_v16_reversible_masks/candidates.json": "8b42fb91f032b22378c9fc482679f6f7fbde05025538420212fccc7ca5137797",
+    "11_ifbench_terminal_dep_e08_k3_20260724_v16_reversible_masks/gepa_state.bin": "8cfaa6a362eb956d1caf65dc1db1ab5a36c58d5aa4b1a9e4fd004b4a72006827",
+    "11_ifbench_terminal_dep_e08_k3_20260724_v16_reversible_masks/run_log.json": "00ff466715de61e6f77ceb097d27c04d095fd9e081f98996e1a41a0e69e3974f",
+    "11_ifbench_terminal_dep_e08_k3_20260724_v16_reversible_masks/run_log.txt": "e966d6634068d63d76769867b3dea3c70b89d2c1b9082d67e7e7ca68efb7c209",
+    "11_ifbench_terminal_dep_e08_k3_20260724_v16_reversible_masks/run_log_stderr.txt": "e54d0e5b6dc7ff933a00958aaaaf99673c52489daf3f24bb6838e8b0601c72e6",
+    "11_ifbench_terminal_dep_e08_k3_20260724_v16_reversible_masks.launch.log": "e68ed9e0a1f857bb46cd55489bfdde739e5c95d46919ddd963a82b3ed76fbce9"
+  }
+}

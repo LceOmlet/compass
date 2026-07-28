@@ -1,0 +1,15 @@
+[submodule "upstreams/gepa"]
+	path = upstreams/gepa
+	url = https://github.com/gepa-ai/gepa.git
+[submodule "upstreams/dspy"]
+	path = upstreams/dspy
+	url = https://github.com/stanfordnlp/dspy.git
+[submodule "upstreams/gepa-artifact"]
+	path = upstreams/gepa-artifact
+	url = https://github.com/gepa-ai/gepa-artifact.git
+[submodule "upstreams/flashtrace"]
+	path = upstreams/flashtrace
+	url = https://github.com/wbopan/flashtrace.git
+[submodule "upstreams/dspy-gepa"]
+	path = upstreams/dspy-gepa
+	url = https://github.com/gepa-ai/dspy.git

@@ -1,0 +1,90 @@
+diff --git a/dspy/teleprompt/bootstrap_trace.py b/dspy/teleprompt/bootstrap_trace.py
+index 2f0cc60cd11f55af0ff51bdd33fb4273399a6b19..fee1b2ccd6034dfa82638bac41278772d3c5d3ed 100644
+--- a/dspy/teleprompt/bootstrap_trace.py
++++ b/dspy/teleprompt/bootstrap_trace.py
+@@ -87,7 +87,7 @@ def bootstrap_trace_data(
+                     failed_pred = FailedPrediction(
+                         completion_text=completion_str,
+                         format_reward=format_failure_score
+-                        + (failure_score - format_failure_score) * (present / expected),
++                        + (failure_score - format_failure_score) * (len(present) / len(expected)),
+                     )
+                 else:
+                     failed_pred = FailedPrediction(completion_text=completion_str, format_reward=format_failure_score)
+diff --git a/dspy/teleprompt/gepa/gepa_utils.py b/dspy/teleprompt/gepa/gepa_utils.py
+index dae7157feb3894dc12ab4edc664d3a8dead50bb4..2c8bec5a98b36d6ff7109a22765f5dc223c16425 100644
+--- a/dspy/teleprompt/gepa/gepa_utils.py
++++ b/dspy/teleprompt/gepa/gepa_utils.py
+@@ -165,9 +165,38 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+                 format_failure_score=self.failure_score,
+                 callback_metadata=callback_metadata,
+             )
++            aligned_trajs = [None] * len(batch)
++            for trace_data in trajs:
++                example_index = trace_data.get("example_ind")
++                if (
++                    isinstance(example_index, bool)
++                    or not isinstance(example_index, int)
++                    or not 0 <= example_index < len(batch)
++                ):
++                    raise RuntimeError("DSPy trace has an invalid example index")
++                if aligned_trajs[example_index] is not None:
++                    raise RuntimeError("DSPy returned duplicate traces for one example")
++                if trace_data.get("example") is not batch[example_index]:
++                    raise RuntimeError("DSPy trace no longer identifies its input example")
++                aligned_trajs[example_index] = trace_data
++
++            for example_index, trace_data in enumerate(aligned_trajs):
++                if trace_data is not None:
++                    continue
++                failed_prediction = Prediction()
++                aligned_trajs[example_index] = {
++                    "example_ind": example_index,
++                    "example": batch[example_index],
++                    "prediction": failed_prediction,
++                    "trace": [],
++                    "score": self.failure_score,
++                }
++            trajs = aligned_trajs
++
+             scores = []
+             outputs = []
+             for t in trajs:
++                assert t is not None
+                 outputs.append(t["prediction"])
+                 if hasattr(t["prediction"], "__class__") and t.get("score") is None:
+                     scores.append(self.failure_score)
+@@ -334,4 +363,3 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+                 raise TypeError("Unexpected output type from the base LM! Expected str or dict")
+ 
+         return outputs
+-
+diff --git a/dspy/utils/parallelizer.py b/dspy/utils/parallelizer.py
+index b94c18ca07ad4a30dccf41234fe7eccc5d3491ae..95c4e628446ac1e6d302837e1f8da571c7c97980 100644
+--- a/dspy/utils/parallelizer.py
++++ b/dspy/utils/parallelizer.py
+@@ -110,7 +110,7 @@ class ParallelExecutor:
+         # We resubmit at most once per item.
+         start_time_map = {}
+         start_time_lock = threading.Lock()
+-        resubmitted = set()
++        resubmitted_indices = set()
+ 
+         # This is the worker function each thread will run.
+         def worker(parent_overrides, submission_id, index, item):
+@@ -200,12 +200,12 @@ class ParallelExecutor:
+                     if 0 < self.timeout and len(not_done) <= self.straggler_limit:
+                         now = time.time()
+                         for f in list(not_done):
+-                            if f not in resubmitted:
+-                                sid, idx, item = futures_map[f]
++                            sid, idx, item = futures_map[f]
++                            if idx not in resubmitted_indices:
+                                 with start_time_lock:
+                                     st = start_time_map.get(sid, None)
+                                 if st and (now - st) >= self.timeout:
+-                                    resubmitted.add(f)
++                                    resubmitted_indices.add(idx)
+                                     nf = executor.submit(
+                                         worker,
+                                         parent_overrides,

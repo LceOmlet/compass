@@ -1,0 +1,60 @@
+{
+  "deployment": {
+    "checkpoint": "/mnt/geogpt-doc-new/deepresearch/tool_jepa_qwen35_9b/models/Qwen3-8B",
+    "device_map": {"": 0},
+    "dtype": "auto",
+    "trust_remote_code": true,
+    "attn_implementation": "flash_attention_2",
+    "run_dir": "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill/reflection-bridge/runs/11_ifbench_terminal_dep_e08_k3_20260724_v15_reversible_masks"
+  },
+  "remote_lm": {
+    "api_base": "https://api.siliconflow.cn/v1",
+    "api_key_env": "SILICONFLOW_API_KEY",
+    "cache_dir_env": "DSPY_CACHEDIR",
+    "cache": true,
+    "cache_in_memory": true,
+    "enable_thinking": true,
+    "max_tokens": 16384,
+    "model": "openai/Qwen/Qwen3-8B",
+    "model_type": "chat",
+    "n": 1,
+    "num_retries": 0,
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95
+  },
+  "flashtrace": {
+    "chunk_tokens": 128,
+    "credit_hops": 1,
+    "dependency_hops": 1,
+    "recompute_attention": true,
+    "renorm_threshold_default": 0.0,
+    "show_progress": true,
+    "sink_chunk_tokens": 32,
+    "use_chat_template": false
+  },
+  "terminal_likelihood": {
+    "n_candidates": 3
+  },
+  "dependency": {
+    "epsilon_dep": 0.8
+  },
+  "parent_selection": {
+    "top_n": 5
+  },
+  "official_gepa": {
+    "add_format_failure_as_feedback": false,
+    "dataset_mode": "lite",
+    "display_progress_bar": false,
+    "failure_score": 0,
+    "max_metric_calls": 3593,
+    "num_threads": null,
+    "perfect_score": 1,
+    "raise_on_exception": true,
+    "reflection_minibatch_size": 3,
+    "seed": 0,
+    "skip_perfect_score": true,
+    "track_best_outputs": true,
+    "use_cloudpickle": true
+  }
+}

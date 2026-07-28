@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-28T09:18:12+08:00",
+  "source_root": "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill",
+  "policy": {
+    "official_sources_are_semantic_owners": true,
+    "owner_changes_are_stored_as_patches": true,
+    "generated_runs_and_caches_are_not_source": true
+  },
+  "sources": {
+    "gepa": {
+      "path": "upstreams/gepa",
+      "origin": "https://github.com/gepa-ai/gepa.git",
+      "commit": "665cbc368313b7223f2b0638d2ef47da7a130dad",
+      "patch": "patches/gepa-working-tree.patch",
+      "patch_sha256": "e9ed1bff06a8723bf85ed88521cc6f30bb21d86ee1c48c035653499099b3a4a8",
+      "status": "patched owner for state, engine, admission, and batch semantics"
+    },
+    "dspy": {
+      "path": "upstreams/dspy",
+      "origin": "https://github.com/stanfordnlp/dspy.git",
+      "commit": "96bae53d458d300b2cab49a5ddf30087498df952",
+      "patch": "patches/dspy-working-tree.patch",
+      "patch_sha256": "69207f65e435f5dcdc8185a3a12a24918d3037d031b068011ba60b33c65f527e",
+      "status": "patched owner for result alignment and bounded resubmission"
+    },
+    "gepa_artifact": {
+      "path": "upstreams/gepa-artifact",
+      "origin": "https://github.com/gepa-ai/gepa-artifact.git",
+      "commit": "cbefbc1aa0f43dd39874ec4bf42211365dbda42e",
+      "patch": "patches/gepa-artifact-working-tree.patch",
+      "patch_sha256": "2717b29839dc108e3c3630aa46cafbb0671ed5b4d1550306cc47a23f62bd4adf",
+      "status": "patched owner for IFBench program and installed-artifact handling"
+    },
+    "flashtrace": {
+      "path": "upstreams/flashtrace",
+      "origin": "https://github.com/wbopan/flashtrace.git",
+      "commit": "9935467b628bbd7c7083bb84389271e16a4b1740",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged official owner"
+    },
+    "dspy_gepa_legacy": {
+      "path": "upstreams/dspy-gepa",
+      "origin": "https://github.com/gepa-ai/dspy.git",
+      "commit": "62dc3b634d7dc0c4889abcf905cb4c391ea6b396",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged legacy source retained for historical experiment imports"
+    }
+  }
+}

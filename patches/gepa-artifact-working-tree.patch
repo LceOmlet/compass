@@ -1,0 +1,34 @@
+diff --git a/gepa_artifact/benchmarks/IFBench/ifbench_program.py b/gepa_artifact/benchmarks/IFBench/ifbench_program.py
+index d3db168867511857307ad216883d0539409cfa2e..6bbe45b474f1bad35f8d9a0552e3fc4d0976407b 100644
+--- a/gepa_artifact/benchmarks/IFBench/ifbench_program.py
++++ b/gepa_artifact/benchmarks/IFBench/ifbench_program.py
+@@ -19,7 +19,7 @@ class IFBenchCoT2StageProgram(dspy_program.LangProBeDSPyMetaProgram):
+         self.generate_response_module = dspy.ChainOfThought(GenerateResponse)
+         self.ensure_correct_response_module = dspy.ChainOfThought(EnsureCorrectResponse)
+ 
+-    def __call__(self, prompt: str):
++    def forward(self, prompt: str):
+         response = self.generate_response_module(query=prompt).response
+         final_response = self.ensure_correct_response_module(query=prompt, response=response)
+         return dspy.Prediction(response=final_response.final_response)
+diff --git a/gepa_artifact/benchmarks/IFBench/utils_ifbench/instructions.py b/gepa_artifact/benchmarks/IFBench/utils_ifbench/instructions.py
+index 4dc72a2d4fc495ed2415b9ef8950b60ffa938952..a9864d3d06bece3c97c201ceff42a9377dec1156 100644
+--- a/gepa_artifact/benchmarks/IFBench/utils_ifbench/instructions.py
++++ b/gepa_artifact/benchmarks/IFBench/utils_ifbench/instructions.py
+@@ -31,7 +31,8 @@ import io
+ 
+ from . import instructions_util
+ 
+-download('en_core_web_sm')
++if not spacy.util.is_package("en_core_web_sm"):
++    download("en_core_web_sm")
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -2246,4 +2247,4 @@ class NoWhitespaceChecker(Instruction):
+ 		  True if the response contains no whitespace;
+ 		  otherwise, False.
+ 		"""
+-		return not any(char.isspace() for char in value)
+\ No newline at end of file
++		return not any(char.isspace() for char in value)
