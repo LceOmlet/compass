@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from bridge.b03_token_replay import TokenReplayUtility
 from bridge.terminal_reflection import (
     PreparedTerminalAnalysis,
@@ -124,6 +126,7 @@ def test_terminal_selection_passes_full_programs_and_skips_one_unavailable_candi
         {"first": "selected", "second": "unchanged"},
     ]
     assert proposal.metadata["proposal_duplicate_count"] == 2
+    assert proposal.metadata["teacher_forcing_enabled"] is True
     assert provider.take_calls == 1
     assert provider.discard_calls == 1
     assert any(
@@ -132,6 +135,81 @@ def test_terminal_selection_passes_full_programs_and_skips_one_unavailable_candi
         and "candidate_skipped=True" in message
         for message in logger.messages
     )
+
+
+def test_teacher_forcing_free_selection_skips_scoring_and_keeps_dependency_gate() -> None:
+    prepared = _PreparedAnalysis()
+    provider = _AnalysisProvider(prepared)
+    logger = _Logger()
+    completion_calls: list[int] = []
+
+    def complete(_prompt: str, *, n: int) -> tuple[str, ...]:
+        completion_calls.append(n)
+        return ("```selected```",)
+
+    reflection = TerminalLikelihoodReflectionLM(
+        complete=complete,
+        analysis_provider=provider,
+        n_candidates=1,
+        epsilon_dep=0.8,
+        teacher_forcing_enabled=False,
+        logger=logger,
+    )
+
+    proposal, _ = reflection.reflect(
+        candidate={"first": "old", "second": "unchanged"},
+        reflective_dataset={"first": ({"input": "x", "feedback": "y"},)},
+        components_to_update=["first"],
+    )
+
+    assert completion_calls == [1]
+    assert prepared.scored == ()
+    assert prepared.dependency_calls == [
+        {"first": "selected", "second": "unchanged"}
+    ]
+    assert proposal.new_texts == {"first": "selected"}
+    assert proposal.metadata["teacher_forcing_enabled"] is False
+    assert "teacher_forcing_score" not in proposal.metadata
+    assert any(
+        "teacher_forcing_enabled=False" in message
+        and "gate_passed=True" in message
+        for message in logger.messages
+    )
+
+
+def test_teacher_forcing_free_selection_can_reject_the_only_candidate() -> None:
+    prepared = _PreparedAnalysis()
+    provider = _AnalysisProvider(prepared)
+    reflection = TerminalLikelihoodReflectionLM(
+        complete=lambda _prompt, *, n: ("```rejected```",) if n == 1 else (),
+        analysis_provider=provider,
+        n_candidates=1,
+        epsilon_dep=0.8,
+        teacher_forcing_enabled=False,
+    )
+
+    proposal, _ = reflection.reflect(
+        candidate={"first": "old", "second": "unchanged"},
+        reflective_dataset={"first": ({"input": "x", "feedback": "y"},)},
+        components_to_update=["first"],
+    )
+
+    assert prepared.scored == ()
+    assert proposal.new_texts == {}
+
+
+def test_teacher_forcing_free_selection_requires_one_candidate() -> None:
+    with pytest.raises(
+        ValueError,
+        match="requires n_candidates=1",
+    ):
+        TerminalLikelihoodReflectionLM(
+            complete=lambda _prompt, *, n: ("```selected```",) * n,
+            analysis_provider=_AnalysisProvider(_PreparedAnalysis()),
+            n_candidates=3,
+            epsilon_dep=0.8,
+            teacher_forcing_enabled=False,
+        )
 
 
 def test_replay_scores_allow_heterogeneous_original_skills() -> None:
@@ -170,4 +248,3 @@ def test_replay_scores_allow_heterogeneous_original_skills() -> None:
     )
 
     assert scores == (1.0, 1.0)
-

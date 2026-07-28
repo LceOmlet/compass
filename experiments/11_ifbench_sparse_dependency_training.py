@@ -69,7 +69,11 @@ CONFIG_KEYS = {
         "sink_chunk_tokens",
         "use_chat_template",
     },
-    "terminal_likelihood": {"n_candidates"},
+    "terminal_likelihood": {
+        "n_candidates",
+        "teacher_forcing_batch_size",
+        "teacher_forcing_enabled",
+    },
     "dependency": {"epsilon_dep"},
     "parent_selection": {"top_n"},
     "official_gepa": {
@@ -105,15 +109,31 @@ def _exact_mapping(value: Any, name: str, keys: set[str]) -> dict[str, Any]:
 def load_config(path: Path) -> dict[str, dict[str, Any]]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     root = _exact_mapping(raw, "config", set(CONFIG_KEYS))
-    return {
-        section: _exact_mapping(root[section], section, keys)
-        for section, keys in CONFIG_KEYS.items()
-    }
+    result: dict[str, dict[str, Any]] = {}
+    for section, keys in CONFIG_KEYS.items():
+        if section != "terminal_likelihood":
+            result[section] = _exact_mapping(root[section], section, keys)
+            continue
+        terminal = root[section]
+        if not isinstance(terminal, Mapping):
+            raise TypeError("terminal_likelihood must be a JSON object")
+        if set(terminal) == {"n_candidates"}:
+            # Historical experiment files keep their original sequential
+            # teacher-forcing behavior.
+            result[section] = {
+                "n_candidates": terminal["n_candidates"],
+                "teacher_forcing_batch_size": 1,
+                "teacher_forcing_enabled": True,
+            }
+        else:
+            result[section] = _exact_mapping(terminal, section, keys)
+    return result
 
 
 def _require_official_configuration(config: dict[str, dict[str, Any]]) -> None:
     remote = config["remote_lm"]
     flashtrace = config["flashtrace"]
+    terminal = config["terminal_likelihood"]
     parent_selection = config["parent_selection"]
     official = config["official_gepa"]
     required_remote = {
@@ -133,7 +153,6 @@ def _require_official_configuration(config: dict[str, dict[str, Any]]) -> None:
         "display_progress_bar": False,
         "failure_score": 0,
         "max_metric_calls": 3593,
-        "num_threads": None,
         "perfect_score": 1,
         "raise_on_exception": True,
         "reflection_minibatch_size": 3,
@@ -151,6 +170,11 @@ def _require_official_configuration(config: dict[str, dict[str, Any]]) -> None:
             )
     if not isinstance(official["use_cloudpickle"], bool):
         raise TypeError("official_gepa.use_cloudpickle must be a JSON boolean")
+    num_threads = official["num_threads"]
+    if num_threads is not None and (
+        type(num_threads) is not int or num_threads <= 0
+    ):
+        raise TypeError("official_gepa.num_threads must be null or a positive JSON integer")
     if flashtrace["credit_hops"] != 1 or flashtrace["dependency_hops"] != 1:
         raise ValueError("the configured exact FlashTrace bridges require hops=1")
     if (
@@ -158,6 +182,38 @@ def _require_official_configuration(config: dict[str, dict[str, Any]]) -> None:
         or parent_selection["top_n"] <= 0
     ):
         raise TypeError("parent_selection.top_n must be a positive JSON integer")
+    teacher_forcing_enabled = terminal["teacher_forcing_enabled"]
+    if not isinstance(teacher_forcing_enabled, bool):
+        raise TypeError("terminal_likelihood.teacher_forcing_enabled must be a JSON boolean")
+    n_candidates = terminal["n_candidates"]
+    if type(n_candidates) is not int or n_candidates <= 0:
+        raise TypeError("terminal_likelihood.n_candidates must be a positive JSON integer")
+    teacher_forcing_batch_size = terminal["teacher_forcing_batch_size"]
+    if teacher_forcing_enabled:
+        if (
+            type(teacher_forcing_batch_size) is not int
+            or teacher_forcing_batch_size <= 0
+        ):
+            raise TypeError(
+                "terminal_likelihood.teacher_forcing_batch_size must be a "
+                "positive JSON integer when teacher forcing is enabled"
+            )
+        if teacher_forcing_batch_size > n_candidates:
+            raise ValueError(
+                "terminal_likelihood.teacher_forcing_batch_size cannot exceed "
+                "terminal_likelihood.n_candidates"
+            )
+    else:
+        if n_candidates != 1:
+            raise ValueError(
+                "teacher-forcing-free proposal selection requires "
+                "terminal_likelihood.n_candidates=1"
+            )
+        if teacher_forcing_batch_size is not None:
+            raise ValueError(
+                "terminal_likelihood.teacher_forcing_batch_size must be null "
+                "when teacher forcing is disabled"
+            )
 
 
 def _official_completion_batch(lm: Any, prompt: str, *, n: int) -> list[str]:
@@ -265,6 +321,11 @@ def main() -> int:
         provenance=provenance,
         lineage_resolver=ExactTraceDataLineageResolver(),
         chat_template_kwargs=chat_template_kwargs,
+        teacher_forcing_batch_size=(
+            terminal["teacher_forcing_batch_size"]
+            if terminal["teacher_forcing_enabled"]
+            else 1
+        ),
     )
 
     benchmark = IFBench(dataset_mode=official["dataset_mode"])
@@ -298,6 +359,7 @@ def main() -> int:
             analysis_provider=analysis_bridge,
             n_candidates=terminal["n_candidates"],
             epsilon_dep=dependency["epsilon_dep"],
+            teacher_forcing_enabled=terminal["teacher_forcing_enabled"],
         )
         run_official_ifbench_engine(
             trainset=benchmark.train_set,

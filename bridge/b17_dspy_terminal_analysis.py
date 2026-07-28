@@ -6,7 +6,7 @@ from collections.abc import Callable, Hashable, Mapping, Sequence
 from concurrent.futures import Executor, Future
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
-from numbers import Real
+from numbers import Integral, Real
 from typing import Any
 
 import dspy
@@ -1018,6 +1018,7 @@ class DSPyParentAnalysisBuilder:
         provenance: ActualDSPyTokenProvenance,
         lineage_resolver: ExactTraceDataLineageResolver,
         chat_template_kwargs: Mapping[str, Any],
+        teacher_forcing_batch_size: Integral = 1,
     ) -> None:
         if not isinstance(tracer, ExactTokenOffloadedFlashTrace):
             raise TypeError("tracer must be the existing exact-token FlashTrace facade")
@@ -1029,6 +1030,12 @@ class DSPyParentAnalysisBuilder:
             raise RuntimeError("credit and dependency must share the canonical tokenizer")
         if not isinstance(chat_adapter, ChatAdapter):
             raise TypeError("chat_adapter must be the official shared ChatAdapter")
+        if (
+            isinstance(teacher_forcing_batch_size, bool)
+            or not isinstance(teacher_forcing_batch_size, Integral)
+            or int(teacher_forcing_batch_size) <= 0
+        ):
+            raise TypeError("teacher_forcing_batch_size must be a positive integer")
         self._model = model
         self._tracer = tracer
         self._attributor = attributor
@@ -1041,6 +1048,7 @@ class DSPyParentAnalysisBuilder:
             model=model,
             tokenizer=tokenizer,
             adapter=chat_adapter,
+            max_batch_size=teacher_forcing_batch_size,
         )
         self._credit_cache: dict[tuple[Any, ...], FlashTraceCredit] = {}
         # Derived analysis is process-local. Observation facts themselves are

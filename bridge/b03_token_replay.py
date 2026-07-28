@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from numbers import Real
+from numbers import Integral, Real
 from typing import TYPE_CHECKING, Any, Protocol
 
 import torch
@@ -25,10 +25,21 @@ class HistoricalReplayContextError(ValueError):
     """A candidate prompt plus one captured old rollout exceeds model context."""
 
 
+class TeacherForcingBatchOutOfMemoryError(MemoryError):
+    """A configured teacher-forcing batch cannot fit on the task-model device."""
+
+
 class TokenReplayUtility:
     """Evaluate the project token-credit utility with the frozen task model."""
 
-    def __init__(self, *, model: Any, tokenizer: Any, adapter: ChatAdapter) -> None:
+    def __init__(
+        self,
+        *,
+        model: Any,
+        tokenizer: Any,
+        adapter: ChatAdapter,
+        max_batch_size: Integral = 1,
+    ) -> None:
         chat_template = getattr(tokenizer, "chat_template", None)
         if not isinstance(chat_template, str) or not chat_template:
             raise ValueError("the task tokenizer must expose its locked chat template")
@@ -50,6 +61,12 @@ class TokenReplayUtility:
             raise TypeError("packed replay requires the pinned official Qwen3 task model")
         if getattr(model_config, "_attn_implementation", None) != "flash_attention_2":
             raise RuntimeError("packed replay requires the official FlashAttention2 implementation")
+        if (
+            isinstance(max_batch_size, bool)
+            or not isinstance(max_batch_size, Integral)
+            or int(max_batch_size) <= 0
+        ):
+            raise TypeError("max_batch_size must be a positive integer")
 
         self._model = model
         self._tokenizer = tokenizer
@@ -58,6 +75,7 @@ class TokenReplayUtility:
         self._output_device = output_device
         self._adapter = adapter
         self._context_window = context_window
+        self._max_batch_size = int(max_batch_size)
         self._old_likelihoods: dict[
             tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]],
             tuple[float, ...],
@@ -203,19 +221,132 @@ class TokenReplayUtility:
         rollout_ids: tuple[int, ...],
         positions: tuple[int, ...],
     ) -> tuple[tuple[float, ...], ...]:
-        """Preserve the original batch-one likelihood semantics for each candidate."""
+        """Score candidate prompts in bounded batches without changing token coordinates."""
 
         if not prompt_id_rows:
             raise ValueError("prompt_id_rows must not be empty")
         if not positions:
             raise ValueError("positions must not be empty")
-        return tuple(
-            self._selected_log_likelihoods(
-                prompt_ids=prompt_ids,
-                rollout_ids=rollout_ids,
-                positions=positions,
+        likelihood_rows: list[tuple[float, ...]] = []
+        for start in range(0, len(prompt_id_rows), self._max_batch_size):
+            chunk = prompt_id_rows[start : start + self._max_batch_size]
+            try:
+                if len(chunk) == 1:
+                    likelihood_rows.append(
+                        self._selected_log_likelihoods(
+                            prompt_ids=chunk[0],
+                            rollout_ids=rollout_ids,
+                            positions=positions,
+                        )
+                    )
+                    continue
+                likelihood_rows.extend(
+                    self._batched_selected_log_likelihoods(
+                        prompt_id_rows=chunk,
+                        rollout_ids=rollout_ids,
+                        positions=positions,
+                    )
+                )
+            except torch.OutOfMemoryError as error:
+                if self._max_batch_size == 1:
+                    raise
+                raise TeacherForcingBatchOutOfMemoryError(
+                    "teacher-forcing batch exhausted device memory; "
+                    "the configured batch size is not reduced or retried"
+                ) from error
+        return tuple(likelihood_rows)
+
+    def _batched_selected_log_likelihoods(
+        self,
+        *,
+        prompt_id_rows: tuple[tuple[int, ...], ...],
+        rollout_ids: tuple[int, ...],
+        positions: tuple[int, ...],
+    ) -> tuple[tuple[float, ...], ...]:
+        """Left-pad prompts so every historical rollout keeps its original positions."""
+
+        if len(prompt_id_rows) <= 1:
+            raise ValueError("a true replay batch requires at least two prompt rows")
+        if len(prompt_id_rows) > self._max_batch_size:
+            raise ValueError("prompt batch exceeds max_batch_size")
+        pad_token_id = getattr(self._tokenizer, "pad_token_id", None)
+        if (
+            isinstance(pad_token_id, bool)
+            or not isinstance(pad_token_id, Integral)
+            or int(pad_token_id) < 0
+        ):
+            raise TypeError("batched replay requires a non-negative integer pad_token_id")
+
+        max_prompt_length = max(len(prompt_ids) for prompt_ids in prompt_id_rows)
+        sequence_length = max_prompt_length + len(rollout_ids)
+        for prompt_ids in prompt_id_rows:
+            if len(prompt_ids) + len(rollout_ids) > self._context_window:
+                raise HistoricalReplayContextError(
+                    "historical teacher-forcing sequence has "
+                    f"{len(prompt_ids) + len(rollout_ids)} tokens, "
+                    f"exceeding model context {self._context_window}"
+                )
+
+        input_rows: list[tuple[int, ...]] = []
+        attention_rows: list[tuple[int, ...]] = []
+        position_rows: list[tuple[int, ...]] = []
+        for prompt_ids in prompt_id_rows:
+            padding = max_prompt_length - len(prompt_ids)
+            content = prompt_ids + rollout_ids
+            input_rows.append((int(pad_token_id),) * padding + content)
+            attention_rows.append((0,) * padding + (1,) * len(content))
+            position_rows.append((0,) * padding + tuple(range(len(content))))
+        if any(len(row) != sequence_length for row in input_rows):
+            raise RuntimeError("batched replay input rows are misaligned")
+
+        input_ids = torch.tensor(input_rows, dtype=torch.long, device=self._input_device)
+        attention_mask = torch.tensor(
+            attention_rows,
+            dtype=torch.long,
+            device=self._input_device,
+        )
+        position_ids = torch.tensor(
+            position_rows,
+            dtype=torch.long,
+            device=self._input_device,
+        )
+        target_indices = torch.tensor(
+            [max_prompt_length + position for position in positions],
+            dtype=torch.long,
+            device=self._output_device,
+        )
+        prediction_indices = target_indices - 1
+
+        with torch.inference_mode():
+            output = self._model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                logits_to_keep=prediction_indices,
+                use_cache=False,
+                return_dict=True,
             )
-            for prompt_ids in prompt_id_rows
+            logits = getattr(output, "logits", None)
+            expected_shape = (len(prompt_id_rows), len(positions))
+            if (
+                not isinstance(logits, torch.Tensor)
+                or logits.ndim != 3
+                or logits.shape[:2] != expected_shape
+            ):
+                raise RuntimeError("the task model forward did not return batched causal-LM logits")
+            targets = torch.tensor(
+                [rollout_ids[position] for position in positions],
+                dtype=torch.long,
+                device=logits.device,
+            ).expand(len(prompt_id_rows), -1)
+            losses = F.cross_entropy(
+                logits.float().reshape(-1, logits.shape[-1]),
+                targets.reshape(-1),
+                reduction="none",
+            ).reshape(expected_shape)
+        return tuple(
+            tuple(float(value) for value in row)
+            for row in (-losses).to(torch.float64).cpu().tolist()
         )
 
     def validate_historical_context(self, rollout: CapturedRollout, skill: str) -> None:

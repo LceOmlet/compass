@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-07-28T09:18:12+08:00",
+  "captured_at": "2026-07-28T11:33:17+08:00",
   "source_root": "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill",
   "policy": {
     "official_sources_are_semantic_owners": true,
@@ -13,8 +13,8 @@
       "origin": "https://github.com/gepa-ai/gepa.git",
       "commit": "665cbc368313b7223f2b0638d2ef47da7a130dad",
       "patch": "patches/gepa-working-tree.patch",
-      "patch_sha256": "e9ed1bff06a8723bf85ed88521cc6f30bb21d86ee1c48c035653499099b3a4a8",
-      "status": "patched owner for state, engine, admission, and batch semantics"
+      "patch_sha256": "3aa0568e30c30b3923f0de307182314eb74d88ef0d057c24d538eb1381467306",
+      "status": "patched owner for state, engine, admission, batch, and fatal-memory semantics"
     },
     "dspy": {
       "path": "upstreams/dspy",

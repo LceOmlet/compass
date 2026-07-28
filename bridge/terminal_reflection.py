@@ -76,7 +76,7 @@ class TerminalSelection:
     original_index: int
     candidate_text: str
     raw_completion: str
-    teacher_forcing_score: float
+    teacher_forcing_score: float | None
     dependency_distance: float
     duplicate_count: int
 
@@ -85,11 +85,13 @@ class TerminalLikelihoodReflectionLM:
     """Official reflection rendering plus project-specific terminal selection.
 
     The official GEPA proposer remains the owner of the proposal lifecycle.  This
-    implementation only replaces its reflection edge: it obtains ``n_candidates``
-    full completions for the exact official prompt, overlays each onto the sampled
-    parent, scores the full children on fixed admission references, applies the
-    old-reference dependency gate in descending
-    teacher-forcing order, and returns one full instruction to GEPA.
+    implementation only replaces its reflection edge.  In teacher-forced mode it
+    obtains ``n_candidates`` full completions for the exact official prompt,
+    overlays each onto the sampled parent, scores the full children on fixed
+    admission references, and applies the old-reference dependency gate in
+    descending teacher-forcing order.  With teacher forcing disabled, the
+    official proposer produces exactly one candidate and the same dependency
+    gate decides whether that candidate is returned to GEPA.
     """
 
     def __init__(
@@ -99,6 +101,7 @@ class TerminalLikelihoodReflectionLM:
         analysis_provider: TerminalAnalysisProvider,
         n_candidates: Integral,
         epsilon_dep: Real,
+        teacher_forcing_enabled: bool = True,
         logger: Any | None = None,
     ) -> None:
         if isinstance(n_candidates, bool) or not isinstance(n_candidates, Integral):
@@ -110,10 +113,17 @@ class TerminalLikelihoodReflectionLM:
         epsilon = float(epsilon_dep)
         if not math.isfinite(epsilon) or not 0.0 <= epsilon <= 1.0:
             raise ValueError("epsilon_dep must lie in [0, 1]")
+        if not isinstance(teacher_forcing_enabled, bool):
+            raise TypeError("teacher_forcing_enabled must be a boolean")
+        if not teacher_forcing_enabled and int(n_candidates) != 1:
+            raise ValueError(
+                "teacher-forcing-free proposal selection requires n_candidates=1"
+            )
         self._complete = complete
         self._analysis_provider = analysis_provider
         self._n_candidates = int(n_candidates)
         self._epsilon_dep = epsilon
+        self._teacher_forcing_enabled = teacher_forcing_enabled
         self._logger = logger
 
     def _log(self, message: str) -> None:
@@ -192,27 +202,42 @@ class TerminalLikelihoodReflectionLM:
         if not unique:
             return None
 
-        scores = analysis.teacher_forcing_scores(
-            component=component,
-            candidate_programs=tuple(program for *_, program, _key in unique),
-        )
-        if len(scores) != len(unique):
-            raise RuntimeError("teacher-forcing scores are misaligned with candidates")
-        numeric_scores = tuple(float(value) for value in scores)
-        if any(not math.isfinite(value) for value in numeric_scores):
-            raise RuntimeError("teacher-forcing scores must be finite")
+        numeric_scores: tuple[float, ...] | None
+        if self._teacher_forcing_enabled:
+            scores = analysis.teacher_forcing_scores(
+                component=component,
+                candidate_programs=tuple(program for *_, program, _key in unique),
+            )
+            if len(scores) != len(unique):
+                raise RuntimeError("teacher-forcing scores are misaligned with candidates")
+            numeric_scores = tuple(float(value) for value in scores)
+            if any(not math.isfinite(value) for value in numeric_scores):
+                raise RuntimeError("teacher-forcing scores must be finite")
+            ranked = sorted(
+                range(len(unique)),
+                key=lambda position: (-numeric_scores[position], unique[position][0]),
+            )
+        else:
+            if len(unique) != 1:
+                raise RuntimeError(
+                    "teacher-forcing-free proposal selection produced multiple unique candidates"
+                )
+            numeric_scores = None
+            ranked = [0]
 
         for position, (original_index, _text, _raw, _program, candidate_key) in enumerate(unique):
+            if numeric_scores is None:
+                self._log(
+                    "Terminal teacher_forcing_enabled=False candidate_index="
+                    f"{original_index}, duplicate_count={multiplicity[candidate_key]}"
+                )
+                continue
             self._log(
-                "Terminal teacher_forcing candidate_index="
+                "Terminal teacher_forcing_enabled=True candidate_index="
                 f"{original_index}, score={numeric_scores[position]:.17g}, "
                 f"duplicate_count={multiplicity[candidate_key]}"
             )
 
-        ranked = sorted(
-            range(len(unique)),
-            key=lambda position: (-numeric_scores[position], unique[position][0]),
-        )
         for position in ranked:
             original_index, text, raw, program, candidate_key = unique[position]
             try:
@@ -232,23 +257,44 @@ class TerminalLikelihoodReflectionLM:
             if not math.isfinite(distance) or not 0.0 <= distance <= 1.0:
                 raise RuntimeError("dependency distance must lie in [0, 1]")
             passed = distance <= self._epsilon_dep
-            self._log(
-                "Terminal candidate_index="
-                f"{original_index}, teacher_forcing_score={numeric_scores[position]:.17g}, "
-                f"dependency_distance={distance:.17g}, "
-                f"epsilon_dep={self._epsilon_dep:.17g}, gate_passed={passed}"
-            )
-            if passed:
+            if numeric_scores is None:
                 self._log(
-                    "Terminal selected candidate_index="
-                    f"{original_index}, teacher_forcing_score={numeric_scores[position]:.17g}, "
-                    f"dependency_distance={distance:.17g}"
+                    "Terminal candidate_index="
+                    f"{original_index}, teacher_forcing_enabled=False, "
+                    f"dependency_distance={distance:.17g}, "
+                    f"epsilon_dep={self._epsilon_dep:.17g}, gate_passed={passed}"
                 )
+            else:
+                self._log(
+                    "Terminal candidate_index="
+                    f"{original_index}, teacher_forcing_enabled=True, "
+                    f"teacher_forcing_score={numeric_scores[position]:.17g}, "
+                    f"dependency_distance={distance:.17g}, "
+                    f"epsilon_dep={self._epsilon_dep:.17g}, gate_passed={passed}"
+                )
+            if passed:
+                if numeric_scores is None:
+                    self._log(
+                        "Terminal selected candidate_index="
+                        f"{original_index}, teacher_forcing_enabled=False, "
+                        f"dependency_distance={distance:.17g}"
+                    )
+                else:
+                    self._log(
+                        "Terminal selected candidate_index="
+                        f"{original_index}, teacher_forcing_enabled=True, "
+                        f"teacher_forcing_score={numeric_scores[position]:.17g}, "
+                        f"dependency_distance={distance:.17g}"
+                    )
                 return TerminalSelection(
                     original_index=original_index,
                     candidate_text=text,
                     raw_completion=raw,
-                    teacher_forcing_score=numeric_scores[position],
+                    teacher_forcing_score=(
+                        None
+                        if numeric_scores is None
+                        else numeric_scores[position]
+                    ),
                     dependency_distance=distance,
                     duplicate_count=multiplicity[candidate_key],
                 )
@@ -302,16 +348,19 @@ class TerminalLikelihoodReflectionLM:
         )
         if selected is None:
             return ReflectionProposal(new_texts={}, prompts={component: prompt}), self
+        metadata: dict[str, Any] = {
+            "terminal_candidate_index": selected.original_index,
+            "teacher_forcing_enabled": self._teacher_forcing_enabled,
+            "dependency_distance": selected.dependency_distance,
+            "proposal_duplicate_count": selected.duplicate_count,
+        }
+        if selected.teacher_forcing_score is not None:
+            metadata["teacher_forcing_score"] = selected.teacher_forcing_score
         proposal = ReflectionProposal(
             new_texts={component: selected.candidate_text},
             prompts={component: prompt},
             raw_lm_outputs={component: selected.raw_completion},
-            metadata={
-                "terminal_candidate_index": selected.original_index,
-                "teacher_forcing_score": selected.teacher_forcing_score,
-                "dependency_distance": selected.dependency_distance,
-                "proposal_duplicate_count": selected.duplicate_count,
-            },
+            metadata=metadata,
         )
         return proposal, self
 
