@@ -21,8 +21,8 @@
       "origin": "https://github.com/stanfordnlp/dspy.git",
       "commit": "96bae53d458d300b2cab49a5ddf30087498df952",
       "patch": "patches/dspy-working-tree.patch",
-      "patch_sha256": "69207f65e435f5dcdc8185a3a12a24918d3037d031b068011ba60b33c65f527e",
-      "status": "patched owner for result alignment and bounded resubmission"
+      "patch_sha256": "dc7ffc0bebf4322b6f29eb93606c64142b5591b7ba63d087c725590604ef667d",
+      "status": "patched owner for result alignment, bounded resubmission, fail-fast propagation, and exception checkpoint compatibility"
     },
     "gepa_artifact": {
       "path": "upstreams/gepa-artifact",

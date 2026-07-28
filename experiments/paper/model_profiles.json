@@ -1,0 +1,44 @@
+{
+  "qwen3_8b_local_vllm": {
+    "api_base": "http://127.0.0.1:18080/v1",
+    "api_key_env": "LOCAL_OPENAI_API_KEY",
+    "cache": true,
+    "cache_in_memory": true,
+    "checkpoint": "/mnt/geogpt-doc-new/deepresearch/tool_jepa_qwen35_9b/models/Qwen3-8B",
+    "enable_thinking": true,
+    "max_tokens": 16384,
+    "model": "openai/Qwen/Qwen3-8B",
+    "model_type": "chat",
+    "num_retries": 0,
+    "serving_backend": "vllm-metax-0.15.0",
+    "serving_max_model_len": 40960,
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95
+  },
+  "qwen3_8b_siliconflow": {
+    "api_base": "https://api.siliconflow.cn/v1",
+    "api_key_env": "SILICONFLOW_API_KEY",
+    "cache": true,
+    "cache_in_memory": true,
+    "enable_thinking": true,
+    "max_tokens": 16384,
+    "model": "openai/Qwen/Qwen3-8B",
+    "model_type": "chat",
+    "num_retries": 0,
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95
+  },
+  "gpt_4_1_mini": {
+    "api_key_env": "OPENAI_API_KEY",
+    "cache": true,
+    "cache_in_memory": true,
+    "enable_thinking": false,
+    "max_tokens": 16384,
+    "model": "openai/gpt-4.1-mini-2025-04-14",
+    "model_type": "chat",
+    "num_retries": 0,
+    "temperature": 1.0
+  }
+}

@@ -8,6 +8,7 @@ import pytest
 
 from bridge.b19_reversible_parent_selection import (
     ReversibleMaskedExposureCorrectedCandidateSelector,
+    parent_selection_snapshot,
     selection_active_parent_rates,
 )
 from gepa.core.state import GEPAState, ValsetEvaluation
@@ -266,3 +267,30 @@ def test_selector_samples_only_from_the_recomputed_active_set() -> None:
         state.prog_candidate_val_subscores,
         state.program_at_pareto_front_valset,
     )
+
+
+def test_parent_selection_snapshot_exposes_lineage_and_boundary_ties() -> None:
+    state = _state(
+        [
+            (1, 10),
+            (9, 10),
+            (8, 10),
+            (7, 10),
+            (6, 10),
+            (5, 10),
+            (5, 10),
+            (5, 10),
+            (4, 10),
+        ],
+        [[None], [0], [0], [0], [0], [0], [0], [0], [0]],
+    )
+
+    snapshot = parent_selection_snapshot(state, top_n=5)
+
+    assert snapshot.lineage_active == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert snapshot.selection_active == (1, 2, 3, 4, 5, 6, 7)
+    assert snapshot.top_n_cutoff == Fraction(5, 10)
+    assert selection_active_parent_rates(state, top_n=5) == {
+        idx: snapshot.rates[idx]
+        for idx in snapshot.selection_active
+    }

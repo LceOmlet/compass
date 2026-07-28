@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from fractions import Fraction
 from typing import Protocol
 
@@ -35,13 +36,25 @@ def frontier_rate(state: GEPAState, candidate_idx: int) -> float:
     return frontier_count(state, candidate_idx) / exposure
 
 
-def selection_active_parent_rates(
+@dataclass(frozen=True, slots=True)
+class ParentSelectionSnapshot:
+    """Reporting view of the two recomputed reversible masks."""
+
+    rates: Mapping[int, Fraction]
+    lineage_active: tuple[int, ...]
+    selection_active: tuple[int, ...]
+    top_n_cutoff: Fraction | None
+
+
+def parent_selection_snapshot(
     state: GEPAState,
     *,
     top_n: int,
-) -> dict[int, Fraction]:
+) -> ParentSelectionSnapshot:
     """Derive reversible ancestor and tie-inclusive global top-N masks."""
 
+    if top_n <= 0:
+        raise ValueError("top_n must be positive")
     rates = {
         candidate_idx: Fraction(frontiers, exposure)
         for candidate_idx in range(len(state.program_candidates))
@@ -72,6 +85,8 @@ def selection_active_parent_rates(
                 if parent_idx is not None
             )
 
+    lineage_active_ids = tuple(sorted(lineage_active))
+    cutoff: Fraction | None = None
     if len(lineage_active) > top_n:
         cutoff = sorted(
             (rates[candidate_idx] for candidate_idx in lineage_active),
@@ -82,9 +97,25 @@ def selection_active_parent_rates(
             for candidate_idx in lineage_active
             if rates[candidate_idx] >= cutoff
         }
+    return ParentSelectionSnapshot(
+        rates=rates,
+        lineage_active=lineage_active_ids,
+        selection_active=tuple(sorted(lineage_active)),
+        top_n_cutoff=cutoff,
+    )
+
+
+def selection_active_parent_rates(
+    state: GEPAState,
+    *,
+    top_n: int,
+) -> dict[int, Fraction]:
+    """Return the final tie-inclusive proposal-parent sampling set."""
+
+    snapshot = parent_selection_snapshot(state, top_n=top_n)
     return {
-        candidate_idx: rates[candidate_idx]
-        for candidate_idx in sorted(lineage_active)
+        candidate_idx: snapshot.rates[candidate_idx]
+        for candidate_idx in snapshot.selection_active
     }
 
 
@@ -108,11 +139,16 @@ class ReversibleMaskedExposureCorrectedCandidateSelector:
 
     def select_candidate_idx(self, state: GEPAState) -> int:
         self.candidate_pool_observer.update_candidate_pool(state.program_candidates)
-        active_rates = selection_active_parent_rates(
-            state,
-            top_n=self.top_n,
-        )
+        snapshot = parent_selection_snapshot(state, top_n=self.top_n)
+        active_rates = {
+            candidate_idx: snapshot.rates[candidate_idx]
+            for candidate_idx in snapshot.selection_active
+        }
         if not active_rates:
+            if state.full_program_trace:
+                state.full_program_trace[-1]["parent_selection"] = (
+                    _snapshot_record(snapshot, selected=0)
+                )
             self.logger.log(
                 "Reversible masked parent sampling: active=[], selected=0"
             )
@@ -122,6 +158,11 @@ class ReversibleMaskedExposureCorrectedCandidateSelector:
         total = math.fsum(weights)
         probabilities = tuple(weight / total for weight in weights)
         selected = self.rng.choices(eligible, weights=weights, k=1)[0]
+        if state.full_program_trace:
+            state.full_program_trace[-1]["parent_selection"] = _snapshot_record(
+                snapshot,
+                selected=selected,
+            )
         entries = "; ".join(
             "candidate_idx="
             f"{candidate_idx},F={frontier_count(state, candidate_idx)},"
@@ -139,3 +180,32 @@ class ReversibleMaskedExposureCorrectedCandidateSelector:
             f"top_n={self.top_n},active={eligible}; {entries}; selected={selected}"
         )
         return selected
+
+
+def _snapshot_record(
+    snapshot: ParentSelectionSnapshot,
+    *,
+    selected: int,
+) -> dict[str, object]:
+    """Return a JSON-safe observational record without changing selection."""
+
+    return {
+        "rates": {
+            candidate_idx: {
+                "numerator": rate.numerator,
+                "denominator": rate.denominator,
+            }
+            for candidate_idx, rate in snapshot.rates.items()
+        },
+        "lineage_active": list(snapshot.lineage_active),
+        "selection_active": list(snapshot.selection_active),
+        "top_n_cutoff": (
+            {
+                "numerator": snapshot.top_n_cutoff.numerator,
+                "denominator": snapshot.top_n_cutoff.denominator,
+            }
+            if snapshot.top_n_cutoff is not None
+            else None
+        ),
+        "selected": selected,
+    }

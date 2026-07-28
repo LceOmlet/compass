@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "method": "GEPA",
+    "optimizer_seed": 0,
+    "status": "published_point_estimates",
+    "primary_repository": "https://github.com/gepa-ai/gepa",
+    "artifact_repository": "https://github.com/gepa-ai/gepa-artifact",
+    "local_artifact_commit": "cbefbc1aa0f43dd39874ec4bf42211365dbda42e",
+    "paper_source_files": [
+      "assets/table_main_qwen.tex",
+      "assets/table_main_gpt.tex"
+    ],
+    "raw_run_archive": {
+      "path": "experiment_runs_data.tar.gz",
+      "git_lfs_sha256": "0e1db10331bbbdd48701443b0690d5b7b8abef841a73b76882d26853b3f38dd7",
+      "size_bytes": 1931042598,
+      "available": false,
+      "reason": "GitHub LFS quota exhausted at retrieval time"
+    },
+    "uncertainty": null,
+    "note": "These are published seed-0 point estimates. Do not synthesize confidence intervals or paired tests."
+  },
+  "task_order": [
+    "hotpotqa",
+    "ifbench",
+    "hover",
+    "pupa",
+    "aime_2025",
+    "livebench_math"
+  ],
+  "tasks": {
+    "hotpotqa": {
+      "display_name": "HotpotQA",
+      "benchmark_class": "HotpotQABench",
+      "program_class": "HotpotMultiHop",
+      "max_metric_calls": 6871,
+      "published_rollout_curve": true
+    },
+    "ifbench": {
+      "display_name": "IFBench",
+      "benchmark_class": "IFBench",
+      "program_class": "IFBenchCoT2StageProgram",
+      "max_metric_calls": 3593,
+      "published_rollout_curve": true
+    },
+    "hover": {
+      "display_name": "HoVer",
+      "benchmark_class": "hoverBench",
+      "program_class": "HoverMultiHop",
+      "max_metric_calls": 7051,
+      "published_rollout_curve": true
+    },
+    "pupa": {
+      "display_name": "PUPA",
+      "benchmark_class": "Papillon",
+      "program_class": "PAPILLON",
+      "max_metric_calls": 2426,
+      "published_rollout_curve": true
+    },
+    "aime_2025": {
+      "display_name": "AIME-2025",
+      "benchmark_class": "AIMEBench",
+      "program_class": "CoT",
+      "max_metric_calls": 1839,
+      "published_rollout_curve": false
+    },
+    "livebench_math": {
+      "display_name": "LiveBench-Math",
+      "benchmark_class": "LiveBenchMathBench",
+      "program_class": "CoT",
+      "max_metric_calls": 1839,
+      "published_rollout_curve": false
+    }
+  },
+  "score_unit": "percentage_points",
+  "rows": {
+    "qwen3_8b": {
+      "seed": {
+        "hotpotqa": 42.33,
+        "ifbench": 36.90,
+        "hover": 35.33,
+        "pupa": 80.82,
+        "aime_2025": 27.33,
+        "livebench_math": 48.70,
+        "aggregate": 45.23
+      },
+      "miprov2": {
+        "hotpotqa": 55.33,
+        "ifbench": 36.22,
+        "hover": 47.33,
+        "pupa": 81.55,
+        "aime_2025": 20.00,
+        "livebench_math": 46.60,
+        "aggregate": 47.84
+      },
+      "gepa": {
+        "hotpotqa": 62.33,
+        "ifbench": 38.61,
+        "hover": 52.33,
+        "pupa": 91.85,
+        "aime_2025": 32.00,
+        "livebench_math": 51.95,
+        "aggregate": 54.85
+      }
+    },
+    "gpt_4_1_mini": {
+      "seed": {
+        "hotpotqa": 38.00,
+        "ifbench": 47.79,
+        "hover": 46.33,
+        "pupa": 78.57,
+        "aime_2025": 49.33,
+        "livebench_math": 58.20,
+        "aggregate": 53.03
+      },
+      "trace_optoprime": {
+        "hotpotqa": 60.33,
+        "ifbench": 51.19,
+        "hover": 46.00,
+        "pupa": 74.18,
+        "aime_2025": 45.33,
+        "livebench_math": 60.74,
+        "aggregate": 56.30
+      },
+      "miprov2": {
+        "hotpotqa": 58.00,
+        "ifbench": 49.15,
+        "hover": 48.33,
+        "pupa": 83.37,
+        "aime_2025": 51.33,
+        "livebench_math": 61.84,
+        "aggregate": 58.67
+      },
+      "textgrad": {
+        "hotpotqa": 62.33,
+        "ifbench": 48.64,
+        "hover": 47.67,
+        "pupa": 85.68,
+        "aime_2025": 46.67,
+        "livebench_math": 63.84,
+        "aggregate": 59.14
+      },
+      "gepa": {
+        "hotpotqa": 69.00,
+        "ifbench": 52.72,
+        "hover": 51.67,
+        "pupa": 94.47,
+        "aime_2025": 59.33,
+        "livebench_math": 64.13,
+        "aggregate": 65.22
+      },
+      "gepa_qwen_optimized_transfer": {
+        "hotpotqa": 65.67,
+        "ifbench": 49.83,
+        "hover": 54.67,
+        "pupa": 90.05,
+        "aime_2025": 52.67,
+        "livebench_math": 59.31,
+        "aggregate": 62.03
+      }
+    }
+  }
+}

@@ -1,7 +1,16 @@
 diff --git a/dspy/teleprompt/bootstrap_trace.py b/dspy/teleprompt/bootstrap_trace.py
-index 2f0cc60cd11f55af0ff51bdd33fb4273399a6b19..fee1b2ccd6034dfa82638bac41278772d3c5d3ed 100644
+index 2f0cc60..4feb830 100644
 --- a/dspy/teleprompt/bootstrap_trace.py
 +++ b/dspy/teleprompt/bootstrap_trace.py
+@@ -46,7 +46,7 @@ def bootstrap_trace_data(
+         num_threads=num_threads,
+         display_progress=True,
+         provide_traceback=False,  # TODO(check with team)
+-        max_errors=len(dataset) * 10,  # TODO(check with team)
++        max_errors=1 if raise_on_error else len(dataset) * 10,
+         failure_score=failure_score,
+     )
+ 
 @@ -87,7 +87,7 @@ def bootstrap_trace_data(
                      failed_pred = FailedPrediction(
                          completion_text=completion_str,
@@ -12,10 +21,33 @@ index 2f0cc60cd11f55af0ff51bdd33fb4273399a6b19..fee1b2ccd6034dfa82638bac41278772
                  else:
                      failed_pred = FailedPrediction(completion_text=completion_str, format_reward=format_failure_score)
 diff --git a/dspy/teleprompt/gepa/gepa_utils.py b/dspy/teleprompt/gepa/gepa_utils.py
-index dae7157feb3894dc12ab4edc664d3a8dead50bb4..2c8bec5a98b36d6ff7109a22765f5dc223c16425 100644
+index dae7157..d00e1ca 100644
 --- a/dspy/teleprompt/gepa/gepa_utils.py
 +++ b/dspy/teleprompt/gepa/gepa_utils.py
-@@ -165,9 +165,38 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -88,6 +88,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+         custom_instruction_proposer: "ProposalFn | None" = None,
+         warn_on_score_mismatch: bool = True,
+         reflection_minibatch_size: int | None = None,
++        raise_on_error: bool = False,
+     ):
+         self.student = student_module
+         self.metric_fn = metric_fn
+@@ -100,6 +101,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+         self.custom_instruction_proposer = custom_instruction_proposer
+         self.warn_on_score_mismatch = warn_on_score_mismatch
+         self.reflection_minibatch_size = reflection_minibatch_size
++        self.raise_on_error = raise_on_error
+ 
+     def propose_new_texts(
+         self,
+@@ -159,15 +161,44 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+                 dataset=batch,
+                 metric=self.metric_fn,
+                 num_threads=self.num_threads,
+-                raise_on_error=False,
++                raise_on_error=self.raise_on_error,
+                 capture_failed_parses=True,
+                 failure_score=self.failure_score,
                  format_failure_score=self.failure_score,
                  callback_metadata=callback_metadata,
              )
@@ -54,13 +86,58 @@ index dae7157feb3894dc12ab4edc664d3a8dead50bb4..2c8bec5a98b36d6ff7109a22765f5dc2
                  outputs.append(t["prediction"])
                  if hasattr(t["prediction"], "__class__") and t.get("score") is None:
                      scores.append(self.failure_score)
-@@ -334,4 +363,3 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -186,7 +217,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+                 return_all_scores=True,
+                 failure_score=self.failure_score,
+                 provide_traceback=True,
+-                max_errors=len(batch) * 100,
++                max_errors=1 if self.raise_on_error else len(batch) * 100,
+                 callback_metadata=callback_metadata,
+             )
+             res = evaluator(program)
+@@ -334,4 +365,3 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
                  raise TypeError("Unexpected output type from the base LM! Expected str or dict")
  
          return outputs
 -
+diff --git a/dspy/utils/exceptions.py b/dspy/utils/exceptions.py
+index f088dbc..994bdad 100644
+--- a/dspy/utils/exceptions.py
++++ b/dspy/utils/exceptions.py
+@@ -237,11 +237,29 @@ class AdapterParseError(DSPyError):
+     def __init__(
+         self,
+         adapter_name: str,
+-        signature: Signature,
+-        lm_response: str,
++        signature: Signature | None = None,
++        lm_response: str | None = None,
+         message: str | None = None,
+         parsed_result: str | None = None,
+     ):
++        # BaseException serializes its ``args`` and reconstructs an exception
++        # by calling its constructor with those positional arguments. Older
++        # AdapterParseError instances therefore unpickle with only the fully
++        # rendered error message. Accept that reconstruction shape; the
++        # pickled instance dictionary restores the structured fields
++        # immediately afterwards.
++        if signature is None and lm_response is None:
++            self.adapter_name = adapter_name
++            self.signature = None
++            self.lm_response = None
++            self.parsed_result = None
++            super().__init__(adapter_name)
++            return
++        if signature is None or lm_response is None:
++            raise TypeError(
++                "signature and lm_response must either both be provided or both be omitted"
++            )
++
+         self.adapter_name = adapter_name
+         self.signature = signature
+         self.lm_response = lm_response
 diff --git a/dspy/utils/parallelizer.py b/dspy/utils/parallelizer.py
-index b94c18ca07ad4a30dccf41234fe7eccc5d3491ae..95c4e628446ac1e6d302837e1f8da571c7c97980 100644
+index b94c18c..95c4e62 100644
 --- a/dspy/utils/parallelizer.py
 +++ b/dspy/utils/parallelizer.py
 @@ -110,7 +110,7 @@ class ParallelExecutor:
@@ -88,3 +165,38 @@ index b94c18ca07ad4a30dccf41234fe7eccc5d3491ae..95c4e628446ac1e6d302837e1f8da571
                                      nf = executor.submit(
                                          worker,
                                          parent_overrides,
+diff --git a/tests/utils/test_exceptions.py b/tests/utils/test_exceptions.py
+index 707ddea..ad22cb1 100644
+--- a/tests/utils/test_exceptions.py
++++ b/tests/utils/test_exceptions.py
+@@ -1,3 +1,5 @@
++import cloudpickle
++
+ import dspy
+ from dspy.utils.exceptions import (
+     AdapterParseError,
+@@ -132,3 +134,24 @@ def test_adapter_parse_error_with_parsed_result():
+         "Expected to find output fields in the LM response: [answer1, answer2] \n\n"
+         "Actual output fields parsed from the LM response: [answer1] \n\n"
+     )
++
++
++def test_adapter_parse_error_cloudpickle_round_trip():
++    signature = dspy.make_signature("question->answer1, answer2")
++    error = AdapterParseError(
++        adapter_name="ChatAdapter",
++        signature=signature,
++        lm_response="unparseable response",
++        message="Critical error, please fix!",
++        parsed_result={"answer1": "value1"},
++    )
++
++    restored = cloudpickle.loads(cloudpickle.dumps(error))
++
++    assert isinstance(restored, AdapterParseError)
++    assert str(restored) == str(error)
++    assert restored.code == "adapter_parse_error"
++    assert restored.adapter_name == error.adapter_name
++    assert restored.signature.output_fields == error.signature.output_fields
++    assert restored.lm_response == error.lm_response
++    assert restored.parsed_result == error.parsed_result

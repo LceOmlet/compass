@@ -225,9 +225,29 @@ def _official_completion_batch(lm: Any, prompt: str, *, n: int) -> list[str]:
     return DspyAdapter.stripped_lm_call(view, prompt)
 
 
+def _prepare_run_dir(run_dir: Path, *, resume_existing: bool) -> None:
+    if not resume_existing:
+        run_dir.mkdir(parents=True, exist_ok=False)
+        return
+    if not run_dir.is_dir():
+        raise FileNotFoundError(
+            f"resume run directory does not exist or is not a directory: {run_dir}"
+        )
+    state_path = run_dir / "gepa_state.bin"
+    if not state_path.is_file():
+        raise FileNotFoundError(
+            f"resume run directory is missing the official GEPA checkpoint: {state_path}"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument(
+        "--resume-existing",
+        action="store_true",
+        help="resume from gepa_state.bin in the configured existing run directory",
+    )
     args = parser.parse_args()
     config = load_config(args.config)
     _require_official_configuration(config)
@@ -255,7 +275,7 @@ def main() -> int:
 
     checkpoint = Path(deployment["checkpoint"]).resolve(strict=True)
     run_dir = Path(deployment["run_dir"]).resolve()
-    run_dir.mkdir(parents=True, exist_ok=False)
+    _prepare_run_dir(run_dir, resume_existing=args.resume_existing)
 
     model, tokenizer = load_model_and_tokenizer(
         str(checkpoint),

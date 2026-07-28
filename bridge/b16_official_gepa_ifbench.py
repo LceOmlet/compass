@@ -3,7 +3,6 @@ from __future__ import annotations
 import random
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
-from fractions import Fraction
 from numbers import Real
 from pathlib import Path
 from typing import Any, Protocol
@@ -12,7 +11,6 @@ import dspy
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter
 from gepa import optimize
 from gepa.core.adapter import EvaluationBatch
-from gepa.core.data_loader import DataLoader
 from gepa.core.state import GEPAState, ValsetEvaluation
 from gepa.logging.logger import Logger, LoggerProtocol
 from gepa.proposer.reflective_mutation.admission import (
@@ -37,9 +35,10 @@ from bridge.b17_dspy_terminal_analysis import (
 )
 from bridge.b19_reversible_parent_selection import (
     ReversibleMaskedExposureCorrectedCandidateSelector,
-    evaluation_count as _evaluation_count,
-    frontier_count as _frontier_count,
-    frontier_rate as _frontier_rate,
+)
+from bridge.b20_compass_reflection import (
+    SparseMinibatchEvaluationPolicy,
+    select_reference_program_idx,
 )
 from bridge.terminal_reflection import TerminalAnalysisUnavailableError
 
@@ -188,33 +187,15 @@ class IFBenchAdmissionHook:
         instance_id: DataId,
         sampled_parent_idx: int,
     ) -> int:
-        owners = tuple(sorted(state.program_at_pareto_front_valset.get(instance_id, ())))
-        if not owners:
-            return sampled_parent_idx
-
-        rates = {
-            candidate_idx: Fraction(
-                _frontier_count(state, candidate_idx),
-                _evaluation_count(state, candidate_idx),
+        try:
+            return select_reference_program_idx(
+                state,
+                instance_id=instance_id,
+                sampled_parent_idx=sampled_parent_idx,
+                rng=self.rng,
             )
-            for candidate_idx in owners
-            if _evaluation_count(state, candidate_idx) > 0
-        }
-        if not rates:
-            raise TerminalAnalysisUnavailableError(
-                "an admit frontier owner has no evaluated instance exposure"
-            )
-        best_rate = max(rates.values())
-        rate_tied = tuple(idx for idx in owners if rates.get(idx) == best_rate)
-        best_exposure = max(_evaluation_count(state, idx) for idx in rate_tied)
-        exact_tied = tuple(
-            idx for idx in rate_tied if _evaluation_count(state, idx) == best_exposure
-        )
-        return (
-            exact_tied[0]
-            if len(exact_tied) == 1
-            else self.rng.choice(tuple(sorted(exact_tied)))
-        )
+        except RuntimeError as error:
+            raise TerminalAnalysisUnavailableError(str(error)) from error
 
     def _stage_signatures(self, candidate: Mapping[str, str]) -> dict[str, Any]:
         program = self.adapter.build_program(dict(candidate))
@@ -399,45 +380,6 @@ class IFBenchAdmissionHook:
             evaluation_batch=batch,
             eval_before=eval_before,
         )
-
-
-class SparseMinibatchEvaluationPolicy:
-    """Expose sparse frontier-rate summaries; admission owns candidate eval."""
-
-    def get_seed_eval_batch(self, loader: DataLoader) -> list[DataId]:
-        del loader
-        return []
-
-    def get_eval_batch(
-        self,
-        loader: DataLoader,
-        state: GEPAState,
-        target_program_idx: int | None = None,
-    ) -> list[DataId]:
-        del loader, state, target_program_idx
-        raise RuntimeError(
-            "admission proposals must bypass val_evaluation_policy candidate evaluation"
-        )
-
-    def get_best_program(self, state: GEPAState) -> int:
-        eligible = tuple(
-            candidate_idx
-            for candidate_idx in range(len(state.program_candidates))
-            if _evaluation_count(state, candidate_idx) > 0
-        )
-        if not eligible:
-            return 0
-        return max(
-            eligible,
-            key=lambda idx: (
-                _frontier_rate(state, idx),
-                _evaluation_count(state, idx),
-                -idx,
-            ),
-        )
-
-    def get_valset_score(self, program_idx: int, state: GEPAState) -> float:
-        return _frontier_rate(state, program_idx)
 
 
 @dataclass(frozen=True)

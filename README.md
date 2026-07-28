@@ -52,12 +52,12 @@ bash scripts/prepare-upstreams.sh
 
 本地运行前需要把 v16 JSON 中的绝对 checkpoint/run 路径改为当前机器路径，
 设置 `SILICONFLOW_API_KEY` 与 `DSPY_CACHEDIR`，并提供与锁定源码兼容的 Python/
-CUDA 依赖。入口会要求 run 目录此前不存在，因此不要把已有停止点当成新 run
-目录直接覆盖。
+CUDA 依赖。入口默认要求 run 目录此前不存在；只有显式传入
+`--resume-existing` 时才会接受已存在且含官方 `gepa_state.bin` 的目录。
 
 ## 批内并发与 teacher forcing
 
-新配置 `11_ifbench_siliconflow_sparse_single_gpu_v17_batched_tf.json` 保持
+配置 `11_ifbench_siliconflow_sparse_single_gpu_v17_batched_tf.json` 保持
 `B_propose/B_admit` 各 3 个实例、`n_candidates=3`，并显式设置：
 
 - `official_gepa.num_threads=32`：DSPy 只在当前批的实例内并发；每批实际最多
@@ -69,6 +69,11 @@ CUDA 依赖。入口会要求 run 目录此前不存在，因此不要把已有�
   使用该次 batch=3 forward 的实际排名，不要求复现 batch=1 排名。
 - batch=3 若 OOM 会直接失败，不会降为 batch=2、batch=1 或顺序执行。
 - 只有 TF 排序和 dependency gate 后的最终候选会进入 `B_admit`。
+
+正式续跑配置
+`11_ifbench_siliconflow_sparse_single_gpu_v20_resume_v16_batched_tf.json`
+从另存的 v16 官方 checkpoint 继续，沿用上述 batch=3 语义，并要求入口显式
+传入 `--resume-existing`。原始 v16 停止点不被覆盖。
 
 配置 `11_ifbench_siliconflow_sparse_single_gpu_v18_no_tf.json` 是关闭 TF 的
 对应入口：官方 proposer 固定只生成 1 个候选，跳过 TF forward，但仍执行
