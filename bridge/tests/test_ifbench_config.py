@@ -187,3 +187,26 @@ def test_v30_router_has_two_secret_free_deployments_and_no_retries() -> None:
     }
     assert router["litellm_settings"]["num_retries"] == 0
     assert "sk-" not in router_path.read_text(encoding="utf-8")
+
+
+def test_v31_retry_only_changes_the_unique_deployment_path() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    v30 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v30_two_account_router_no_local_model_full_epoch_parallel.json"
+    )
+    v31 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v31_two_account_router_no_local_model_full_epoch_parallel.json"
+    )
+    namespace["_require_configuration"](v31)
+
+    assert {key: value for key, value in v31.items() if key != "deployment"} == {
+        key: value for key, value in v30.items() if key != "deployment"
+    }
+    assert v31["deployment"]["run_dir"].endswith(
+        "11_ifbench_raw_feedback_k1_20260729_v31_no_local_model_"
+        "full_epoch_parallel_two_account_router"
+    )
