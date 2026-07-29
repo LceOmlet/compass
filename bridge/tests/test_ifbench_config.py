@@ -4,6 +4,7 @@ import runpy
 from pathlib import Path
 
 import pytest
+import yaml
 
 _ROOT = Path(__file__).resolve().parents[2]
 _ENTRY = _ROOT / "experiments" / "11_ifbench_sparse_dependency_training.py"
@@ -121,3 +122,68 @@ def test_v29_retry_only_changes_the_unique_deployment_path() -> None:
     assert v29["deployment"]["run_dir"].endswith(
         "11_ifbench_raw_feedback_k1_20260729_v29_no_local_model_full_epoch_parallel"
     )
+
+
+def test_v30_two_account_router_only_changes_runtime_endpoint() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    v29 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v29_raw_feedback_no_local_model_full_epoch_parallel.json"
+    )
+    v30 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v30_two_account_router_no_local_model_full_epoch_parallel.json"
+    )
+    namespace["_require_configuration"](v30)
+
+    assert {
+        key: value
+        for key, value in v30.items()
+        if key not in {"deployment", "remote_lm"}
+    } == {
+        key: value
+        for key, value in v29.items()
+        if key not in {"deployment", "remote_lm"}
+    }
+    assert {
+        key: value
+        for key, value in v30["remote_lm"].items()
+        if key not in {"api_base", "api_key_env", "model"}
+    } == {
+        key: value
+        for key, value in v29["remote_lm"].items()
+        if key not in {"api_base", "api_key_env", "model"}
+    }
+    assert v30["deployment"]["run_dir"].endswith(
+        "11_ifbench_raw_feedback_k1_20260729_v30_no_local_model_"
+        "full_epoch_parallel_two_account_router"
+    )
+    assert v30["remote_lm"]["api_base"] == "http://127.0.0.1:40029/v1"
+    assert v30["remote_lm"]["api_key_env"] == "COMPASS_LITELLM_PROXY_KEY"
+    assert v30["remote_lm"]["model"] == "openai/compass-qwen3-8b"
+
+
+def test_v30_router_has_two_secret_free_deployments_and_no_retries() -> None:
+    router_path = (
+        _ROOT / "experiments" / "11_ifbench_litellm_two_account_router_v30.yaml"
+    )
+    router = yaml.safe_load(router_path.read_text(encoding="utf-8"))
+
+    assert [entry["model_name"] for entry in router["model_list"]] == [
+        "compass-qwen3-8b",
+        "compass-qwen3-8b",
+    ]
+    assert [entry["litellm_params"]["api_key"] for entry in router["model_list"]] == [
+        "os.environ/SILICONFLOW_API_KEY_PRIMARY",
+        "os.environ/SILICONFLOW_API_KEY_SECONDARY",
+    ]
+    assert router["router_settings"] == {
+        "routing_strategy": "simple-shuffle",
+        "num_retries": 0,
+        "max_fallbacks": 0,
+        "disable_cooldowns": True,
+    }
+    assert router["litellm_settings"]["num_retries"] == 0
+    assert "sk-" not in router_path.read_text(encoding="utf-8")
