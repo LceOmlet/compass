@@ -23,4 +23,3 @@ router_settings:
 litellm_settings:
   num_retries: 0
   telemetry: false
-
