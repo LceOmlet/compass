@@ -5,6 +5,7 @@ from pathlib import Path
 
 import dspy
 import pytest
+import yaml
 
 from bridge.siliconflow_lm import SiliconFlowLM
 
@@ -103,3 +104,73 @@ def test_v34_rate_limit_keepalive_has_per_request_timeout() -> None:
     lm = namespace["_build_remote_lm"](config["remote_lm"], api_key="test-key")
     assert isinstance(lm, SiliconFlowLM)
     assert lm.rollout_timeout_seconds == 600
+
+
+def test_v35_dual_account_router_only_changes_transport_endpoint() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    v34 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v34_raw_feedback_rate_limit_retry.json"
+    )
+    v35 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v35_dual_account_rate_limit_failover.json"
+    )
+    namespace["_require_configuration"](v35)
+
+    assert {
+        key: value
+        for key, value in v35.items()
+        if key not in {"deployment", "remote_lm"}
+    } == {
+        key: value
+        for key, value in v34.items()
+        if key not in {"deployment", "remote_lm"}
+    }
+    assert {
+        key: value
+        for key, value in v35["remote_lm"].items()
+        if key not in {"api_base", "api_key_env", "model"}
+    } == {
+        key: value
+        for key, value in v34["remote_lm"].items()
+        if key not in {"api_base", "api_key_env", "model"}
+    }
+    assert v35["remote_lm"]["api_base"] == "http://127.0.0.1:40035/v1"
+    assert v35["remote_lm"]["api_key_env"] == "COMPASS_LITELLM_PROXY_KEY"
+    assert v35["remote_lm"]["model"] == "openai/compass-qwen3-8b"
+    assert v35["remote_lm"]["num_retries"] == 0
+    assert v35["remote_lm"]["rollout_timeout_seconds"] == 600
+    lm = namespace["_build_remote_lm"](v35["remote_lm"], api_key="test-key")
+    assert isinstance(lm, SiliconFlowLM)
+
+
+def test_v35_router_uses_official_least_busy_rate_limit_failover() -> None:
+    router_path = (
+        _ROOT / "experiments" / "11_ifbench_litellm_two_account_router_v35.yaml"
+    )
+    router_text = router_path.read_text(encoding="utf-8")
+    router = yaml.safe_load(router_text)
+
+    assert [entry["model_name"] for entry in router["model_list"]] == [
+        "compass-qwen3-8b",
+        "compass-qwen3-8b",
+    ]
+    assert [entry["litellm_params"]["api_key"] for entry in router["model_list"]] == [
+        "os.environ/SILICONFLOW_API_KEY_PRIMARY",
+        "os.environ/SILICONFLOW_API_KEY_SECONDARY",
+    ]
+    assert router["router_settings"] == {
+        "routing_strategy": "least-busy",
+        "num_retries": 0,
+        "retry_policy": {"RateLimitErrorRetries": 1},
+        "max_fallbacks": 0,
+    }
+    assert "disable_cooldowns" not in router["router_settings"]
+    assert router["litellm_settings"] == {
+        "num_retries": 0,
+        "telemetry": False,
+    }
+    assert "sk-" not in router_text

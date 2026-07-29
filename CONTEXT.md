@@ -44,6 +44,10 @@ _Avoid_: replacement trajectory, new rollout
 Indefinite waiting and re-attempting of a logical rollout after TPM rate limiting. It is not a rollout failure and has no cumulative waiting deadline.
 _Avoid_: bounded retry, failed rollout
 
+**Dual-account rollout routing**:
+Use either of two transport accounts for one logical rollout. Normal calls use the official LiteLLM `least-busy` strategy. A TPM rate limit may make exactly one official same-model-group retry so the other account can serve the unchanged prompt, message history, and rollout identity; other error classes do not receive this retry. If both accounts are TPM-limited, control returns to the logical-rollout caller's TPM keepalive loop.
+_Avoid_: replacement trajectory, account-sticky rollout
+
 **True rollout failure**:
 A generation request that genuinely times out or a rollout that genuinely exceeds its configured generation bound. TPM rate limiting is not a true rollout failure.
 _Avoid_: TPM rate-limit event

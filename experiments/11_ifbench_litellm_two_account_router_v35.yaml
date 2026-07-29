@@ -1,0 +1,26 @@
+model_list:
+  - model_name: compass-qwen3-8b
+    litellm_params:
+      model: openai/Qwen/Qwen3-8B
+      api_base: https://api.siliconflow.cn/v1
+      api_key: os.environ/SILICONFLOW_API_KEY_PRIMARY
+    model_info:
+      id: siliconflow-primary
+  - model_name: compass-qwen3-8b
+    litellm_params:
+      model: openai/Qwen/Qwen3-8B
+      api_base: https://api.siliconflow.cn/v1
+      api_key: os.environ/SILICONFLOW_API_KEY_SECONDARY
+    model_info:
+      id: siliconflow-secondary
+
+router_settings:
+  routing_strategy: least-busy
+  num_retries: 0
+  retry_policy:
+    RateLimitErrorRetries: 1
+  max_fallbacks: 0
+
+litellm_settings:
+  num_retries: 0
+  telemetry: false
