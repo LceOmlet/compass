@@ -107,6 +107,7 @@ def test_sparse_observation_state_round_trips_without_aliasing() -> None:
 
 def test_candidate_batch_concurrency_restores_submission_order() -> None:
     adapter = _adapter()
+    assert adapter.straggler_limit == 0
 
     def evaluate(
         batch: list[Any],
@@ -131,6 +132,51 @@ def test_candidate_batch_concurrency_restores_submission_order() -> None:
 
     assert [result.outputs for result in results] == [["a"], ["b"], ["c"]]
     assert [result.scores for result in results] == [[1.0], [2.0], [3.0]]
+
+
+def test_candidate_batch_failure_cancels_pending_and_joins_inflight_work() -> None:
+    adapter = object.__new__(SparseObservationDspyAdapter)
+    adapter.max_candidate_workers = 2
+    slow_started = threading.Event()
+    release_slow = threading.Event()
+    slow_finished = threading.Event()
+    pending_started = threading.Event()
+
+    def evaluate(
+        batch: list[Any],
+        candidate: dict[str, str],
+        capture_traces: bool = False,
+    ) -> EvaluationBatch:
+        del batch
+        assert capture_traces
+        if candidate["prompt"] == "slow":
+            slow_started.set()
+            assert release_slow.wait(timeout=5)
+            slow_finished.set()
+        elif candidate["prompt"] == "fail":
+            assert slow_started.wait(timeout=5)
+            raise TimeoutError("remote rollout timed out")
+        else:
+            pending_started.set()
+        return EvaluationBatch(outputs=[], scores=[], trajectories=[])
+
+    adapter.evaluate = evaluate  # type: ignore[method-assign]
+    release_timer = threading.Timer(0.1, release_slow.set)
+    release_timer.start()
+    try:
+        with pytest.raises(TimeoutError, match="remote rollout timed out"):
+            adapter.batch_evaluate(
+                [
+                    ({"prompt": "slow"}, [1]),
+                    ({"prompt": "fail"}, [2]),
+                    ({"prompt": "pending"}, [3]),
+                ]
+            )
+    finally:
+        release_timer.join(timeout=5)
+
+    assert slow_finished.is_set()
+    assert not pending_started.is_set()
 
 
 def test_raw_feedback_reflection_is_concurrent_and_restores_task_order() -> None:

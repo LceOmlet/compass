@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-07-29T13:02:20+08:00",
+  "captured_at": "2026-07-29T15:41:46+08:00",
   "source_root": "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill",
   "policy": {
     "official_sources_are_semantic_owners": true,
@@ -21,8 +21,8 @@
       "origin": "https://github.com/stanfordnlp/dspy.git",
       "commit": "96bae53d458d300b2cab49a5ddf30087498df952",
       "patch": "patches/dspy-working-tree.patch",
-      "patch_sha256": "dc7ffc0bebf4322b6f29eb93606c64142b5591b7ba63d087c725590604ef667d",
-      "status": "patched owner for result alignment, bounded resubmission, fail-fast propagation, and exception checkpoint compatibility"
+      "patch_sha256": "66001f42c102e60f4c622db7053b493a6fe0049a1877f20b0b1b877c0438371c",
+      "status": "patched owner for result alignment, configurable straggler resubmission, joined fail-fast shutdown, and exception checkpoint compatibility"
     },
     "gepa_artifact": {
       "path": "upstreams/gepa-artifact",

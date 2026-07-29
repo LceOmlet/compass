@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+import threading
 from collections import defaultdict
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from numbers import Real
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter
 from gepa import optimize
@@ -38,10 +39,65 @@ from bridge.b19_reversible_parent_selection import (
 )
 
 DataId = Hashable
+InputT = TypeVar("InputT")
+OutputT = TypeVar("OutputT")
 ReflectionCondition = Literal[
     "mini_admission_reflection",
     "compass_reflection",
 ]
+
+
+def _ordered_parallel_map(
+    function: Callable[[InputT], OutputT],
+    items: Sequence[InputT],
+    *,
+    max_workers: int,
+) -> list[OutputT]:
+    """Run independent work in parallel without leaking work after failure."""
+
+    if not items:
+        return []
+    if len(items) == 1 or max_workers == 1:
+        return [function(item) for item in items]
+
+    results: list[OutputT | None] = [None] * len(items)
+    cancellation_requested = threading.Event()
+    failure_lock = threading.Lock()
+    first_failure: list[BaseException] = []
+
+    def run_item(item: InputT) -> OutputT | None:
+        if cancellation_requested.is_set():
+            return None
+        try:
+            return function(item)
+        except BaseException as error:
+            with failure_lock:
+                if not first_failure:
+                    first_failure.append(error)
+            cancellation_requested.set()
+            raise
+
+    executor = ThreadPoolExecutor(max_workers=min(max_workers, len(items)))
+    futures: dict[Any, int] = {}
+    try:
+        for item_index, item in enumerate(items):
+            futures[executor.submit(run_item, item)] = item_index
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
+    except BaseException:
+        cancellation_requested.set()
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=True, cancel_futures=True)
+        if first_failure:
+            raise first_failure[0]
+        raise
+    else:
+        executor.shutdown(wait=True)
+
+    if any(result is None for result in results):
+        raise RuntimeError("parallel batch returned an empty result slot")
+    return [result for result in results if result is not None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +128,7 @@ class SparseObservationDspyAdapter(DspyAdapter):
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise TypeError(f"{name} must be a positive integer")
+        kwargs.setdefault("straggler_limit", 0)
         super().__init__(*args, **kwargs)
         self.max_candidate_workers = max_candidate_workers
         self.max_reflection_workers = max_reflection_workers
@@ -105,30 +162,18 @@ class SparseObservationDspyAdapter(DspyAdapter):
 
         if not items:
             return []
-        if len(items) == 1 or self.max_candidate_workers == 1:
-            return [
-                self.evaluate(batch, candidate, capture_traces=True)
-                for candidate, batch in items
-            ]
 
-        results: list[EvaluationBatch | None] = [None] * len(items)
-        workers = min(self.max_candidate_workers, len(items))
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(
-                    self.evaluate,
-                    batch,
-                    candidate,
-                    True,
-                ): item_index
-                for item_index, (candidate, batch) in enumerate(items)
-            }
-            for future in as_completed(futures):
-                item_index = futures[future]
-                results[item_index] = future.result()
-        if any(result is None for result in results):
-            raise RuntimeError("DSPy candidate batch returned an empty result slot")
-        return [result for result in results if result is not None]
+        def evaluate_item(
+            item: tuple[dict[str, str], list[Any]],
+        ) -> EvaluationBatch:
+            candidate, batch = item
+            return self.evaluate(batch, candidate, capture_traces=True)
+
+        return _ordered_parallel_map(
+            evaluate_item,
+            items,
+            max_workers=self.max_candidate_workers,
+        )
 
     def propose_new_texts_batch(
         self,
@@ -161,21 +206,11 @@ class SparseObservationDspyAdapter(DspyAdapter):
                 )
             )
 
-        if len(jobs) == 1 or self.max_reflection_workers == 1:
-            return [propose(job) for job in jobs]
-
-        results: list[dict[str, str] | None] = [None] * len(jobs)
-        workers = min(self.max_reflection_workers, len(jobs))
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(propose, job): job_index
-                for job_index, job in enumerate(jobs)
-            }
-            for future in as_completed(futures):
-                results[futures[future]] = future.result()
-        if any(result is None for result in results):
-            raise RuntimeError("DSPy reflection batch returned an empty result slot")
-        return [result for result in results if result is not None]
+        return _ordered_parallel_map(
+            propose,
+            jobs,
+            max_workers=self.max_reflection_workers,
+        )
 
     def commit_program_observations(
         self,
@@ -737,6 +772,7 @@ def run_compass_reflection_engine(
         warn_on_score_mismatch=True,
         reflection_minibatch_size=config.reflection_minibatch_size,
         raise_on_error=config.raise_on_exception,
+        straggler_limit=0,
         max_candidate_workers=config.max_candidate_workers,
         max_reflection_workers=config.max_reflection_workers,
     )

@@ -60,6 +60,7 @@ CONFIG_KEYS = {
         "use_cloudpickle",
     },
 }
+REMOTE_LM_TIMEOUT_SECONDS = 600
 
 
 def _exact_mapping(value: Any, name: str, keys: set[str]) -> dict[str, Any]:
@@ -200,6 +201,7 @@ def main() -> int:
         cache=remote["cache"],
         cache_in_memory=remote["cache_in_memory"],
         num_retries=remote["num_retries"],
+        timeout=REMOTE_LM_TIMEOUT_SECONDS,
         api_base=remote["api_base"],
         api_key=api_key,
         n=remote["n"],

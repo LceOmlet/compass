@@ -210,3 +210,27 @@ def test_v31_retry_only_changes_the_unique_deployment_path() -> None:
         "11_ifbench_raw_feedback_k1_20260729_v31_no_local_model_"
         "full_epoch_parallel_two_account_router"
     )
+
+
+def test_v32_safe_timeout_only_changes_the_unique_deployment_path() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    v31 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v31_two_account_router_no_local_model_full_epoch_parallel.json"
+    )
+    v32 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v32_two_account_router_no_local_model_full_epoch_parallel_safe_timeout.json"
+    )
+    namespace["_require_configuration"](v32)
+
+    assert namespace["REMOTE_LM_TIMEOUT_SECONDS"] == 600
+    assert {key: value for key, value in v32.items() if key != "deployment"} == {
+        key: value for key, value in v31.items() if key != "deployment"
+    }
+    assert v32["deployment"]["run_dir"].endswith(
+        "11_ifbench_raw_feedback_k1_20260729_v32_no_local_model_"
+        "full_epoch_parallel_two_account_router_safe_timeout"
+    )
