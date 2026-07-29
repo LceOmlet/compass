@@ -3,6 +3,8 @@ from __future__ import annotations
 import runpy
 from pathlib import Path
 
+import pytest
+
 
 _ROOT = Path(__file__).resolve().parents[2]
 _ENTRY = _ROOT / "experiments" / "11_ifbench_sparse_dependency_training.py"
@@ -12,12 +14,17 @@ def _entry_namespace() -> dict[str, object]:
     return runpy.run_path(str(_ENTRY))
 
 
-def test_v23_enables_whole_epoch_parallelism() -> None:
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "11_ifbench_siliconflow_sparse_single_gpu_v23_resume_v22_no_tf_full_epoch_parallel.json",
+        "11_ifbench_siliconflow_sparse_single_gpu_v24_resume_v23_no_tf_full_epoch_parallel.json",
+    ],
+)
+def test_full_epoch_configs_enable_whole_epoch_parallelism(config_name: str) -> None:
     namespace = _entry_namespace()
     config = namespace["load_config"](
-        _ROOT
-        / "experiments"
-        / "11_ifbench_siliconflow_sparse_single_gpu_v23_resume_v22_no_tf_full_epoch_parallel.json"
+        _ROOT / "experiments" / config_name
     )
     namespace["_require_official_configuration"](config)
 

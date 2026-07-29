@@ -183,13 +183,18 @@ class _WeightedSinkScopeMixin:
     def weighted_sink_scope(self, weights: Sequence[Real]) -> Iterator[None]:
         """Bind one exact external sink measure to the next public IFR call."""
 
-        if self._active_external_sink_weights is not None:
-            raise RuntimeError("an external weighted-sink call is already active")
-        self._active_external_sink_weights = _sink_weights(weights)
-        try:
-            yield
-        finally:
-            self._active_external_sink_weights = None
+        # The exact-ID facades temporarily bind caller-owned state on a shared
+        # FlashTrace engine and patch official module globals downstream.  One
+        # engine call therefore owns the existing backend lock for its whole
+        # scope; concurrent epoch tasks queue here without being retried.
+        with _BACKEND_LOCK:
+            if self._active_external_sink_weights is not None:
+                raise RuntimeError("an external weighted-sink call is already active")
+            self._active_external_sink_weights = _sink_weights(weights)
+            try:
+                yield
+            finally:
+                self._active_external_sink_weights = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,13 +248,19 @@ class _ExactTokenStateMixin:
 
     @contextmanager
     def _exact_token_scope(self, state: _ExactTokenState) -> Iterator[None]:
-        if self._active_exact_token_state is not None:
-            raise RuntimeError("an exact token-ID attribution call is already active")
-        self._active_exact_token_state = state
-        try:
-            yield
-        finally:
-            self._active_exact_token_state = None
+        # Exact token coordinates are mutable request-local state on the
+        # official attribution facade.  Reuse the backend's existing global
+        # re-entrant lock so independent epoch tasks wait for the single model
+        # resource instead of racing or failing.  Nested official patch scopes
+        # below remain valid because the lock is deliberately re-entrant.
+        with _BACKEND_LOCK:
+            if self._active_exact_token_state is not None:
+                raise RuntimeError("an exact token-ID attribution call is already active")
+            self._active_exact_token_state = state
+            try:
+                yield
+            finally:
+                self._active_exact_token_state = None
 
     def _ensure_generation(
         self,
