@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+import threading
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from numbers import Integral, Real
 from typing import Any, Protocol
@@ -102,6 +104,7 @@ class TerminalLikelihoodReflectionLM:
         n_candidates: Integral,
         epsilon_dep: Real,
         teacher_forcing_enabled: bool = True,
+        max_reflection_workers: Integral = 1,
         logger: Any | None = None,
     ) -> None:
         if isinstance(n_candidates, bool) or not isinstance(n_candidates, Integral):
@@ -119,16 +122,25 @@ class TerminalLikelihoodReflectionLM:
             raise ValueError(
                 "teacher-forcing-free proposal selection requires n_candidates=1"
             )
+        if (
+            isinstance(max_reflection_workers, bool)
+            or not isinstance(max_reflection_workers, Integral)
+            or int(max_reflection_workers) <= 0
+        ):
+            raise TypeError("max_reflection_workers must be a positive integer")
         self._complete = complete
         self._analysis_provider = analysis_provider
         self._n_candidates = int(n_candidates)
         self._epsilon_dep = epsilon
         self._teacher_forcing_enabled = teacher_forcing_enabled
+        self._max_reflection_workers = int(max_reflection_workers)
         self._logger = logger
+        self._log_lock = threading.RLock()
 
     def _log(self, message: str) -> None:
-        if self._logger is not None:
-            self._logger.log(message)
+        with self._log_lock:
+            if self._logger is not None:
+                self._logger.log(message)
 
     def set_logger(self, logger: Any) -> None:
         """Use the exact logger shared by the official GEPA engine."""
@@ -363,6 +375,50 @@ class TerminalLikelihoodReflectionLM:
             metadata=metadata,
         )
         return proposal, self
+
+    def reflect_many(
+        self,
+        jobs: list[
+            tuple[
+                dict[str, str],
+                Mapping[str, Sequence[Mapping[str, Any]]],
+                list[str],
+            ]
+        ],
+    ) -> list[tuple[ReflectionProposal, "TerminalLikelihoodReflectionLM"]]:
+        """Reflect independent official tasks concurrently and restore task order."""
+
+        if not jobs:
+            return []
+        if len(jobs) == 1 or self._max_reflection_workers == 1:
+            return [
+                self.reflect(candidate, reflective_dataset, components_to_update)
+                for candidate, reflective_dataset, components_to_update in jobs
+            ]
+
+        results: list[
+            tuple[ReflectionProposal, TerminalLikelihoodReflectionLM] | None
+        ] = [None] * len(jobs)
+        workers = min(self._max_reflection_workers, len(jobs))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    self.reflect,
+                    candidate,
+                    reflective_dataset,
+                    components_to_update,
+                ): job_index
+                for job_index, (
+                    candidate,
+                    reflective_dataset,
+                    components_to_update,
+                ) in enumerate(jobs)
+            }
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+        if any(result is None for result in results):
+            raise RuntimeError("terminal reflection batch returned an empty result slot")
+        return [result for result in results if result is not None]
 
     def __call__(
         self,

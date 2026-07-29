@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable, Hashable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
@@ -19,7 +20,10 @@ from gepa.proposer.reflective_mutation.admission import (
 )
 from gepa.strategies.acceptance import StrictImprovementAcceptance
 from gepa.strategies.batch_sampler import EpochShuffledBatchSampler
-from gepa.strategies.proposal_sampling import SingleMutationSampling
+from gepa.strategies.proposal_sampling import (
+    IndependentSampling,
+    SingleMutationSampling,
+)
 from gepa.strategies.proposal_selection import AllImprovements
 from gepa_artifact.benchmarks.IFBench import (
     IFBenchCoT2StageProgram,
@@ -90,7 +94,80 @@ class TerminalAnalysisDspyAdapter(
     DSPyTerminalAnalysisCaptureMixin,
     SeedlessDspyAdapter,
 ):
-    """Observe official adapter calls through the existing b17 mixin."""
+    """Observe official calls and expose stable cross-task batch boundaries."""
+
+    def __init__(
+        self,
+        *args: Any,
+        max_candidate_workers: int = 1,
+        **kwargs: Any,
+    ) -> None:
+        if (
+            isinstance(max_candidate_workers, bool)
+            or not isinstance(max_candidate_workers, int)
+            or max_candidate_workers <= 0
+        ):
+            raise TypeError("max_candidate_workers must be a positive integer")
+        super().__init__(*args, **kwargs)
+        self.max_candidate_workers = max_candidate_workers
+
+    def batch_evaluate(
+        self,
+        items: list[tuple[dict[str, str], list[Any]]],
+    ) -> list[EvaluationBatch]:
+        """Evaluate independent candidate/batch items concurrently in input order."""
+
+        if not items:
+            return []
+        if len(items) == 1 or self.max_candidate_workers == 1:
+            return [
+                self.evaluate(batch, candidate, capture_traces=True)
+                for candidate, batch in items
+            ]
+
+        results: list[EvaluationBatch | None] = [None] * len(items)
+        workers = min(self.max_candidate_workers, len(items))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    self.evaluate,
+                    batch,
+                    candidate,
+                    True,
+                ): item_index
+                for item_index, (candidate, batch) in enumerate(items)
+            }
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+        if any(result is None for result in results):
+            raise RuntimeError("DSPy candidate batch returned an empty result slot")
+        return [result for result in results if result is not None]
+
+    def propose_new_texts_batch(
+        self,
+        jobs: list[
+            tuple[
+                dict[str, str],
+                Mapping[str, Sequence[Mapping[str, Any]]],
+                list[str],
+            ]
+        ],
+    ) -> list[dict[str, str]]:
+        """Use the injected terminal proposer's official multi-job seam."""
+
+        proposer = self.custom_instruction_proposer
+        reflect_many = getattr(proposer, "reflect_many", None)
+        if not callable(reflect_many):
+            return [
+                self.propose_new_texts(candidate, reflective_dataset, components)
+                for candidate, reflective_dataset, components in jobs
+            ]
+        reflected = list(reflect_many(jobs))
+        if len(reflected) != len(jobs):
+            raise RuntimeError(
+                "terminal reflection returned a different number of results than jobs"
+            )
+        return [dict(proposal.new_texts) for proposal, _next_lm in reflected]
 
 
 def seed_candidate_from_program(program: IFBenchForwardProgram) -> dict[str, str]:
@@ -398,11 +475,27 @@ class OfficialIFBenchEngineConfig:
     display_progress_bar: bool
     raise_on_exception: bool
     use_cloudpickle: bool
+    epoch_parallel_enabled: bool = False
+    max_candidate_workers: int = 1
 
 
 @dataclass(frozen=True)
 class OfficialIFBenchRun:
     result: Any
+
+
+def _proposal_sampling_strategy(
+    *,
+    trainset_size: int,
+    minibatch_size: int,
+    epoch_parallel_enabled: bool,
+) -> SingleMutationSampling | IndependentSampling:
+    if not epoch_parallel_enabled:
+        return SingleMutationSampling()
+    proposal_tasks = (trainset_size + minibatch_size - 1) // minibatch_size
+    if proposal_tasks <= 0:
+        raise ValueError("whole-epoch proposal sampling requires a non-empty trainset")
+    return IndependentSampling(proposal_tasks)
 
 
 def run_official_ifbench_engine(
@@ -419,6 +512,20 @@ def run_official_ifbench_engine(
     feedback_map = canonical_ifbench_feedback_map(program)
     logger = Logger(str(config.run_dir / "run_log.txt"))
     terminal_proposal.set_logger(logger)
+    sampling_strategy = _proposal_sampling_strategy(
+        trainset_size=len(trainset),
+        minibatch_size=config.reflection_minibatch_size,
+        epoch_parallel_enabled=config.epoch_parallel_enabled,
+    )
+    if config.epoch_parallel_enabled:
+        assert isinstance(sampling_strategy, IndependentSampling)
+        logger.log(
+            "Whole-epoch proposal wave enabled: "
+            f"trainset_size={len(trainset)}, "
+            f"minibatch_size={config.reflection_minibatch_size}, "
+            f"n_tasks={sampling_strategy.n}, "
+            f"max_candidate_workers={config.max_candidate_workers}"
+        )
 
     # Match the official DSPy GEPA wrapper: adapter trace sampling and GEPA
     # strategies start from the same seed but advance independent RNG streams.
@@ -427,6 +534,7 @@ def run_official_ifbench_engine(
     sampler = EpochShuffledBatchSampler(
         minibatch_size=config.reflection_minibatch_size,
         rng=strategy_rng,
+        iteration_is_epoch=config.epoch_parallel_enabled,
     )
 
     adapter = TerminalAnalysisDspyAdapter(
@@ -440,6 +548,7 @@ def run_official_ifbench_engine(
         custom_instruction_proposer=terminal_proposal,
         warn_on_score_mismatch=True,
         reflection_minibatch_size=config.reflection_minibatch_size,
+        max_candidate_workers=config.max_candidate_workers,
     )
     adapter.install_terminal_analysis_bridge(terminal_analysis_bridge)
     admission_hook = IFBenchAdmissionHook(
@@ -489,7 +598,7 @@ def run_official_ifbench_engine(
         raise_on_exception=config.raise_on_exception,
         val_evaluation_policy=evaluation_policy,
         acceptance_criterion=StrictImprovementAcceptance(),
-        sampling_strategy=SingleMutationSampling(),
+        sampling_strategy=sampling_strategy,
         selection_strategy=AllImprovements(),
         reflection_strategy=None,
         admission_hook=admission_hook,

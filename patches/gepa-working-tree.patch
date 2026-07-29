@@ -15,7 +15,7 @@ index 353b33f..a9b7938 100644
      CompositeStopper,
      FileStopper,
 diff --git a/src/gepa/api.py b/src/gepa/api.py
-index 7a2fa55..f582502 100644
+index 7a2fa55..6cedf42 100644
 --- a/src/gepa/api.py
 +++ b/src/gepa/api.py
 @@ -23,6 +23,7 @@ from gepa.logging.experiment_tracker import create_experiment_tracker
@@ -42,15 +42,43 @@ index 7a2fa55..f582502 100644
      - candidate_selection_strategy: The strategy to use for selecting the candidate to update. Supported strategies: 'pareto', 'current_best', 'epsilon_greedy'. Defaults to 'pareto'.
      - frontier_type: Strategy for tracking Pareto frontiers. 'instance' tracks per validation example, 'objective' tracks per objective metric, 'hybrid' combines both, 'cartesian' tracks per (example, objective) pair. Defaults to 'instance'.
      - skip_perfect_score: Whether to skip updating the candidate if it achieves a perfect score on the minibatch.
-@@ -413,6 +416,8 @@ def optimize(
+@@ -413,6 +416,9 @@ def optimize(
          callbacks=callbacks,
          sampling_strategy=sampling_strategy,
          reflection_strategy=reflection_strategy,
 +        admission_hook=admission_hook,
 +        run_dir=run_dir,
++        raise_on_exception=raise_on_exception,
      )
  
      def evaluator_fn(
+diff --git a/src/gepa/core/adapter.py b/src/gepa/core/adapter.py
+index e5103bf..e345326 100644
+--- a/src/gepa/core/adapter.py
++++ b/src/gepa/core/adapter.py
+@@ -212,6 +212,22 @@ class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
+     # def batch_evaluate(
+     #     self, items: list[tuple[Candidate, list[DataInst]]],
+     # ) -> list[EvaluationBatch[Trajectory, RolloutOutput]]: ...
++    #
++    # Optional: adapters that own proposal generation can implement
++    # propose_new_texts_batch to process multiple independent reflection jobs
++    # in one call. The result must contain one new-text mapping per input job,
++    # in input order.
++    #
++    # def propose_new_texts_batch(
++    #     self,
++    #     jobs: list[
++    #         tuple[
++    #             Candidate,
++    #             Mapping[str, Sequence[Mapping[str, Any]]],
++    #             list[str],
++    #         ]
++    #     ],
++    # ) -> list[dict[str, str]]: ...
+ 
+ 
+ def default_batch_evaluate(
 diff --git a/src/gepa/core/engine.py b/src/gepa/core/engine.py
 index e29f612..610b146 100644
 --- a/src/gepa/core/engine.py
@@ -461,7 +489,7 @@ index e69de29..ff7ff3a 100644
 +    commit_adapter_observations,
 +)
 diff --git a/src/gepa/proposer/reflective_mutation/reflective_mutation.py b/src/gepa/proposer/reflective_mutation/reflective_mutation.py
-index dc4f385..6850270 100644
+index dc4f385..d16c6f1 100644
 --- a/src/gepa/proposer/reflective_mutation/reflective_mutation.py
 +++ b/src/gepa/proposer/reflective_mutation/reflective_mutation.py
 @@ -3,6 +3,8 @@
@@ -488,25 +516,52 @@ index dc4f385..6850270 100644
  from gepa.proposer.reflective_mutation.base import (
      CandidateSelector,
      LanguageModel,
-@@ -74,6 +81,8 @@ class ReflectiveMutationProposer:
+@@ -74,6 +81,9 @@ class ReflectiveMutationProposer:
          callbacks: list[GEPACallback] | None = None,
          sampling_strategy: SamplingStrategy | None = None,
          reflection_strategy: ReflectionLM | None = None,
 +        admission_hook: AdmissionHook | None = None,
 +        run_dir: str | None = None,
++        raise_on_exception: bool = False,
      ):
          self.logger = logger
          self.trainset = ensure_loader(trainset)
-@@ -88,6 +97,8 @@ class ReflectiveMutationProposer:
+@@ -88,6 +98,9 @@ class ReflectiveMutationProposer:
          self.custom_candidate_proposer = custom_candidate_proposer
          self.callbacks = callbacks
          self.sampling_strategy: SamplingStrategy = sampling_strategy or SingleMutationSampling()
 +        self.admission_hook = admission_hook
 +        self.run_dir = run_dir
++        self.raise_on_exception = raise_on_exception
  
          self.reflection_prompt_template = reflection_prompt_template
  
-@@ -206,12 +217,15 @@ class ReflectiveMutationProposer:
+@@ -172,11 +185,19 @@ class ReflectiveMutationProposer:
+         proposer or custom proposer owns the call, fall back to one invocation
+         per task — their batching, if any, is their concern.
+         """
+-        if (
+-            self.adapter.propose_new_texts is not None
+-            or self.custom_candidate_proposer is not None
+-            or self._reflection_lm is None
+-        ):
++        if self.adapter.propose_new_texts is not None:
++            batch_proposer = getattr(self.adapter, "propose_new_texts_batch", None)
++            if callable(batch_proposer):
++                proposed = list(batch_proposer(jobs))
++                if len(proposed) != len(jobs):
++                    raise ValueError(
++                        "adapter.propose_new_texts_batch returned "
++                        f"{len(proposed)} results for {len(jobs)} jobs"
++                    )
++                return [(dict(texts), {}, {}, {}) for texts in proposed]
++            return [self.propose_new_texts(cand, refds, comps) for cand, refds, comps in jobs]
++
++        if self.custom_candidate_proposer is not None or self._reflection_lm is None:
+             return [self.propose_new_texts(cand, refds, comps) for cand, refds, comps in jobs]
+ 
+         reflect_many = getattr(self._reflection_lm, "reflect_many", None)
+@@ -206,19 +227,26 @@ class ReflectiveMutationProposer:
          """Like :meth:`_propose_texts_batch`, but isolates per-task failures.
  
          Returns ``None`` in the slot of any task whose reflection raised, so one
@@ -521,9 +576,11 @@ index dc4f385..6850270 100644
 +        except MemoryError:
 +            raise
          except Exception as e:
++            if self.raise_on_exception:
++                raise
              self.logger.log(f"Batched reflection failed ({e}); retrying per task.")
              self.logger.log(traceback.format_exc())
-@@ -219,6 +233,8 @@ class ReflectiveMutationProposer:
+             out: list[tuple[dict[str, str], dict[str, str | list[dict[str, Any]]], dict[str, str], dict[str, Any]] | None] = []
              for cand, refds, comps in jobs:
                  try:
                      out.append(self.propose_new_texts(cand, refds, comps))
@@ -532,7 +589,7 @@ index dc4f385..6850270 100644
                  except Exception as e2:
                      self.logger.log(f"Per-task reflection failed: {e2}")
                      out.append(None)
-@@ -344,6 +360,56 @@ class ReflectiveMutationProposer:
+@@ -344,6 +372,56 @@ class ReflectiveMutationProposer:
                      objective_scores_list,
                  )
  
@@ -589,7 +646,7 @@ index dc4f385..6850270 100644
          # Trace: legacy first-task keys (pre-#329 tooling compatibility) plus
          # full per-task records — multi-task iterations record every task, not
          # just the first. Tasks that get skipped later simply never receive
-@@ -372,7 +438,9 @@ class ReflectiveMutationProposer:
+@@ -372,7 +450,9 @@ class ReflectiveMutationProposer:
          # Stage 3a: Build reflective datasets + fire pre-reflection callbacks (per task).
          # ``prepared`` holds one slot per task (None = skipped); ``jobs`` is the
          # subset that will reflect, in order, so the reflection LM can batch them.
@@ -600,7 +657,7 @@ index dc4f385..6850270 100644
          for task, key in zip(tasks, task_to_key, strict=True):
              eval_curr = key_to_eval[key]
  
-@@ -433,6 +501,72 @@ class ReflectiveMutationProposer:
+@@ -433,6 +513,72 @@ class ReflectiveMutationProposer:
                          dataset=reflective_dataset_concrete,
                      ),
                  )
@@ -673,7 +730,7 @@ index dc4f385..6850270 100644
                  notify_callbacks(
                      self.callbacks,
                      "on_proposal_start",
-@@ -449,7 +583,7 @@ class ReflectiveMutationProposer:
+@@ -449,7 +595,7 @@ class ReflectiveMutationProposer:
                  prepared.append(None)
                  continue
  
@@ -682,7 +739,7 @@ index dc4f385..6850270 100644
  
          # Stage 3b: Reflect across all prepared tasks — one batched LM call when the
          # reflection LM supports it (litellm.batch_completion), else per task.
-@@ -457,12 +591,14 @@ class ReflectiveMutationProposer:
+@@ -457,12 +603,14 @@ class ReflectiveMutationProposer:
          batch_texts = iter(self._propose_texts_batch_safe(jobs))
  
          # Stage 3c: Build each child candidate from its proposed texts.
@@ -699,7 +756,7 @@ index dc4f385..6850270 100644
              texts = next(batch_texts)
              if texts is None:
                  children.append(None)
-@@ -519,30 +655,36 @@ class ReflectiveMutationProposer:
+@@ -519,30 +667,36 @@ class ReflectiveMutationProposer:
                  assert name in new_candidate, f"{name} missing in candidate"
                  new_candidate[name] = text
  
@@ -741,7 +798,7 @@ index dc4f385..6850270 100644
                      is_seed_candidate=False,
                  ),
              )
-@@ -550,7 +692,9 @@ class ReflectiveMutationProposer:
+@@ -550,7 +704,9 @@ class ReflectiveMutationProposer:
          child_evals = self._batch_evaluate(child_items)
  
          # Fire evaluation end callbacks for each child candidate
@@ -752,7 +809,7 @@ index dc4f385..6850270 100644
              notify_callbacks(
                  self.callbacks,
                  "on_evaluation_end",
-@@ -575,28 +719,47 @@ class ReflectiveMutationProposer:
+@@ -575,28 +731,47 @@ class ReflectiveMutationProposer:
  
          # Update evaluation cache for children
          if state.evaluation_cache is not None:
@@ -806,7 +863,7 @@ index dc4f385..6850270 100644
                  subsample_after = sum(child_evals[0].scores)
                  self.experiment_tracker.log_metrics(
                      {
-@@ -612,20 +775,28 @@ class ReflectiveMutationProposer:
+@@ -612,20 +787,28 @@ class ReflectiveMutationProposer:
  
          # Stage 5: Build proposals and filter
          proposals: list[CandidateProposal] = []
@@ -842,7 +899,7 @@ index dc4f385..6850270 100644
                  ),
                  eval_after=SubsampleEvaluation(
                      scores=child_eval.scores,
-@@ -635,6 +806,7 @@ class ReflectiveMutationProposer:
+@@ -635,6 +818,7 @@ class ReflectiveMutationProposer:
                  ),
                  tag="reflective_mutation",
                  metadata=_lm_metadata,
@@ -851,7 +908,7 @@ index dc4f385..6850270 100644
              proposals.append(proposal)
  
 diff --git a/src/gepa/strategies/batch_sampler.py b/src/gepa/strategies/batch_sampler.py
-index c6e0dd2..7d3e73f 100644
+index c6e0dd2..2535b3a 100644
 --- a/src/gepa/strategies/batch_sampler.py
 +++ b/src/gepa/strategies/batch_sampler.py
 @@ -3,6 +3,7 @@
@@ -876,7 +933,25 @@ index c6e0dd2..7d3e73f 100644
  
  
  class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
-@@ -39,6 +45,7 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+@@ -31,14 +37,24 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+     - Deterministic via state.rng1
+     """
+ 
+-    def __init__(self, minibatch_size: int, rng: random.Random | None = None):
++    def __init__(
++        self,
++        minibatch_size: int,
++        rng: random.Random | None = None,
++        *,
++        iteration_is_epoch: bool = False,
++    ):
++        if not isinstance(iteration_is_epoch, bool):
++            raise TypeError("iteration_is_epoch must be a boolean")
+         self.minibatch_size = minibatch_size
++        self.iteration_is_epoch = iteration_is_epoch
+         self.shuffled_ids: list[DataId] = []
+         self.epoch = -1
+         self.id_freqs = Counter()
          self.last_trainset_size = 0
          self._current_iteration: int | None = None
          self._calls_in_iteration = 0
@@ -884,7 +959,7 @@ index c6e0dd2..7d3e73f 100644
          if rng is None:
              self.rng = random.Random(0)
          else:
-@@ -66,7 +73,12 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+@@ -66,7 +82,12 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
                  self.shuffled_ids.append(selected_id)
                  self.id_freqs[selected_id] += 1
  
@@ -898,15 +973,60 @@ index c6e0dd2..7d3e73f 100644
          trainset_size = len(loader)
          if trainset_size == 0:
              raise ValueError("Cannot sample a minibatch from an empty loader.")
-@@ -82,6 +94,7 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+@@ -77,19 +98,43 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+         # call of an iteration is unchanged from the classic behavior. Chunks
+         # wrap around, so distinctness holds only while the iteration's call
+         # count stays within len(shuffled_ids) / minibatch_size.
+-        if state.i == self._current_iteration:
++        new_iteration = state.i != self._current_iteration
++        if not new_iteration:
+             self._calls_in_iteration += 1
          else:
              self._current_iteration = state.i
              self._calls_in_iteration = 0
+-
+-        base_idx = state.i * self.minibatch_size
+-        curr_epoch = 0 if self.epoch == -1 else base_idx // max(len(self.shuffled_ids), 1)
+-
+-        needs_refresh = not self.shuffled_ids or trainset_size != self.last_trainset_size or curr_epoch > self.epoch
+-        if needs_refresh:
+-            self.epoch = curr_epoch
+-            self._update_shuffled(loader)
 +            self._positions_consumed_in_iteration = 0
++
++        if self.iteration_is_epoch:
++            # Multi-proposal whole-epoch mode: one GEPA iteration is one
++            # shuffled epoch. Repeated calls consume its chunks; admission
++            # calls may wrap but never trigger a second shuffle mid-iteration.
++            if (
++                new_iteration
++                or not self.shuffled_ids
++                or trainset_size != self.last_trainset_size
++            ):
++                self.epoch = state.i
++                self._update_shuffled(loader)
++            base_idx = self._positions_consumed_in_iteration
++        else:
++            base_idx = state.i * self.minibatch_size
++            remainder = trainset_size % self.minibatch_size
++            padded_trainset_size = trainset_size + (
++                self.minibatch_size - remainder if remainder else 0
++            )
++            curr_epoch = base_idx // padded_trainset_size
++
++            needs_refresh = (
++                not self.shuffled_ids
++                or trainset_size != self.last_trainset_size
++                or curr_epoch > self.epoch
++            )
++            if needs_refresh:
++                self.epoch = curr_epoch
++                self._update_shuffled(loader)
++            base_idx += self._positions_consumed_in_iteration
  
-         base_idx = state.i * self.minibatch_size
-         curr_epoch = 0 if self.epoch == -1 else base_idx // max(len(self.shuffled_ids), 1)
-@@ -97,7 +110,24 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+         assert len(self.shuffled_ids) >= self.minibatch_size
+         assert len(self.shuffled_ids) % self.minibatch_size == 0
+@@ -97,7 +142,24 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
          # The epoch bookkeeping above uses the un-offset base_idx (constant
          # within an iteration), so repeat calls never trigger a reshuffle and
          # the shuffle sequence stays identical to the single-call path.
@@ -914,7 +1034,7 @@ index c6e0dd2..7d3e73f 100644
 -        end_idx = base_idx + self.minibatch_size
 -        assert end_idx <= len(self.shuffled_ids)
 -        return self.shuffled_ids[base_idx:end_idx]
-+        base_idx = (base_idx + self._positions_consumed_in_iteration) % len(self.shuffled_ids)
++        base_idx %= len(self.shuffled_ids)
 +        excluded = set(excluded_ids)
 +        if not excluded:
 +            end_idx = base_idx + self.minibatch_size
@@ -936,10 +1056,48 @@ index c6e0dd2..7d3e73f 100644
 +        self._positions_consumed_in_iteration += scanned
 +        return selected
 diff --git a/tests/test_batch_sampler.py b/tests/test_batch_sampler.py
-index cc5b4a2..18990ee 100644
+index cc5b4a2..3ccfe56 100644
 --- a/tests/test_batch_sampler.py
 +++ b/tests/test_batch_sampler.py
-@@ -65,3 +65,53 @@ def test_extra_calls_do_not_perturb_later_iterations():
+@@ -51,6 +51,37 @@ def test_repeated_calls_within_iteration_return_distinct_minibatches():
+     assert tuple(sampler.next_minibatch_ids(loader, state)) == batches[0]
+ 
+ 
++def test_resume_at_nonzero_iteration_does_not_reshuffle_within_first_wave():
++    loader = ListDataLoader(list(range(150)))
++    sampler = EpochShuffledBatchSampler(minibatch_size=3, rng=random.Random(0))
++    state = SimpleNamespace(i=204)
++
++    batches = [sampler.next_minibatch_ids(loader, state) for _ in range(50)]
++
++    assert len(batches) == 50
++    assert sorted(item for batch in batches for item in batch) == list(range(150))
++
++
++def test_iteration_epoch_mode_reshuffles_once_per_whole_epoch_wave():
++    loader = ListDataLoader(list(range(150)))
++    sampler = EpochShuffledBatchSampler(
++        minibatch_size=3,
++        rng=random.Random(0),
++        iteration_is_epoch=True,
++    )
++    state = SimpleNamespace(i=204)
++
++    first = [sampler.next_minibatch_ids(loader, state) for _ in range(50)]
++    first_order = [item for batch in first for item in batch]
++    assert sorted(first_order) == list(range(150))
++
++    state.i += 1
++    second = [sampler.next_minibatch_ids(loader, state) for _ in range(50)]
++    second_order = [item for batch in second for item in batch]
++    assert sorted(second_order) == list(range(150))
++    assert second_order != first_order
++
++
+ def test_extra_calls_do_not_perturb_later_iterations():
+     # The first call of each iteration must be byte-identical whether or not
+     # earlier iterations made extra (multi-proposal) calls.
+@@ -65,3 +96,53 @@ def test_extra_calls_do_not_perturb_later_iterations():
          assert multi.next_minibatch_ids(loader_multi, state) == expected
          for _ in range(4):
              multi.next_minibatch_ids(loader_multi, state)
@@ -1019,7 +1177,7 @@ index e4c3593..70ae306 100644
      state.num_metric_calls_by_discovery.append(0)
  
 diff --git a/tests/test_reflection_lm.py b/tests/test_reflection_lm.py
-index 1bfb312..3098523 100644
+index 1bfb312..133cf8d 100644
 --- a/tests/test_reflection_lm.py
 +++ b/tests/test_reflection_lm.py
 @@ -3,6 +3,8 @@
@@ -1031,10 +1189,34 @@ index 1bfb312..3098523 100644
  from gepa.proposer.reflective_mutation.reflection_lm import (
      ReflectionLM,
      ReflectionProposal,
-@@ -214,6 +216,40 @@ def test_reflect_only_strategy_used_per_task_in_batch_path():
+@@ -214,6 +216,85 @@ def test_reflect_only_strategy_used_per_task_in_batch_path():
      assert [r[0] for r in results] == [{"c": "new_c"}, {"c": "new_c"}]
  
  
++def test_adapter_batch_proposal_seam_is_used_and_preserves_order():
++    from unittest.mock import MagicMock
++
++    adapter = MagicMock()
++    adapter.propose_new_texts = MagicMock()
++    adapter.propose_new_texts_batch = MagicMock(
++        return_value=[{"c": "new0"}, {"c": "new1"}]
++    )
++    proposer = _make_proposer(adapter=adapter)
++    jobs = [
++        ({"c": "old0"}, {"c": [{"feedback": "f0"}]}, ["c"]),
++        ({"c": "old1"}, {"c": [{"feedback": "f1"}]}, ["c"]),
++    ]
++
++    results = proposer._propose_texts_batch(jobs)
++
++    assert [result[0] for result in results] == [
++        {"c": "new0"},
++        {"c": "new1"},
++    ]
++    adapter.propose_new_texts_batch.assert_called_once_with(jobs)
++    adapter.propose_new_texts.assert_not_called()
++
++
 +def test_batch_safe_does_not_retry_memory_exhaustion():
 +    from unittest.mock import MagicMock
 +
@@ -1048,6 +1230,27 @@ index 1bfb312..3098523 100644
 +    ]
 +
 +    with pytest.raises(MemoryError, match="configured batch does not fit"):
++        proposer._propose_texts_batch_safe(jobs)
++
++    proposer.propose_new_texts.assert_not_called()
++
++
++def test_batch_safe_propagates_without_retry_when_raise_on_exception():
++    from unittest.mock import MagicMock
++
++    proposer = _make_proposer(
++        reflection_strategy=_ReflectOnlyLM(),
++        raise_on_exception=True,
++    )
++    proposer._propose_texts_batch = MagicMock(
++        side_effect=RuntimeError("batch failed")
++    )
++    proposer.propose_new_texts = MagicMock()
++    jobs = [
++        ({"c": "old"}, {"c": [{"feedback": "f"}]}, ["c"]),
++    ]
++
++    with pytest.raises(RuntimeError, match="batch failed"):
 +        proposer._propose_texts_batch_safe(jobs)
 +
 +    proposer.propose_new_texts.assert_not_called()
@@ -1072,7 +1275,7 @@ index 1bfb312..3098523 100644
  # ---------------------------------------------------------------------------
  # H1: empty reflection output must not produce a phantom child
  # ---------------------------------------------------------------------------
-@@ -288,6 +324,174 @@ def test_nonempty_new_texts_still_produces_a_proposal():
+@@ -288,6 +369,174 @@ def test_nonempty_new_texts_still_produces_a_proposal():
      assert len(proposals) == 1
      assert proposals[0].candidate["c"] == "improved"
      assert adapter.batch_evaluate.call_count == 2  # parent stage + child stage

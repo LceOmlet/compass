@@ -12,6 +12,7 @@ from dspy.utils import parallelizer as dspy_parallelizer
 
 _OFFICIAL_THREAD_POOL_EXECUTOR = dspy_parallelizer.ThreadPoolExecutor
 _PATCH_LOCK = threading.RLock()
+_ACTIVE_SCOPES = 0
 
 
 class _SuppressedRepeatedResubmission(RuntimeError):
@@ -68,18 +69,40 @@ class _AtMostOneResubmissionExecutor(_OFFICIAL_THREAD_POOL_EXECUTOR):
 def bounded_dspy_straggler_resubmission() -> Iterator[None]:
     """Scope the official executor to its documented one-resubmit-per-item intent."""
 
+    global _ACTIVE_SCOPES
     with _PATCH_LOCK:
-        previous = dspy_parallelizer.ThreadPoolExecutor
-        if previous is not _OFFICIAL_THREAD_POOL_EXECUTOR:
-            raise RuntimeError("another component replaced the official DSPy thread executor")
-        dspy_parallelizer.ThreadPoolExecutor = _AtMostOneResubmissionExecutor
-        try:
-            yield
-        finally:
+        current = dspy_parallelizer.ThreadPoolExecutor
+        if _ACTIVE_SCOPES == 0:
+            if current is not _OFFICIAL_THREAD_POOL_EXECUTOR:
+                raise RuntimeError(
+                    "another component replaced the official DSPy thread executor"
+                )
+            dspy_parallelizer.ThreadPoolExecutor = _AtMostOneResubmissionExecutor
+        elif current is not _AtMostOneResubmissionExecutor:
+            raise RuntimeError(
+                "official DSPy thread executor changed while bounded scopes are active"
+            )
+        _ACTIVE_SCOPES += 1
+    try:
+        yield
+    finally:
+        with _PATCH_LOCK:
+            _ACTIVE_SCOPES -= 1
+            if _ACTIVE_SCOPES < 0:
+                _ACTIVE_SCOPES = 0
+                dspy_parallelizer.ThreadPoolExecutor = _OFFICIAL_THREAD_POOL_EXECUTOR
+                raise RuntimeError("bounded DSPy executor scope count became negative")
             if dspy_parallelizer.ThreadPoolExecutor is not _AtMostOneResubmissionExecutor:
-                dspy_parallelizer.ThreadPoolExecutor = previous
-                raise RuntimeError("official DSPy thread executor changed inside bounded scope")
-            dspy_parallelizer.ThreadPoolExecutor = previous
+                dspy_parallelizer.ThreadPoolExecutor = (
+                    _AtMostOneResubmissionExecutor
+                    if _ACTIVE_SCOPES
+                    else _OFFICIAL_THREAD_POOL_EXECUTOR
+                )
+                raise RuntimeError(
+                    "official DSPy thread executor changed inside bounded scope"
+                )
+            if _ACTIVE_SCOPES == 0:
+                dspy_parallelizer.ThreadPoolExecutor = _OFFICIAL_THREAD_POOL_EXECUTOR
 
 
 __all__ = ["bounded_dspy_straggler_resubmission"]

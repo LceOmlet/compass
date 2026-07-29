@@ -76,6 +76,11 @@ CONFIG_KEYS = {
     },
     "dependency": {"epsilon_dep"},
     "parent_selection": {"top_n"},
+    "epoch_parallel": {
+        "enabled",
+        "max_candidate_workers",
+        "max_reflection_workers",
+    },
     "official_gepa": {
         "add_format_failure_as_feedback",
         "dataset_mode",
@@ -108,6 +113,17 @@ def _exact_mapping(value: Any, name: str, keys: set[str]) -> dict[str, Any]:
 
 def load_config(path: Path) -> dict[str, dict[str, Any]]:
     raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, Mapping):
+        raise TypeError("config must be a JSON object")
+    raw = dict(raw)
+    raw.setdefault(
+        "epoch_parallel",
+        {
+            "enabled": False,
+            "max_candidate_workers": 1,
+            "max_reflection_workers": 1,
+        },
+    )
     root = _exact_mapping(raw, "config", set(CONFIG_KEYS))
     result: dict[str, dict[str, Any]] = {}
     for section, keys in CONFIG_KEYS.items():
@@ -135,6 +151,7 @@ def _require_official_configuration(config: dict[str, dict[str, Any]]) -> None:
     flashtrace = config["flashtrace"]
     terminal = config["terminal_likelihood"]
     parent_selection = config["parent_selection"]
+    epoch_parallel = config["epoch_parallel"]
     official = config["official_gepa"]
     required_remote = {
         "cache": True,
@@ -182,6 +199,12 @@ def _require_official_configuration(config: dict[str, dict[str, Any]]) -> None:
         or parent_selection["top_n"] <= 0
     ):
         raise TypeError("parent_selection.top_n must be a positive JSON integer")
+    if not isinstance(epoch_parallel["enabled"], bool):
+        raise TypeError("epoch_parallel.enabled must be a JSON boolean")
+    for name in ("max_candidate_workers", "max_reflection_workers"):
+        value = epoch_parallel[name]
+        if type(value) is not int or value <= 0:
+            raise TypeError(f"epoch_parallel.{name} must be a positive JSON integer")
     teacher_forcing_enabled = terminal["teacher_forcing_enabled"]
     if not isinstance(teacher_forcing_enabled, bool):
         raise TypeError("terminal_likelihood.teacher_forcing_enabled must be a JSON boolean")
@@ -257,6 +280,7 @@ def main() -> int:
     flashtrace = config["flashtrace"]
     terminal = config["terminal_likelihood"]
     dependency = config["dependency"]
+    epoch_parallel = config["epoch_parallel"]
     official = config["official_gepa"]
 
     api_key_env = remote["api_key_env"]
@@ -364,6 +388,8 @@ def main() -> int:
         display_progress_bar=official["display_progress_bar"],
         raise_on_exception=official["raise_on_exception"],
         use_cloudpickle=official["use_cloudpickle"],
+        epoch_parallel_enabled=epoch_parallel["enabled"],
+        max_candidate_workers=epoch_parallel["max_candidate_workers"],
     )
     with ThreadPoolExecutor(max_workers=1) as executor:
         analysis_bridge = DSPyTerminalAnalysisBridge(
@@ -380,6 +406,7 @@ def main() -> int:
             n_candidates=terminal["n_candidates"],
             epsilon_dep=dependency["epsilon_dep"],
             teacher_forcing_enabled=terminal["teacher_forcing_enabled"],
+            max_reflection_workers=epoch_parallel["max_reflection_workers"],
         )
         run_official_ifbench_engine(
             trainset=benchmark.train_set,

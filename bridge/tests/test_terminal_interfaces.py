@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Mapping, Sequence
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from gepa.proposer.reflective_mutation.reflection_lm import ReflectionProposal
 
 from bridge.b03_token_replay import TokenReplayUtility
 from bridge.terminal_reflection import (
@@ -210,6 +213,47 @@ def test_teacher_forcing_free_selection_requires_one_candidate() -> None:
             epsilon_dep=0.8,
             teacher_forcing_enabled=False,
         )
+
+
+def test_terminal_reflect_many_runs_concurrently_and_restores_job_order() -> None:
+    reflection = TerminalLikelihoodReflectionLM(
+        complete=lambda _prompt, *, n: ("```unused```",) * n,
+        analysis_provider=_AnalysisProvider(_PreparedAnalysis()),
+        n_candidates=1,
+        epsilon_dep=0.8,
+        teacher_forcing_enabled=False,
+        max_reflection_workers=3,
+    )
+    barrier = threading.Barrier(3)
+
+    def reflect(
+        candidate: dict[str, str],
+        reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
+        components_to_update: list[str],
+    ) -> tuple[ReflectionProposal, TerminalLikelihoodReflectionLM]:
+        del reflective_dataset, components_to_update
+        barrier.wait(timeout=5)
+        index = int(candidate["first"])
+        time.sleep((2 - index) * 0.01)
+        return ReflectionProposal(new_texts={"first": f"new-{index}"}), reflection
+
+    reflection.reflect = reflect  # type: ignore[method-assign]
+    jobs = [
+        (
+            {"first": str(index), "second": "unchanged"},
+            {"first": ({"input": index},)},
+            ["first"],
+        )
+        for index in range(3)
+    ]
+
+    results = reflection.reflect_many(jobs)
+
+    assert [proposal.new_texts["first"] for proposal, _ in results] == [
+        "new-0",
+        "new-1",
+        "new-2",
+    ]
 
 
 def test_replay_scores_allow_heterogeneous_original_skills() -> None:

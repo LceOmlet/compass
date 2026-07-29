@@ -1754,11 +1754,12 @@ class _AbstainingPreparedTerminalAnalysis(PreparedTerminalAnalysis):
 
 
 class DSPyTerminalAnalysisBridge:
-    """Provider bound to one exact official reflection/admission job.
+    """Provider bound to exact official reflection/admission jobs.
 
-    The prepared reference analysis is immutable and may be read by every proposal
-    attempt that GEPA makes for the same reflective-dataset object.  GEPA, not
-    this bridge, owns retry policy.
+    Every binding is keyed by the identity of its official reflective-dataset
+    object.  This keeps the single-task path unchanged while allowing one
+    immutable parent analysis per task to coexist during an official
+    multi-proposal wave.
     """
 
     def __init__(self, *, builder: DSPyParentAnalysisBuilder, executor: Executor) -> None:
@@ -1770,18 +1771,18 @@ class DSPyTerminalAnalysisBridge:
         self._executor = executor
         self._lock = threading.RLock()
         self._pool: frozenset[CandidateKey] | None = None
-        self._bound: _BoundAnalysis | None = None
+        self._bound: dict[int, _BoundAnalysis] = {}
 
     def update_candidate_pool(self, candidates: Sequence[Mapping[str, str]]) -> None:
         pool = frozenset(_candidate_key(candidate) for candidate in candidates)
         if len(pool) != len(candidates):
             raise RuntimeError("the official GEPA candidate pool contains duplicate programs")
         with self._lock:
-            stale = self._bound
-            self._bound = None
+            stale = tuple(self._bound.values())
+            self._bound.clear()
             self._pool = pool
-        if stale is not None:
-            stale.future.cancel()
+        for bound in stale:
+            bound.future.cancel()
 
     def bind_admission_references(
         self,
@@ -1792,9 +1793,12 @@ class DSPyTerminalAnalysisBridge:
         references: tuple[DSPyReferenceObservation, ...],
     ) -> None:
         parent_key = _candidate_key(parent_candidate)
+        job_key = id(reflective_dataset)
         with self._lock:
-            if self._bound is not None:
-                raise RuntimeError("a terminal parent analysis is already bound")
+            if job_key in self._bound:
+                raise RuntimeError(
+                    "a terminal parent analysis is already bound for this reflection job"
+                )
             if self._pool is None:
                 raise RuntimeError("candidate pool must be observed before parent selection")
             known = self._pool
@@ -1804,7 +1808,7 @@ class DSPyTerminalAnalysisBridge:
                 references=references,
                 known_candidates=known,
             )
-            self._bound = _BoundAnalysis(
+            self._bound[job_key] = _BoundAnalysis(
                 parent_key,
                 component,
                 reflective_dataset,
@@ -1819,10 +1823,13 @@ class DSPyTerminalAnalysisBridge:
         reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
     ) -> PreparedTerminalAnalysis:
         parent_key = _candidate_key(parent_candidate)
+        job_key = id(reflective_dataset)
         with self._lock:
-            bound = self._bound
+            bound = self._bound.get(job_key)
             if bound is None:
-                raise TerminalAnalysisUnavailableError("no parent analysis is bound")
+                raise TerminalAnalysisUnavailableError(
+                    "no parent analysis is bound for this official reflection job"
+                )
             if bound.parent_key != parent_key or bound.component != component:
                 raise TerminalAnalysisUnavailableError(
                     "bound terminal analysis belongs to a different parent/component"
@@ -1844,8 +1851,9 @@ class DSPyTerminalAnalysisBridge:
         reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
     ) -> None:
         parent_key = _candidate_key(parent_candidate)
+        job_key = id(reflective_dataset)
         with self._lock:
-            bound = self._bound
+            bound = self._bound.get(job_key)
             if bound is None:
                 return
             if bound.parent_key != parent_key or bound.component != component:
@@ -1856,15 +1864,15 @@ class DSPyTerminalAnalysisBridge:
                 raise TerminalAnalysisUnavailableError(
                     "cannot discard terminal analysis for a different official reflection job"
                 )
-            self._bound = None
+            del self._bound[job_key]
         bound.future.cancel()
 
     def clear(self) -> None:
         with self._lock:
-            bound = self._bound
-            self._bound = None
-        if bound is not None:
-            bound.future.cancel()
+            bound = tuple(self._bound.values())
+            self._bound.clear()
+        for item in bound:
+            item.future.cancel()
 
 
 class DSPyTerminalAnalysisCaptureMixin:
