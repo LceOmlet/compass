@@ -88,6 +88,14 @@ GEPA selection/state transition 顺序提交。不同 optimizer iteration 不重
 v26 关闭 teacher forcing，保持 `n_candidates=1`，并从其原 checkpoint 在冻结
 旧代码和旧配置下续跑。
 
+v27 使用独立的新 run 和
+`11_ifbench_sparse_raw_feedback_training.py`：不加载本地 Qwen，不计算
+FlashTrace credit、teacher forcing 或 dependency distance；官方 DSPy
+raw-feedback proposer 对每个 proposal task 只产生一个 candidate。
+whole-epoch 中各 task 的官方反思与 candidate/admission evaluation 仍可并发，
+随后按 task index 还原，并继续使用递归 `B_propose` exclusion、独立
+`B_admit` 与 `StrictImprovement`。v26 的冻结目录和 checkpoint 不会被改写。
+
 生产启动前应在实际任务模型/设备上执行：
 
 ```bash

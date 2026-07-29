@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parents[2]
 _ENTRY = _ROOT / "experiments" / "11_ifbench_sparse_dependency_training.py"
+_RAW_ENTRY = _ROOT / "experiments" / "11_ifbench_sparse_raw_feedback_training.py"
 
 
 def _entry_namespace() -> dict[str, object]:
@@ -25,9 +25,7 @@ def _entry_namespace() -> dict[str, object]:
 )
 def test_full_epoch_configs_enable_whole_epoch_parallelism(config_name: str) -> None:
     namespace = _entry_namespace()
-    config = namespace["load_config"](
-        _ROOT / "experiments" / config_name
-    )
+    config = namespace["load_config"](_ROOT / "experiments" / config_name)
     namespace["_require_official_configuration"](config)
 
     assert config["epoch_parallel"] == {
@@ -51,3 +49,31 @@ def test_legacy_config_keeps_single_task_defaults() -> None:
         "max_candidate_workers": 1,
         "max_reflection_workers": 1,
     }
+
+
+def test_v27_raw_feedback_has_one_candidate_and_no_local_model_config() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    config = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v27_raw_feedback_no_local_model_full_epoch_parallel.json"
+    )
+    namespace["_require_configuration"](config)
+
+    assert config["deployment"] == {
+        "run_dir": (
+            "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill/"
+            "reflection-bridge-v27-no-local-model/runs/"
+            "11_ifbench_raw_feedback_k1_20260729_v27_no_local_model_"
+            "full_epoch_parallel"
+        )
+    }
+    assert config["remote_lm"]["n"] == 1
+    assert config["epoch_parallel"] == {
+        "enabled": True,
+        "max_candidate_workers": 50,
+        "max_reflection_workers": 50,
+    }
+    source = _RAW_ENTRY.read_text(encoding="utf-8")
+    assert "load_model_and_tokenizer" not in source
+    assert "ExactTokenOffloadedFlashTrace" not in source

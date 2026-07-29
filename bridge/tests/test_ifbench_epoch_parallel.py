@@ -21,17 +21,17 @@ from bridge.b14_flashtrace_token_ids import (
 )
 from bridge.b16_official_gepa_ifbench import (
     TerminalAnalysisDspyAdapter,
-    _proposal_sampling_strategy,
 )
 from bridge.b17_dspy_terminal_analysis import (
     DSPyParentAnalysisBuilder,
     DSPyTerminalAnalysisBridge,
 )
+from bridge.b20_compass_reflection import proposal_sampling_strategy
 from bridge.terminal_reflection import TerminalAnalysisUnavailableError
 
 
 def test_full_epoch_sampling_is_exactly_fifty_three_item_tasks() -> None:
-    strategy = _proposal_sampling_strategy(
+    strategy = proposal_sampling_strategy(
         trainset_size=150,
         minibatch_size=3,
         epoch_parallel_enabled=True,
@@ -65,14 +65,12 @@ def test_full_epoch_sampling_is_exactly_fifty_three_item_tasks() -> None:
     assert len(tasks) == 50
     assert all(len(task.minibatch_ids) == 3 for task in tasks)
     assert sorted(
-        instance_id
-        for task in tasks
-        for instance_id in task.minibatch_ids
+        instance_id for task in tasks for instance_id in task.minibatch_ids
     ) == list(range(150))
 
 
 def test_single_task_sampling_remains_the_default() -> None:
-    strategy = _proposal_sampling_strategy(
+    strategy = proposal_sampling_strategy(
         trainset_size=150,
         minibatch_size=3,
         epoch_parallel_enabled=False,

@@ -8,7 +8,6 @@ from numbers import Real
 from pathlib import Path
 from typing import Any, Protocol
 
-import dspy
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter
 from gepa import optimize
 from gepa.core.adapter import EvaluationBatch
@@ -20,14 +19,15 @@ from gepa.proposer.reflective_mutation.admission import (
 )
 from gepa.strategies.acceptance import StrictImprovementAcceptance
 from gepa.strategies.batch_sampler import EpochShuffledBatchSampler
-from gepa.strategies.proposal_sampling import (
-    IndependentSampling,
-    SingleMutationSampling,
-)
+from gepa.strategies.proposal_sampling import IndependentSampling
 from gepa.strategies.proposal_selection import AllImprovements
 from gepa_artifact.benchmarks.IFBench import (
     IFBenchCoT2StageProgram,
+)
+from gepa_artifact.benchmarks.IFBench import (
     feedback_fn_map as official_feedback_fn_map,
+)
+from gepa_artifact.benchmarks.IFBench import (
     metric as official_metric,
 )
 
@@ -42,6 +42,7 @@ from bridge.b19_reversible_parent_selection import (
 )
 from bridge.b20_compass_reflection import (
     SparseMinibatchEvaluationPolicy,
+    proposal_sampling_strategy,
     select_reference_program_idx,
 )
 from bridge.terminal_reflection import TerminalAnalysisUnavailableError
@@ -212,10 +213,7 @@ def canonical_ifbench_feedback_map(
 
         return canonical_feedback
 
-    return {
-        name: adapt(official_feedback_fn_map[name])
-        for name in predictor_names
-    }
+    return {name: adapt(official_feedback_fn_map[name]) for name in predictor_names}
 
 
 def _finite_score(score: Real) -> float:
@@ -276,10 +274,7 @@ class IFBenchAdmissionHook:
 
     def _stage_signatures(self, candidate: Mapping[str, str]) -> dict[str, Any]:
         program = self.adapter.build_program(dict(candidate))
-        predictors = {
-            name: predictor
-            for name, predictor in program.named_predictors()
-        }
+        predictors = {name: predictor for name, predictor in program.named_predictors()}
         expected = {
             "generate_response_module.predict",
             "ensure_correct_response_module.predict",
@@ -310,9 +305,7 @@ class IFBenchAdmissionHook:
         candidate = state.program_candidates[program_idx]
         evaluated = self.adapter.evaluate([instance], candidate, capture_traces=True)
         metric_calls = (
-            evaluated.num_metric_calls
-            if evaluated.num_metric_calls is not None
-            else 1
+            evaluated.num_metric_calls if evaluated.num_metric_calls is not None else 1
         )
         state.increment_evals(metric_calls)
         if len(evaluated.scores) != 1 or len(evaluated.outputs) != 1:
@@ -321,9 +314,7 @@ class IFBenchAdmissionHook:
             )
         if state.evaluation_cache is not None:
             objective_scores = (
-                list(evaluated.objective_scores)
-                if evaluated.objective_scores
-                else None
+                list(evaluated.objective_scores) if evaluated.objective_scores else None
             )
             state.evaluation_cache.put_batch(
                 candidate,
@@ -484,20 +475,6 @@ class OfficialIFBenchRun:
     result: Any
 
 
-def _proposal_sampling_strategy(
-    *,
-    trainset_size: int,
-    minibatch_size: int,
-    epoch_parallel_enabled: bool,
-) -> SingleMutationSampling | IndependentSampling:
-    if not epoch_parallel_enabled:
-        return SingleMutationSampling()
-    proposal_tasks = (trainset_size + minibatch_size - 1) // minibatch_size
-    if proposal_tasks <= 0:
-        raise ValueError("whole-epoch proposal sampling requires a non-empty trainset")
-    return IndependentSampling(proposal_tasks)
-
-
 def run_official_ifbench_engine(
     *,
     trainset: list[Any],
@@ -512,7 +489,7 @@ def run_official_ifbench_engine(
     feedback_map = canonical_ifbench_feedback_map(program)
     logger = Logger(str(config.run_dir / "run_log.txt"))
     terminal_proposal.set_logger(logger)
-    sampling_strategy = _proposal_sampling_strategy(
+    sampling_strategy = proposal_sampling_strategy(
         trainset_size=len(trainset),
         minibatch_size=config.reflection_minibatch_size,
         epoch_parallel_enabled=config.epoch_parallel_enabled,

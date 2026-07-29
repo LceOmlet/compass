@@ -21,7 +21,7 @@ For a skill, the task IDs in its own proposal batch and every transitive ancesto
 _Avoid_: admission exclusion, direct-parent exclusion
 
 **Final proposal candidate**:
-The single candidate remaining after terminal ranking and dependency gating; it is the only proposed child evaluated on the admission batch.
+The single proposed child evaluated on the admission batch. Terminal-analysis modes obtain it after their configured ranking and dependency gate; raw-feedback mode asks the official proposer for exactly one child directly.
 _Avoid_: admission candidate set, candidate batch
 
 **Teacher-forced proposal selection**:
@@ -31,3 +31,7 @@ _Avoid_: admission ranking
 **Single-candidate proposal selection**:
 A teacher-forcing-free proposal mode in which the official proposer produces one candidate and dependency gating determines whether it becomes the final proposal candidate.
 _Avoid_: unranked multi-candidate selection
+
+**Raw-feedback single-candidate proposal**:
+A no-local-model mode in which the official DSPy proposer consumes its ordinary reflective dataset and produces exactly one candidate. It performs neither FlashTrace credit nor dependency gating; admission still uses the independent admission batch and strict improvement.
+_Avoid_: disabled admission, local-model proposal

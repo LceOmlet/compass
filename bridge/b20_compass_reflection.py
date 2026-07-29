@@ -24,7 +24,10 @@ from gepa.proposer.reflective_mutation.admission import (
 from gepa.strategies.acceptance import StrictImprovementAcceptance
 from gepa.strategies.batch_sampler import EpochShuffledBatchSampler
 from gepa.strategies.candidate_selector import ParetoCandidateSelector
-from gepa.strategies.proposal_sampling import SingleMutationSampling
+from gepa.strategies.proposal_sampling import (
+    IndependentSampling,
+    SingleMutationSampling,
+)
 from gepa.strategies.proposal_selection import AllImprovements
 
 from bridge.b19_reversible_parent_selection import (
@@ -51,23 +54,28 @@ class SparseObservation:
 
 
 class SparseObservationDspyAdapter(DspyAdapter):
-    """Add sparse observation persistence and stable intra-batch concurrency."""
+    """Add sparse observation persistence and ordered whole-epoch concurrency."""
 
     _STATE_KEY = "compass_sparse_admission"
     _SCHEMA_VERSION = 1
 
-    def __init__(self, *args: Any, max_candidate_workers: int = 1, **kwargs: Any):
-        if (
-            isinstance(max_candidate_workers, bool)
-            or not isinstance(max_candidate_workers, int)
-            or max_candidate_workers <= 0
+    def __init__(
+        self,
+        *args: Any,
+        max_candidate_workers: int = 1,
+        max_reflection_workers: int = 1,
+        **kwargs: Any,
+    ):
+        for name, value in (
+            ("max_candidate_workers", max_candidate_workers),
+            ("max_reflection_workers", max_reflection_workers),
         ):
-            raise TypeError("max_candidate_workers must be a positive integer")
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise TypeError(f"{name} must be a positive integer")
         super().__init__(*args, **kwargs)
         self.max_candidate_workers = max_candidate_workers
-        self._observation_facts: dict[
-            tuple[int, Hashable], SparseObservation
-        ] = {}
+        self.max_reflection_workers = max_reflection_workers
+        self._observation_facts: dict[tuple[int, Hashable], SparseObservation] = {}
 
     def evaluate(
         self,
@@ -122,6 +130,53 @@ class SparseObservationDspyAdapter(DspyAdapter):
             raise RuntimeError("DSPy candidate batch returned an empty result slot")
         return [result for result in results if result is not None]
 
+    def propose_new_texts_batch(
+        self,
+        jobs: list[
+            tuple[
+                dict[str, str],
+                Mapping[str, Sequence[Mapping[str, Any]]],
+                list[str],
+            ]
+        ],
+    ) -> list[dict[str, str]]:
+        """Call the official DSPy proposer concurrently and restore task order."""
+
+        if not jobs:
+            return []
+
+        def propose(
+            job: tuple[
+                dict[str, str],
+                Mapping[str, Sequence[Mapping[str, Any]]],
+                list[str],
+            ],
+        ) -> dict[str, str]:
+            candidate, reflective_dataset, components = job
+            return dict(
+                self.propose_new_texts(
+                    candidate,
+                    dict(reflective_dataset),
+                    components,
+                )
+            )
+
+        if len(jobs) == 1 or self.max_reflection_workers == 1:
+            return [propose(job) for job in jobs]
+
+        results: list[dict[str, str] | None] = [None] * len(jobs)
+        workers = min(self.max_reflection_workers, len(jobs))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(propose, job): job_index
+                for job_index, job in enumerate(jobs)
+            }
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+        if any(result is None for result in results):
+            raise RuntimeError("DSPy reflection batch returned an empty result slot")
+        return [result for result in results if result is not None]
+
     def commit_program_observations(
         self,
         *,
@@ -141,7 +196,9 @@ class SparseObservationDspyAdapter(DspyAdapter):
         committed = set(committed_ids)
         unknown = committed.difference(ids)
         if unknown:
-            raise RuntimeError("official state committed an ID outside the evaluated batch")
+            raise RuntimeError(
+                "official state committed an ID outside the evaluated batch"
+            )
 
         for instance_id, output, raw_score, trajectory in zip(
             ids,
@@ -233,9 +290,7 @@ def select_reference_program_idx(
 ) -> int:
     """Select one history-fixed instance-frontier reference."""
 
-    owners = tuple(
-        sorted(state.program_at_pareto_front_valset.get(instance_id, ()))
-    )
+    owners = tuple(sorted(state.program_at_pareto_front_valset.get(instance_id, ())))
     if not owners:
         return sampled_parent_idx
 
@@ -252,19 +307,13 @@ def select_reference_program_idx(
             "an admission frontier owner has no evaluated instance exposure"
         )
     best_rate = max(rates.values())
-    rate_tied = tuple(
-        idx for idx in owners if rates.get(idx) == best_rate
-    )
+    rate_tied = tuple(idx for idx in owners if rates.get(idx) == best_rate)
     best_exposure = max(evaluation_count(state, idx) for idx in rate_tied)
     exact_tied = tuple(
-        idx
-        for idx in rate_tied
-        if evaluation_count(state, idx) == best_exposure
+        idx for idx in rate_tied if evaluation_count(state, idx) == best_exposure
     )
     return (
-        exact_tied[0]
-        if len(exact_tied) == 1
-        else rng.choice(tuple(sorted(exact_tied)))
+        exact_tied[0] if len(exact_tied) == 1 else rng.choice(tuple(sorted(exact_tied)))
     )
 
 
@@ -379,9 +428,7 @@ class MiniAdmissionHook:
                 )
 
             observed = ValsetEvaluation(
-                outputs_by_val_id=dict(
-                    zip(group_ids, evaluation.outputs, strict=True)
-                ),
+                outputs_by_val_id=dict(zip(group_ids, evaluation.outputs, strict=True)),
                 scores_by_val_id={
                     instance_id: _finite_score(score)
                     for instance_id, score in zip(
@@ -406,9 +453,7 @@ class MiniAdmissionHook:
                         instance_id,
                     )
                     is None
-                    and state.prog_candidate_val_subscores[program_idx].get(
-                        instance_id
-                    )
+                    and state.prog_candidate_val_subscores[program_idx].get(instance_id)
                     == score
                 ):
                     bind_ids.append(instance_id)
@@ -424,9 +469,9 @@ class MiniAdmissionHook:
                     program_idx,
                     instance_id,
                 )
-                current_score = state.prog_candidate_val_subscores[
-                    program_idx
-                ].get(instance_id)
+                current_score = state.prog_candidate_val_subscores[program_idx].get(
+                    instance_id
+                )
                 if fact is None or fact.score != current_score:
                     raise RuntimeError(
                         "official reference execution did not produce a "
@@ -495,9 +540,7 @@ class MiniAdmissionHook:
                 {
                     "parent_idx": parent_program_idx,
                     "admission_ids": list(ids),
-                    "reference_program_indices": list(
-                        reference_program_indices
-                    ),
+                    "reference_program_indices": list(reference_program_indices),
                     "reference_scores": list(eval_before.scores),
                 }
             )
@@ -609,6 +652,8 @@ class CompassReflectionEngineConfig:
     display_progress_bar: bool
     raise_on_exception: bool
     use_cloudpickle: bool
+    epoch_parallel_enabled: bool = False
+    max_reflection_workers: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -616,6 +661,22 @@ class CompassReflectionRun:
     result: Any
     adapter: SparseObservationDspyAdapter
     evaluation_policy: SparseMinibatchEvaluationPolicy
+
+
+def proposal_sampling_strategy(
+    *,
+    trainset_size: int,
+    minibatch_size: int,
+    epoch_parallel_enabled: bool,
+) -> SingleMutationSampling | IndependentSampling:
+    """Use one proposal task or one independent task per epoch minibatch."""
+
+    if not epoch_parallel_enabled:
+        return SingleMutationSampling()
+    proposal_tasks = (trainset_size + minibatch_size - 1) // minibatch_size
+    if proposal_tasks <= 0:
+        raise ValueError("whole-epoch proposal sampling requires a non-empty trainset")
+    return IndependentSampling(proposal_tasks)
 
 
 def run_compass_reflection_engine(
@@ -647,7 +708,23 @@ def run_compass_reflection_engine(
     sampler = EpochShuffledBatchSampler(
         minibatch_size=config.reflection_minibatch_size,
         rng=strategy_rng,
+        iteration_is_epoch=config.epoch_parallel_enabled,
     )
+    sampling_strategy = proposal_sampling_strategy(
+        trainset_size=len(trainset),
+        minibatch_size=config.reflection_minibatch_size,
+        epoch_parallel_enabled=config.epoch_parallel_enabled,
+    )
+    if config.epoch_parallel_enabled:
+        assert isinstance(sampling_strategy, IndependentSampling)
+        logger.log(
+            "Whole-epoch proposal wave enabled: "
+            f"trainset_size={len(trainset)}, "
+            f"minibatch_size={config.reflection_minibatch_size}, "
+            f"n_tasks={sampling_strategy.n}, "
+            f"max_candidate_workers={config.max_candidate_workers}, "
+            f"max_reflection_workers={config.max_reflection_workers}"
+        )
     adapter = SparseObservationDspyAdapter(
         student_module=program,
         metric_fn=metric_fn,
@@ -661,6 +738,7 @@ def run_compass_reflection_engine(
         reflection_minibatch_size=config.reflection_minibatch_size,
         raise_on_error=config.raise_on_exception,
         max_candidate_workers=config.max_candidate_workers,
+        max_reflection_workers=config.max_reflection_workers,
     )
     hook_class = (
         MiniAdmissionHook
@@ -716,7 +794,7 @@ def run_compass_reflection_engine(
         raise_on_exception=config.raise_on_exception,
         val_evaluation_policy=evaluation_policy,
         acceptance_criterion=StrictImprovementAcceptance(),
-        sampling_strategy=SingleMutationSampling(),
+        sampling_strategy=sampling_strategy,
         selection_strategy=AllImprovements(),
         reflection_strategy=None,
         admission_hook=admission_hook,
@@ -737,6 +815,7 @@ __all__ = [
     "SparseMinibatchEvaluationPolicy",
     "SparseObservation",
     "SparseObservationDspyAdapter",
+    "proposal_sampling_strategy",
     "run_compass_reflection_engine",
     "select_reference_program_idx",
 ]
