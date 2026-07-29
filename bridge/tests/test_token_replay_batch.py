@@ -145,6 +145,40 @@ def test_true_batch_preserves_candidate_rows_and_token_coordinates() -> None:
     assert call["logits_to_keep"].tolist() == [2, 4]
 
 
+def test_true_batch_computes_loss_one_candidate_row_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _DeterministicModel()
+    replay = _replay(model, max_batch_size=3)
+    original_cross_entropy = torch.nn.functional.cross_entropy
+    input_shapes: list[tuple[int, ...]] = []
+
+    def recorded_cross_entropy(
+        input: torch.Tensor,
+        target: torch.Tensor,
+        *args: Any,
+        **kwargs: Any,
+    ) -> torch.Tensor:
+        input_shapes.append(tuple(input.shape))
+        return original_cross_entropy(input, target, *args, **kwargs)
+
+    monkeypatch.setattr(
+        "bridge.b03_token_replay.F.cross_entropy",
+        recorded_cross_entropy,
+    )
+
+    scores = replay._packed_selected_log_likelihoods(
+        prompt_id_rows=((10, 11, 12), (13,), (14, 15)),
+        rollout_ids=(5, 6, 7),
+        positions=(0, 2),
+    )
+
+    assert len(scores) == 3
+    assert input_shapes == [(2, 32), (2, 32), (2, 32)]
+    assert len(model.calls) == 1
+    assert model.calls[0]["input_ids"].shape[0] == 3
+
+
 def test_true_batch_oom_propagates_without_fallback() -> None:
     model = _DeterministicModel(fail_on_batch=True)
     replay = _replay(model, max_batch_size=3)

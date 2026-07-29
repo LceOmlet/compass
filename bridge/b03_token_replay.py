@@ -339,11 +339,17 @@ class TokenReplayUtility:
                 dtype=torch.long,
                 device=logits.device,
             ).expand(len(prompt_id_rows), -1)
-            losses = F.cross_entropy(
-                logits.float().reshape(-1, logits.shape[-1]),
-                targets.reshape(-1),
-                reduction="none",
-            ).reshape(expected_shape)
+            # Preserve the true candidate-batched forward while avoiding one
+            # simultaneous FP32 copy of every candidate's selected logits.
+            loss_rows = [
+                F.cross_entropy(
+                    logits[index].float(),
+                    targets[index],
+                    reduction="none",
+                )
+                for index in range(len(prompt_id_rows))
+            ]
+            losses = torch.stack(loss_rows, dim=0)
         return tuple(
             tuple(float(value) for value in row)
             for row in (-losses).to(torch.float64).cpu().tolist()
