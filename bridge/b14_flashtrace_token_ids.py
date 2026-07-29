@@ -360,31 +360,37 @@ class ExactTokenOffloadedLLMIFRAttribution(
         assert sink is not None and thinking is not None
         if thinking[1] >= sink[0]:
             raise ValueError("thinking_span must precede and not overlap sink_span")
-        weights = self._active_external_sink_weights
-        weighted_scope = (
-            _weighted_first_sink_aggregate(
-                module=flashtrace_core,
-                official=_OFFICIAL_CORE_SINK_AGGREGATE,
-                expected_span=(len(state.prompt_ids) + sink[0], len(state.prompt_ids) + sink[1]),
-                external_weights=weights,
-            )
-            if weights is not None
-            else nullcontext()
-        )
         with (
             self._exact_token_scope(state),
             self._capture_lease_scope(capture_lease),
-            weighted_scope,
         ):
-            return super().calculate_ifr_multi_hop(
-                prompt,
-                target=target,
-                sink_span=sink,
-                thinking_span=thinking,
-                n_hops=1,
-                renorm_threshold=renorm_threshold,
-                observation_mask=observation_mask,
+            # Read request-local weights only after exact_token_scope owns the
+            # shared backend lock.  Otherwise an unweighted task can observe a
+            # concurrently bound upstream task's weights before it blocks.
+            weights = self._active_external_sink_weights
+            weighted_scope = (
+                _weighted_first_sink_aggregate(
+                    module=flashtrace_core,
+                    official=_OFFICIAL_CORE_SINK_AGGREGATE,
+                    expected_span=(
+                        len(state.prompt_ids) + sink[0],
+                        len(state.prompt_ids) + sink[1],
+                    ),
+                    external_weights=weights,
+                )
+                if weights is not None
+                else nullcontext()
             )
+            with weighted_scope:
+                return super().calculate_ifr_multi_hop(
+                    prompt,
+                    target=target,
+                    sink_span=sink,
+                    thinking_span=thinking,
+                    n_hops=1,
+                    renorm_threshold=renorm_threshold,
+                    observation_mask=observation_mask,
+                )
 
 
 class _ExactTokenOffloadedLLMIFRAttributionBoth(
@@ -477,33 +483,34 @@ class ExactTokenOffloadedFlashTrace(_WeightedSinkScopeMixin, OffloadedFlashTrace
         if getattr(self, "processor", None) is not None:
             raise RuntimeError("the exact token-ID credit facade is text-only")
 
-        engine = _ExactTokenOffloadedLLMIFRAttributionBoth(
-            self.model,
-            self.tokenizer,
-            generate_kwargs=self.generate_kwargs,
-            chunk_tokens=self.chunk_tokens,
-            sink_chunk_tokens=self.sink_chunk_tokens,
-            recompute_attention=True,
-            use_chat_template=False,
-        )
-        raw = engine.calculate_ifr_multi_hop_both_ids(
-            prompt,
-            prompt_ids=prompt_ids,
-            target=target,
-            generation_ids=generation_ids,
-            sink_span=output_span,
-            thinking_span=reasoning_span,
-            n_hops=1,
-            renorm_threshold=renorm_threshold,
-            sink_weights=self._active_external_sink_weights,
-            capture_lease=capture_lease,
-        )
-        return self._build_result(
-            raw,
-            method="flashtrace",
-            output_span=output_span,
-            reasoning_span=reasoning_span,
-        )
+        with _BACKEND_LOCK:
+            engine = _ExactTokenOffloadedLLMIFRAttributionBoth(
+                self.model,
+                self.tokenizer,
+                generate_kwargs=self.generate_kwargs,
+                chunk_tokens=self.chunk_tokens,
+                sink_chunk_tokens=self.sink_chunk_tokens,
+                recompute_attention=True,
+                use_chat_template=False,
+            )
+            raw = engine.calculate_ifr_multi_hop_both_ids(
+                prompt,
+                prompt_ids=prompt_ids,
+                target=target,
+                generation_ids=generation_ids,
+                sink_span=output_span,
+                thinking_span=reasoning_span,
+                n_hops=1,
+                renorm_threshold=renorm_threshold,
+                sink_weights=self._active_external_sink_weights,
+                capture_lease=capture_lease,
+            )
+            return self._build_result(
+                raw,
+                method="flashtrace",
+                output_span=output_span,
+                reasoning_span=reasoning_span,
+            )
 
 
 __all__ = [
