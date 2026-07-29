@@ -1,63 +1,17 @@
-diff --git a/dspy/evaluate/evaluate.py b/dspy/evaluate/evaluate.py
-index e42b98e..e43d310 100644
---- a/dspy/evaluate/evaluate.py
-+++ b/dspy/evaluate/evaluate.py
-@@ -78,6 +78,7 @@ class Evaluate:
-         display_table: bool | int = False,
-         max_errors: int | None = None,
-         provide_traceback: bool | None = None,
-+        straggler_limit: int = 3,
-         failure_score: float = 0.0,
-         save_as_csv: str | None = None,
-         save_as_json: str | None = None,
-@@ -94,6 +95,8 @@ class Evaluate:
-             max_errors (Optional[int]): The maximum number of errors to allow before
-                 stopping evaluation. If ``None``, inherits from ``dspy.settings.max_errors``.
-             provide_traceback (Optional[bool]): Whether to provide traceback information during evaluation.
-+            straggler_limit (int): Only resubmit stragglers when this many or fewer tasks remain.
-+                Set to zero to disable straggler resubmission.
-             failure_score (float): The default score to use if evaluation fails due to an exception.
-             save_as_csv (Optional[str]): The file name where the csv will be saved.
-             save_as_json (Optional[str]): The file name where the json will be saved.
-@@ -106,6 +109,7 @@ class Evaluate:
-         self.display_table = display_table
-         self.max_errors = max_errors
-         self.provide_traceback = provide_traceback
-+        self.straggler_limit = straggler_limit
-         self.failure_score = failure_score
-         self.save_as_csv = save_as_csv
-         self.save_as_json = save_as_json
-@@ -165,6 +169,7 @@ class Evaluate:
-             max_errors=(self.max_errors if self.max_errors is not None else dspy.settings.max_errors),
-             provide_traceback=self.provide_traceback,
-             compare_results=True,
-+            straggler_limit=self.straggler_limit,
-         )
- 
-         def process_item(example):
 diff --git a/dspy/teleprompt/bootstrap_trace.py b/dspy/teleprompt/bootstrap_trace.py
-index 2f0cc60..220ded6 100644
+index 2f0cc60..4feb830 100644
 --- a/dspy/teleprompt/bootstrap_trace.py
 +++ b/dspy/teleprompt/bootstrap_trace.py
-@@ -33,6 +33,7 @@ def bootstrap_trace_data(
-     metric: Callable | None = None,
-     num_threads: int | None = None,
-     raise_on_error=True,
-+    straggler_limit: int = 3,
-     capture_failed_parses=False,
-     failure_score: float = 0,
-     format_failure_score: float = -1,
-@@ -46,7 +47,8 @@ def bootstrap_trace_data(
+@@ -46,7 +46,7 @@ def bootstrap_trace_data(
          num_threads=num_threads,
          display_progress=True,
          provide_traceback=False,  # TODO(check with team)
 -        max_errors=len(dataset) * 10,  # TODO(check with team)
 +        max_errors=1 if raise_on_error else len(dataset) * 10,
-+        straggler_limit=straggler_limit,
          failure_score=failure_score,
      )
  
-@@ -87,7 +89,7 @@ def bootstrap_trace_data(
+@@ -87,7 +87,7 @@ def bootstrap_trace_data(
                      failed_pred = FailedPrediction(
                          completion_text=completion_str,
                          format_reward=format_failure_score
@@ -67,34 +21,31 @@ index 2f0cc60..220ded6 100644
                  else:
                      failed_pred = FailedPrediction(completion_text=completion_str, format_reward=format_failure_score)
 diff --git a/dspy/teleprompt/gepa/gepa_utils.py b/dspy/teleprompt/gepa/gepa_utils.py
-index dae7157..72b5b21 100644
+index dae7157..d00e1ca 100644
 --- a/dspy/teleprompt/gepa/gepa_utils.py
 +++ b/dspy/teleprompt/gepa/gepa_utils.py
-@@ -88,6 +88,8 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -88,6 +88,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
          custom_instruction_proposer: "ProposalFn | None" = None,
          warn_on_score_mismatch: bool = True,
          reflection_minibatch_size: int | None = None,
 +        raise_on_error: bool = False,
-+        straggler_limit: int = 3,
      ):
          self.student = student_module
          self.metric_fn = metric_fn
-@@ -100,6 +102,8 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -100,6 +101,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
          self.custom_instruction_proposer = custom_instruction_proposer
          self.warn_on_score_mismatch = warn_on_score_mismatch
          self.reflection_minibatch_size = reflection_minibatch_size
 +        self.raise_on_error = raise_on_error
-+        self.straggler_limit = straggler_limit
  
      def propose_new_texts(
          self,
-@@ -159,15 +163,45 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -159,15 +161,44 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
                  dataset=batch,
                  metric=self.metric_fn,
                  num_threads=self.num_threads,
 -                raise_on_error=False,
 +                raise_on_error=self.raise_on_error,
-+                straggler_limit=self.straggler_limit,
                  capture_failed_parses=True,
                  failure_score=self.failure_score,
                  format_failure_score=self.failure_score,
@@ -135,17 +86,16 @@ index dae7157..72b5b21 100644
                  outputs.append(t["prediction"])
                  if hasattr(t["prediction"], "__class__") and t.get("score") is None:
                      scores.append(self.failure_score)
-@@ -186,7 +220,8 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -186,7 +217,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
                  return_all_scores=True,
                  failure_score=self.failure_score,
                  provide_traceback=True,
 -                max_errors=len(batch) * 100,
 +                max_errors=1 if self.raise_on_error else len(batch) * 100,
-+                straggler_limit=self.straggler_limit,
                  callback_metadata=callback_metadata,
              )
              res = evaluator(program)
-@@ -334,4 +369,3 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -334,4 +365,3 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
                  raise TypeError("Unexpected output type from the base LM! Expected str or dict")
  
          return outputs
@@ -187,7 +137,7 @@ index f088dbc..994bdad 100644
          self.signature = signature
          self.lm_response = lm_response
 diff --git a/dspy/utils/parallelizer.py b/dspy/utils/parallelizer.py
-index b94c18c..407fd0e 100644
+index b94c18c..95c4e62 100644
 --- a/dspy/utils/parallelizer.py
 +++ b/dspy/utils/parallelizer.py
 @@ -110,7 +110,7 @@ class ParallelExecutor:
@@ -215,22 +165,6 @@ index b94c18c..407fd0e 100644
                                      nf = executor.submit(
                                          worker,
                                          parent_overrides,
-@@ -220,8 +220,13 @@ class ParallelExecutor:
-                 pbar.close()
- 
-         finally:
--            # Avoid waiting on leftover tasks that no longer matter
--            executor.shutdown(wait=False)
-+            # Do not leave worker threads running after the caller has observed
-+            # cancellation or completion. Pending work is discarded, while
-+            # already-running calls are allowed to finish before control
-+            # returns to the caller.
-+            for future in futures_set:
-+                future.cancel()
-+            executor.shutdown(wait=True, cancel_futures=True)
- 
-         if self.cancel_jobs.is_set():
-             logger.warning("Execution cancelled due to errors or interruption.")
 diff --git a/tests/utils/test_exceptions.py b/tests/utils/test_exceptions.py
 index 707ddea..ad22cb1 100644
 --- a/tests/utils/test_exceptions.py
@@ -266,42 +200,3 @@ index 707ddea..ad22cb1 100644
 +    assert restored.signature.output_fields == error.signature.output_fields
 +    assert restored.lm_response == error.lm_response
 +    assert restored.parsed_result == error.parsed_result
-diff --git a/tests/utils/test_parallelizer.py b/tests/utils/test_parallelizer.py
-index b83b5e4..a04b147 100644
---- a/tests/utils/test_parallelizer.py
-+++ b/tests/utils/test_parallelizer.py
-@@ -50,16 +50,23 @@ def test_parallel_execution_speed():
- 
- 
- def test_max_errors_handling():
-+    slow_task_finished = threading.Event()
-+
-     def task(item):
-+        if item == 1:
-+            time.sleep(0.1)
-+            slow_task_finished.set()
-+            return item
-         if item == 3:
-             raise ValueError("Intentional error")
-         return item
- 
-     data = [1, 2, 3, 4, 5]
--    executor = ParallelExecutor(num_threads=3, max_errors=1)
-+    executor = ParallelExecutor(num_threads=2, max_errors=1)
- 
--    with pytest.raises(Exception, match="Execution cancelled due to errors or interruption."):
-+    with pytest.raises(Exception, match=r"Execution cancelled due to errors or interruption."):
-         executor.execute(task, data)
-+    assert slow_task_finished.is_set()
- 
- 
- def test_max_errors_not_met():
-@@ -143,7 +150,7 @@ def test_sequential_max_errors_exceeded():
-     data = [1, 2, 3, 4, 5]
-     executor = ParallelExecutor(num_threads=1, max_errors=1)
- 
--    with pytest.raises(Exception, match="Execution cancelled due to errors or interruption."):
-+    with pytest.raises(Exception, match=r"Execution cancelled due to errors or interruption."):
-         executor.execute(task, data)
- 
- 

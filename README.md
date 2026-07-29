@@ -96,15 +96,6 @@ whole-epoch 中各 task 的官方反思与 candidate/admission evaluation 仍可
 随后按 task index 还原，并继续使用递归 `B_propose` exclusion、独立
 `B_admit` 与 `StrictImprovement`。v26 的冻结目录和 checkpoint 不会被改写。
 
-v32 保持远端 LM 单请求超时为 600 秒、DSPy/LiteLLM 重试为 0。任一任务失败
-后，epoch 并发层停止启动尚未开始的任务，取消仍可取消的 future，等待已经
-在途的调用结束，再把本轮作为整体抛弃；GEPA 不保存半轮 proposal/admission
-状态。双账号路由运行应通过 `scripts/run_ifbench_router.py` 启动。该入口用
-独立 POSIX 进程组持有训练和 LiteLLM，训练或代理退出后都会回收两侧进程；
-SIGTERM 宽限期结束仍未退出时会升级为 SIGKILL，并最终 `wait()`，避免遗留
-代理占用端口。所有 API key 和代理 key 只从环境变量读取，不进入命令行、
-配置或日志。
-
 生产启动前应在实际任务模型/设备上执行：
 
 ```bash
