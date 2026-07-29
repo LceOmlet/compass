@@ -99,3 +99,25 @@ def test_v28_retry_only_changes_the_unique_deployment_path() -> None:
     assert v28["deployment"]["run_dir"].endswith(
         "11_ifbench_raw_feedback_k1_20260729_v28_no_local_model_full_epoch_parallel"
     )
+
+
+def test_v29_retry_only_changes_the_unique_deployment_path() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    v28 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v28_raw_feedback_no_local_model_full_epoch_parallel.json"
+    )
+    v29 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v29_raw_feedback_no_local_model_full_epoch_parallel.json"
+    )
+    namespace["_require_configuration"](v29)
+
+    assert {key: value for key, value in v29.items() if key != "deployment"} == {
+        key: value for key, value in v28.items() if key != "deployment"
+    }
+    assert v29["deployment"]["run_dir"].endswith(
+        "11_ifbench_raw_feedback_k1_20260729_v29_no_local_model_full_epoch_parallel"
+    )
