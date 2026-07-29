@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -19,6 +20,7 @@ from bridge.paper_benchmark_registry import (
     canonical_feedback_map,
     load_official_benchmark_specs,
 )
+from bridge.siliconflow_lm import SiliconFlowLM
 
 CONFIG_KEYS = {
     "deployment": {"run_dir"},
@@ -60,13 +62,22 @@ CONFIG_KEYS = {
         "use_cloudpickle",
     },
 }
+OPTIONAL_CONFIG_KEYS = {
+    "remote_lm": {"rollout_timeout_seconds"},
+}
 
 
-def _exact_mapping(value: Any, name: str, keys: set[str]) -> dict[str, Any]:
+def _exact_mapping(
+    value: Any,
+    name: str,
+    keys: set[str],
+    *,
+    optional_keys: set[str] | None = None,
+) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError(f"{name} must be a JSON object")
     missing = keys.difference(value)
-    extra = set(value).difference(keys)
+    extra = set(value).difference(keys | (optional_keys or set()))
     if missing or extra:
         raise ValueError(
             f"{name} keys mismatch; missing={sorted(missing)}, extra={sorted(extra)}"
@@ -78,7 +89,12 @@ def load_config(path: Path) -> dict[str, dict[str, Any]]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     root = _exact_mapping(raw, "config", set(CONFIG_KEYS))
     return {
-        section: _exact_mapping(root[section], section, keys)
+        section: _exact_mapping(
+            root[section],
+            section,
+            keys,
+            optional_keys=OPTIONAL_CONFIG_KEYS.get(section),
+        )
         for section, keys in CONFIG_KEYS.items()
     }
 
@@ -117,6 +133,16 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
             raise ValueError(
                 f"remote_lm.{name} must equal the required value {expected!r}"
             )
+    rollout_timeout_seconds = remote.get("rollout_timeout_seconds")
+    if rollout_timeout_seconds is not None and (
+        isinstance(rollout_timeout_seconds, bool)
+        or not isinstance(rollout_timeout_seconds, (int, float))
+        or not math.isfinite(rollout_timeout_seconds)
+        or rollout_timeout_seconds <= 0
+    ):
+        raise TypeError(
+            "remote_lm.rollout_timeout_seconds must be a positive JSON number"
+        )
     for name, expected in required_official.items():
         if official[name] != expected:
             raise ValueError(
@@ -152,6 +178,33 @@ def _prepare_run_dir(run_dir: Path, *, resume_existing: bool) -> None:
         raise FileNotFoundError(
             f"resume run directory is missing the official GEPA checkpoint: {state_path}"
         )
+
+
+def _build_remote_lm(remote: Mapping[str, Any], *, api_key: str) -> dspy.LM:
+    lm_kwargs = {
+        "model": remote["model"],
+        "model_type": remote["model_type"],
+        "temperature": remote["temperature"],
+        "max_tokens": remote["max_tokens"],
+        "cache": remote["cache"],
+        "cache_in_memory": remote["cache_in_memory"],
+        "num_retries": remote["num_retries"],
+        "api_base": remote["api_base"],
+        "api_key": api_key,
+        "n": remote["n"],
+        "top_p": remote["top_p"],
+        "extra_body": {
+            "top_k": remote["top_k"],
+            "chat_template_kwargs": {"enable_thinking": remote["enable_thinking"]},
+        },
+    }
+    rollout_timeout_seconds = remote.get("rollout_timeout_seconds")
+    if rollout_timeout_seconds is None:
+        return dspy.LM(**lm_kwargs)
+    return SiliconFlowLM(
+        **lm_kwargs,
+        rollout_timeout_seconds=rollout_timeout_seconds,
+    )
 
 
 def main() -> int:
@@ -192,23 +245,7 @@ def main() -> int:
     run_dir = Path(deployment["run_dir"]).resolve()
     _prepare_run_dir(run_dir, resume_existing=args.resume_existing)
 
-    lm = dspy.LM(
-        model=remote["model"],
-        model_type=remote["model_type"],
-        temperature=remote["temperature"],
-        max_tokens=remote["max_tokens"],
-        cache=remote["cache"],
-        cache_in_memory=remote["cache_in_memory"],
-        num_retries=remote["num_retries"],
-        api_base=remote["api_base"],
-        api_key=api_key,
-        n=remote["n"],
-        top_p=remote["top_p"],
-        extra_body={
-            "top_k": remote["top_k"],
-            "chat_template_kwargs": {"enable_thinking": remote["enable_thinking"]},
-        },
-    )
+    lm = _build_remote_lm(remote, api_key=api_key)
     dspy.configure(lm=lm, adapter=ChatAdapter())
 
     spec = load_official_benchmark_specs()["ifbench"]

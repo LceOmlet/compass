@@ -35,3 +35,15 @@ _Avoid_: unranked multi-candidate selection
 **Raw-feedback single-candidate proposal**:
 A no-local-model mode in which the official DSPy proposer consumes its ordinary reflective dataset and produces exactly one candidate. It performs neither FlashTrace credit nor dependency gating; admission still uses the independent admission batch and strict improvement.
 _Avoid_: disabled admission, local-model proposal
+
+**Logical rollout**:
+One LM trajectory defined by an unchanged prompt, message history, and rollout identity. Re-attempts after TPM rate limiting remain part of the same rollout.
+_Avoid_: replacement trajectory, new rollout
+
+**TPM keepalive**:
+Indefinite waiting and re-attempting of a logical rollout after TPM rate limiting. It is not a rollout failure and has no cumulative waiting deadline.
+_Avoid_: bounded retry, failed rollout
+
+**True rollout failure**:
+A generation request that genuinely times out or a rollout that genuinely exceeds its configured generation bound. TPM rate limiting is not a true rollout failure.
+_Avoid_: TPM rate-limit event

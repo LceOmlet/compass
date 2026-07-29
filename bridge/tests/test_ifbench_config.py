@@ -3,7 +3,10 @@ from __future__ import annotations
 import runpy
 from pathlib import Path
 
+import dspy
 import pytest
+
+from bridge.siliconflow_lm import SiliconFlowLM
 
 _ROOT = Path(__file__).resolve().parents[2]
 _ENTRY = _ROOT / "experiments" / "11_ifbench_sparse_dependency_training.py"
@@ -74,6 +77,29 @@ def test_v27_raw_feedback_has_one_candidate_and_no_local_model_config() -> None:
         "max_candidate_workers": 50,
         "max_reflection_workers": 50,
     }
+    lm = namespace["_build_remote_lm"](config["remote_lm"], api_key="test-key")
+    assert type(lm) is dspy.LM
     source = _RAW_ENTRY.read_text(encoding="utf-8")
     assert "load_model_and_tokenizer" not in source
     assert "ExactTokenOffloadedFlashTrace" not in source
+
+
+def test_v34_rate_limit_keepalive_has_per_request_timeout() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    config = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v34_raw_feedback_rate_limit_retry.json"
+    )
+    namespace["_require_configuration"](config)
+
+    assert config["remote_lm"]["num_retries"] == 0
+    assert config["remote_lm"]["rollout_timeout_seconds"] == 600
+    assert config["epoch_parallel"] == {
+        "enabled": True,
+        "max_candidate_workers": 50,
+        "max_reflection_workers": 50,
+    }
+    lm = namespace["_build_remote_lm"](config["remote_lm"], api_key="test-key")
+    assert isinstance(lm, SiliconFlowLM)
+    assert lm.rollout_timeout_seconds == 600
