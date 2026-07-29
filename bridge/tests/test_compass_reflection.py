@@ -133,6 +133,42 @@ def test_candidate_batch_concurrency_restores_submission_order() -> None:
     assert [result.scores for result in results] == [[1.0], [2.0], [3.0]]
 
 
+def test_candidate_batch_preserves_failed_slot_without_resubmission() -> None:
+    adapter = _adapter()
+    calls: list[str] = []
+
+    def evaluate(
+        batch: list[Any],
+        candidate: dict[str, str],
+        capture_traces: bool = False,
+    ) -> EvaluationBatch:
+        assert capture_traces
+        calls.append(candidate["prompt"])
+        if candidate["prompt"] == "b":
+            raise TimeoutError("candidate timed out")
+        return EvaluationBatch(
+            outputs=[candidate["prompt"]],
+            scores=[float(batch[0])],
+            trajectories=[{"example": batch[0]}],
+        )
+
+    adapter.evaluate = evaluate  # type: ignore[method-assign]
+    results = adapter.batch_evaluate(
+        [
+            ({"prompt": "a"}, [1]),
+            ({"prompt": "b"}, [2]),
+            ({"prompt": "c"}, [3]),
+        ]
+    )
+
+    assert [result.outputs if result is not None else None for result in results] == [
+        ["a"],
+        None,
+        ["c"],
+    ]
+    assert sorted(calls) == ["a", "b", "c"]
+
+
 def test_raw_feedback_reflection_is_concurrent_and_restores_task_order() -> None:
     adapter = object.__new__(SparseObservationDspyAdapter)
     adapter.max_reflection_workers = 3
@@ -167,6 +203,43 @@ def test_raw_feedback_reflection_is_concurrent_and_restores_task_order() -> None
         {"prompt": "new-1"},
         {"prompt": "new-2"},
     ]
+
+
+def test_raw_feedback_reflection_preserves_failed_slot_without_resubmission() -> None:
+    adapter = object.__new__(SparseObservationDspyAdapter)
+    adapter.max_reflection_workers = 3
+    calls: list[str] = []
+
+    def propose_new_texts(
+        candidate: dict[str, str],
+        reflective_dataset: dict[str, list[dict[str, Any]]],
+        components_to_update: list[str],
+    ) -> dict[str, str]:
+        assert reflective_dataset["prompt"]
+        assert components_to_update == ["prompt"]
+        calls.append(candidate["prompt"])
+        if candidate["prompt"] == "1":
+            raise TimeoutError("reflection timed out")
+        return {"prompt": f"new-{candidate['prompt']}"}
+
+    adapter.propose_new_texts = propose_new_texts  # type: ignore[method-assign]
+    results = adapter.propose_new_texts_batch(
+        [
+            (
+                {"prompt": str(index)},
+                {"prompt": [{"input": index, "feedback": "revise"}]},
+                ["prompt"],
+            )
+            for index in range(3)
+        ]
+    )
+
+    assert results == [
+        {"prompt": "new-0"},
+        None,
+        {"prompt": "new-2"},
+    ]
+    assert sorted(calls) == ["0", "1", "2"]
 
 
 def test_raw_feedback_batch_uses_official_dspy_proposer_for_one_child() -> None:

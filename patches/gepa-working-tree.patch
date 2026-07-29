@@ -593,7 +593,7 @@ index 0000000..921f38f
 +        committed_ids=committed_ids,
 +    )
 diff --git a/src/gepa/proposer/reflective_mutation/reflective_mutation.py b/src/gepa/proposer/reflective_mutation/reflective_mutation.py
-index dc4f385..d16c6f1 100644
+index dc4f385..629ba73 100644
 --- a/src/gepa/proposer/reflective_mutation/reflective_mutation.py
 +++ b/src/gepa/proposer/reflective_mutation/reflective_mutation.py
 @@ -3,6 +3,8 @@
@@ -640,7 +640,24 @@ index dc4f385..d16c6f1 100644
  
          self.reflection_prompt_template = reflection_prompt_template
  
-@@ -172,11 +185,19 @@ class ReflectiveMutationProposer:
+@@ -162,7 +175,15 @@ class ReflectiveMutationProposer:
+ 
+     def _propose_texts_batch(
+         self, jobs: list[tuple[dict[str, str], Mapping[str, Sequence[Mapping[str, Any]]], list[str]]]
+-    ) -> list[tuple[dict[str, str], dict[str, str | list[dict[str, Any]]], dict[str, str], dict[str, Any]]]:
++    ) -> list[
++        tuple[
++            dict[str, str],
++            dict[str, str | list[dict[str, Any]]],
++            dict[str, str],
++            dict[str, Any],
++        ]
++        | None
++    ]:
+         """Propose new texts for many tasks, batching the reflection LM calls.
+ 
+         ReflectionLM implementations that provide ``reflect_many`` (e.g. the
+@@ -172,11 +193,22 @@ class ReflectiveMutationProposer:
          proposer or custom proposer owns the call, fall back to one invocation
          per task — their batching, if any, is their concern.
          """
@@ -658,14 +675,17 @@ index dc4f385..d16c6f1 100644
 +                        "adapter.propose_new_texts_batch returned "
 +                        f"{len(proposed)} results for {len(jobs)} jobs"
 +                    )
-+                return [(dict(texts), {}, {}, {}) for texts in proposed]
++                return [
++                    (dict(texts), {}, {}, {}) if texts is not None else None
++                    for texts in proposed
++                ]
 +            return [self.propose_new_texts(cand, refds, comps) for cand, refds, comps in jobs]
 +
 +        if self.custom_candidate_proposer is not None or self._reflection_lm is None:
              return [self.propose_new_texts(cand, refds, comps) for cand, refds, comps in jobs]
  
          reflect_many = getattr(self._reflection_lm, "reflect_many", None)
-@@ -206,19 +227,26 @@ class ReflectiveMutationProposer:
+@@ -206,19 +238,26 @@ class ReflectiveMutationProposer:
          """Like :meth:`_propose_texts_batch`, but isolates per-task failures.
  
          Returns ``None`` in the slot of any task whose reflection raised, so one
@@ -693,7 +713,61 @@ index dc4f385..d16c6f1 100644
                  except Exception as e2:
                      self.logger.log(f"Per-task reflection failed: {e2}")
                      out.append(None)
-@@ -344,6 +372,56 @@ class ReflectiveMutationProposer:
+@@ -228,8 +267,11 @@ class ReflectiveMutationProposer:
+     # Batch evaluate helper
+     # ------------------------------------------------------------------
+ 
+-    def _batch_evaluate(self, items: list[tuple[dict[str, str], list]]) -> list[EvaluationBatch]:
+-        """Evaluate (candidate, batch) pairs via the adapter's batch_evaluate or fallback."""
++    def _batch_evaluate(
++        self,
++        items: list[tuple[dict[str, str], list]],
++    ) -> list[EvaluationBatch | None]:
++        """Evaluate items in order; adapters may preserve a failed item as ``None``."""
+         batch_fn = getattr(self.adapter, "batch_evaluate", None)
+         if batch_fn is not None:
+             return batch_fn(items)
+@@ -304,11 +346,21 @@ class ReflectiveMutationProposer:
+             )
+ 
+         parent_evals = self._batch_evaluate(items)
+-        key_to_eval: dict[tuple[str, tuple], EvaluationBatch] = dict(zip(key_list, parent_evals, strict=True))
++        key_to_eval: dict[tuple[str, tuple], EvaluationBatch | None] = dict(
++            zip(key_list, parent_evals, strict=True)
++        )
++        for key, eval_curr in key_to_eval.items():
++            if eval_curr is None:
++                self.logger.log(
++                    f"Iteration {i}: Parent evaluation failed for minibatch "
++                    f"{list(key[1])}; skipping only the affected proposal task(s)."
++                )
+ 
+         # Fire evaluation end callbacks for each task
+         for task, key in zip(tasks, task_to_key, strict=True):
+             eval_curr = key_to_eval[key]
++            if eval_curr is None:
++                continue
+             notify_callbacks(
+                 self.callbacks,
+                 "on_evaluation_end",
+@@ -328,6 +380,7 @@ class ReflectiveMutationProposer:
+         total_parent_evals = sum(
+             e.num_metric_calls if e.num_metric_calls is not None else len(items[idx][1])
+             for idx, e in enumerate(parent_evals)
++            if e is not None
+         )
+         state.increment_evals(total_parent_evals)
+ 
+@@ -335,6 +388,8 @@ class ReflectiveMutationProposer:
+         if state.evaluation_cache is not None:
+             for task, key in zip(tasks, task_to_key, strict=True):
+                 eval_curr = key_to_eval[key]
++                if eval_curr is None:
++                    continue
+                 objective_scores_list = list(eval_curr.objective_scores) if eval_curr.objective_scores else None
+                 state.evaluation_cache.put_batch(
+                     task.parent_candidate,
+@@ -344,6 +399,58 @@ class ReflectiveMutationProposer:
                      objective_scores_list,
                  )
  
@@ -705,6 +779,8 @@ index dc4f385..d16c6f1 100644
 +        if self.admission_hook is not None:
 +            for task, key in zip(tasks, task_to_key, strict=True):
 +                eval_curr = key_to_eval[key]
++                if eval_curr is None:
++                    continue
 +                objective_scores = (
 +                    {
 +                        data_id: dict(eval_curr.objective_scores[idx])
@@ -750,7 +826,7 @@ index dc4f385..d16c6f1 100644
          # Trace: legacy first-task keys (pre-#329 tooling compatibility) plus
          # full per-task records — multi-task iterations record every task, not
          # just the first. Tasks that get skipped later simply never receive
-@@ -372,7 +450,9 @@ class ReflectiveMutationProposer:
+@@ -372,9 +479,14 @@ class ReflectiveMutationProposer:
          # Stage 3a: Build reflective datasets + fire pre-reflection callbacks (per task).
          # ``prepared`` holds one slot per task (None = skipped); ``jobs`` is the
          # subset that will reflect, in order, so the reflection LM can batch them.
@@ -760,8 +836,13 @@ index dc4f385..d16c6f1 100644
 +        ] = []
          for task, key in zip(tasks, task_to_key, strict=True):
              eval_curr = key_to_eval[key]
++            if eval_curr is None:
++                prepared.append(None)
++                continue
  
-@@ -433,6 +513,72 @@ class ReflectiveMutationProposer:
+             if not eval_curr.trajectories:
+                 self.logger.log(f"Iteration {i}: No trajectories for parent {task.parent_idx}. Skipping.")
+@@ -433,6 +545,72 @@ class ReflectiveMutationProposer:
                          dataset=reflective_dataset_concrete,
                      ),
                  )
@@ -834,7 +915,7 @@ index dc4f385..d16c6f1 100644
                  notify_callbacks(
                      self.callbacks,
                      "on_proposal_start",
-@@ -449,7 +595,7 @@ class ReflectiveMutationProposer:
+@@ -449,7 +627,7 @@ class ReflectiveMutationProposer:
                  prepared.append(None)
                  continue
  
@@ -843,7 +924,7 @@ index dc4f385..d16c6f1 100644
  
          # Stage 3b: Reflect across all prepared tasks — one batched LM call when the
          # reflection LM supports it (litellm.batch_completion), else per task.
-@@ -457,12 +603,14 @@ class ReflectiveMutationProposer:
+@@ -457,14 +635,20 @@ class ReflectiveMutationProposer:
          batch_texts = iter(self._propose_texts_batch_safe(jobs))
  
          # Stage 3c: Build each child candidate from its proposed texts.
@@ -859,8 +940,14 @@ index dc4f385..d16c6f1 100644
 +            task, eval_curr, _predictor_names, _reflective_dataset, admission_plan = p
              texts = next(batch_texts)
              if texts is None:
++                self.logger.log(
++                    f"Iteration {i}: Reflection failed for parent {task.parent_idx}; "
++                    "skipping only this proposal task."
++                )
                  children.append(None)
-@@ -519,30 +667,36 @@ class ReflectiveMutationProposer:
+                 continue
+             new_texts, prompts, raw_outputs, reflection_metadata = texts
+@@ -519,38 +703,58 @@ class ReflectiveMutationProposer:
                  assert name in new_candidate, f"{name} missing in candidate"
                  new_candidate[name] = text
  
@@ -902,25 +989,46 @@ index dc4f385..d16c6f1 100644
                      is_seed_candidate=False,
                  ),
              )
-@@ -550,7 +704,9 @@ class ReflectiveMutationProposer:
+ 
          child_evals = self._batch_evaluate(child_items)
++        completed_children = []
++        for item_index, (valid_child, child_eval) in enumerate(
++            zip(valid_children, child_evals, strict=True)
++        ):
++            if child_eval is None:
++                child_idx, (task, _candidate, _before, _metadata, _plan) = valid_child
++                self.logger.log(
++                    f"Iteration {i}: Child evaluation failed for task {child_idx} "
++                    f"(parent {task.parent_idx}); skipping only this proposal."
++                )
++                continue
++            completed_children.append((item_index, valid_child, child_eval))
  
          # Fire evaluation end callbacks for each child candidate
 -        for (_, (task, _new_candidate, _eval_curr, _meta)), child_eval in zip(valid_children, child_evals, strict=True):
-+        for (_, (task, _new_candidate, _eval_curr, _meta, _admission_plan)), child_eval in zip(
-+            valid_children, child_evals, strict=True
++        for _, (_, (task, _new_candidate, _eval_curr, _meta, _admission_plan)), child_eval in (
++            completed_children
 +        ):
              notify_callbacks(
                  self.callbacks,
                  "on_evaluation_end",
-@@ -575,28 +731,47 @@ class ReflectiveMutationProposer:
+@@ -568,64 +772,94 @@ class ReflectiveMutationProposer:
+             )
+ 
+         total_child_evals = sum(
+-            e.num_metric_calls if e.num_metric_calls is not None else len(child_items[idx][1])
+-            for idx, e in enumerate(child_evals)
++            child_eval.num_metric_calls
++            if child_eval.num_metric_calls is not None
++            else len(child_items[item_index][1])
++            for item_index, _, child_eval in completed_children
+         )
+         state.increment_evals(total_child_evals)
  
          # Update evaluation cache for children
          if state.evaluation_cache is not None:
 -            for (_, (task, new_candidate, _, _)), child_eval in zip(valid_children, child_evals, strict=True):
-+            for (_, (task, new_candidate, _, _, admission_plan)), child_eval in zip(
-+                valid_children, child_evals, strict=True
-+            ):
++            for _, (_, (task, new_candidate, _, _, admission_plan)), child_eval in completed_children:
                  new_obj_scores = list(child_eval.objective_scores) if child_eval.objective_scores else None
 +                evaluation_ids = (
 +                    list(admission_plan.evaluation_ids)
@@ -937,8 +1045,8 @@ index dc4f385..d16c6f1 100644
          if trace_tasks is not None:
 -            for (child_idx, (_task, _nc, eval_curr, _md)), child_eval in zip(valid_children, child_evals, strict=True):
 -                trace_tasks[child_idx]["subsample_scores"] = list(eval_curr.scores)
-+            for (child_idx, (_task, _nc, eval_curr, _md, admission_plan)), child_eval in zip(
-+                valid_children, child_evals, strict=True
++            for _, (child_idx, (_task, _nc, eval_curr, _md, admission_plan)), child_eval in (
++                completed_children
 +            ):
 +                eval_before = admission_plan.eval_before if admission_plan is not None else eval_curr
 +                trace_tasks[child_idx]["subsample_scores"] = list(eval_before.scores)
@@ -947,33 +1055,62 @@ index dc4f385..d16c6f1 100644
 +                    trace_tasks[child_idx]["admission_ids"] = list(admission_plan.evaluation_ids)
  
          # Log subsample scores for first task (trace compatibility)
-         if valid_children:
-             first_child_idx = valid_children[0][0]
-             first_child = children[first_child_idx]
-             if first_child is not None:
+-        if valid_children:
+-            first_child_idx = valid_children[0][0]
+-            first_child = children[first_child_idx]
+-            if first_child is not None:
 -                state.full_program_trace[-1]["subsample_scores"] = key_to_eval[task_to_key[first_child_idx]].scores
-+                first_eval_before = (
-+                    first_child[4].eval_before
-+                    if first_child[4] is not None
-+                    else key_to_eval[task_to_key[first_child_idx]]
-+                )
-+                state.full_program_trace[-1]["subsample_scores"] = first_eval_before.scores
-                 state.full_program_trace[-1]["new_subsample_scores"] = child_evals[0].scores
-+                if first_child[4] is not None:
-+                    state.full_program_trace[-1]["admission_ids"] = list(first_child[4].evaluation_ids)
- 
+-                state.full_program_trace[-1]["new_subsample_scores"] = child_evals[0].scores
+-
 -                subsample_before = sum(key_to_eval[task_to_key[first_child_idx]].scores)
-+                subsample_before = sum(first_eval_before.scores)
-                 subsample_after = sum(child_evals[0].scores)
-                 self.experiment_tracker.log_metrics(
-                     {
-@@ -612,20 +787,28 @@ class ReflectiveMutationProposer:
+-                subsample_after = sum(child_evals[0].scores)
+-                self.experiment_tracker.log_metrics(
+-                    {
+-                        # pre-#329 key names, kept for existing dashboards
+-                        "subsample_score": subsample_before,
+-                        "new_subsample_score": subsample_after,
+-                        "subsample/before": subsample_before,
+-                        "subsample/after": subsample_after,
+-                        "total_metric_calls": state.total_num_evals,
+-                    },
+-                    step=i,
++        if completed_children:
++            _, (
++                _first_child_idx,
++                (_task, _candidate, first_eval_curr, _metadata, first_admission_plan),
++            ), first_child_eval = completed_children[0]
++            first_eval_before = (
++                first_admission_plan.eval_before
++                if first_admission_plan is not None
++                else first_eval_curr
++            )
++            state.full_program_trace[-1]["subsample_scores"] = first_eval_before.scores
++            state.full_program_trace[-1]["new_subsample_scores"] = first_child_eval.scores
++            if first_admission_plan is not None:
++                state.full_program_trace[-1]["admission_ids"] = list(
++                    first_admission_plan.evaluation_ids
+                 )
  
++            subsample_before = sum(first_eval_before.scores)
++            subsample_after = sum(first_child_eval.scores)
++            self.experiment_tracker.log_metrics(
++                {
++                    # pre-#329 key names, kept for existing dashboards
++                    "subsample_score": subsample_before,
++                    "new_subsample_score": subsample_after,
++                    "subsample/before": subsample_before,
++                    "subsample/after": subsample_after,
++                    "total_metric_calls": state.total_num_evals,
++                },
++                step=i,
++            )
++
          # Stage 5: Build proposals and filter
          proposals: list[CandidateProposal] = []
 -        for (_, (task, new_candidate, eval_curr, _lm_metadata)), child_eval in zip(
-+        for (_, (task, new_candidate, eval_curr, _lm_metadata, admission_plan)), child_eval in zip(
-             valid_children, child_evals, strict=True
+-            valid_children, child_evals, strict=True
++        for _, (_, (task, new_candidate, eval_curr, _lm_metadata, admission_plan)), child_eval in (
++            completed_children
          ):
 +            eval_before = admission_plan.eval_before if admission_plan is not None else eval_curr
 +            evaluation_ids = (
@@ -1003,7 +1140,7 @@ index dc4f385..d16c6f1 100644
                  ),
                  eval_after=SubsampleEvaluation(
                      scores=child_eval.scores,
-@@ -635,6 +818,7 @@ class ReflectiveMutationProposer:
+@@ -635,6 +869,7 @@ class ReflectiveMutationProposer:
                  ),
                  tag="reflective_mutation",
                  metadata=_lm_metadata,
@@ -1520,7 +1657,7 @@ index e4c3593..70ae306 100644
      state.num_metric_calls_by_discovery.append(0)
  
 diff --git a/tests/test_reflection_lm.py b/tests/test_reflection_lm.py
-index 1bfb312..133cf8d 100644
+index 1bfb312..536c6e9 100644
 --- a/tests/test_reflection_lm.py
 +++ b/tests/test_reflection_lm.py
 @@ -3,6 +3,8 @@
@@ -1532,7 +1669,7 @@ index 1bfb312..133cf8d 100644
  from gepa.proposer.reflective_mutation.reflection_lm import (
      ReflectionLM,
      ReflectionProposal,
-@@ -214,6 +216,85 @@ def test_reflect_only_strategy_used_per_task_in_batch_path():
+@@ -214,6 +216,108 @@ def test_reflect_only_strategy_used_per_task_in_batch_path():
      assert [r[0] for r in results] == [{"c": "new_c"}, {"c": "new_c"}]
  
  
@@ -1556,6 +1693,29 @@ index 1bfb312..133cf8d 100644
 +        {"c": "new0"},
 +        {"c": "new1"},
 +    ]
++    adapter.propose_new_texts_batch.assert_called_once_with(jobs)
++    adapter.propose_new_texts.assert_not_called()
++
++
++def test_adapter_batch_proposal_preserves_failed_slots_without_retry():
++    from unittest.mock import MagicMock
++
++    adapter = MagicMock()
++    adapter.propose_new_texts = MagicMock()
++    adapter.propose_new_texts_batch = MagicMock(
++        return_value=[{"c": "new0"}, None, {"c": "new2"}]
++    )
++    proposer = _make_proposer(adapter=adapter, raise_on_exception=True)
++    jobs = [
++        ({"c": f"old{idx}"}, {"c": [{"feedback": f"f{idx}"}]}, ["c"])
++        for idx in range(3)
++    ]
++
++    results = proposer._propose_texts_batch_safe(jobs)
++
++    assert results[0] is not None and results[0][0] == {"c": "new0"}
++    assert results[1] is None
++    assert results[2] is not None and results[2][0] == {"c": "new2"}
 +    adapter.propose_new_texts_batch.assert_called_once_with(jobs)
 +    adapter.propose_new_texts.assert_not_called()
 +
@@ -1618,7 +1778,78 @@ index 1bfb312..133cf8d 100644
  # ---------------------------------------------------------------------------
  # H1: empty reflection output must not produce a phantom child
  # ---------------------------------------------------------------------------
-@@ -288,6 +369,174 @@ def test_nonempty_new_texts_still_produces_a_proposal():
+@@ -273,6 +377,70 @@ def _make_state():
+     return state
+ 
+ 
++def test_partial_parent_and_child_batches_keep_only_completed_proposals():
++    from unittest.mock import MagicMock
++
++    from gepa.core.adapter import EvaluationBatch
++    from gepa.strategies.proposal_sampling import SameParentSampling
++
++    def evaluation(label: str, score: float) -> EvaluationBatch:
++        return EvaluationBatch(
++            outputs=[label],
++            scores=[score],
++            trajectories=[{"label": label}],
++            objective_scores=None,
++            num_metric_calls=1,
++        )
++
++    adapter = MagicMock()
++    adapter.propose_new_texts = None
++    adapter.batch_evaluate = MagicMock(
++        side_effect=[
++            [
++                evaluation("parent-0", 0.2),
++                None,
++                evaluation("parent-2", 0.3),
++            ],
++            [
++                evaluation("child-0", 0.8),
++                None,
++            ],
++        ]
++    )
++    adapter.make_reflective_dataset = MagicMock(
++        return_value={"c": [{"feedback": "revise"}]}
++    )
++
++    batch_sampler = MagicMock()
++    batch_sampler.next_minibatch_ids = MagicMock(
++        side_effect=[[0], [1], [2]]
++    )
++    candidate_selector = MagicMock()
++    candidate_selector.select_candidate_idx.return_value = 0
++
++    proposer = _make_proposer(
++        adapter=adapter,
++        candidate_selector=candidate_selector,
++        batch_sampler=batch_sampler,
++        module_selector=MagicMock(return_value=["c"]),
++        trainset=[{"q": 0}, {"q": 1}, {"q": 2}],
++        reflection_strategy=_FixedProposalLM({"c": "improved"}),
++        sampling_strategy=SameParentSampling(3),
++        raise_on_exception=True,
++    )
++    state = _make_state()
++
++    proposals = proposer.propose(state)
++
++    assert len(proposals) == 1
++    assert proposals[0].subsample_indices == [0]
++    assert proposals[0].subsample_scores_after == [0.8]
++    assert adapter.batch_evaluate.call_count == 2
++    assert len(adapter.batch_evaluate.call_args_list[0].args[0]) == 3
++    assert len(adapter.batch_evaluate.call_args_list[1].args[0]) == 2
++    assert state.total_num_evals == 4
++
++
+ def test_empty_new_texts_skips_child_without_evaluating_it():
+     proposer, adapter = _make_propose_harness(_FixedProposalLM({}))
+     proposals = proposer.propose(_make_state())
+@@ -288,6 +456,174 @@ def test_nonempty_new_texts_still_produces_a_proposal():
      assert len(proposals) == 1
      assert proposals[0].candidate["c"] == "improved"
      assert adapter.batch_evaluate.call_count == 2  # parent stage + child stage

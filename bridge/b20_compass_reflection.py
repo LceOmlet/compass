@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import random
 from collections import defaultdict
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from numbers import Real
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter
 from gepa import optimize
@@ -38,10 +39,29 @@ from bridge.b19_reversible_parent_selection import (
 )
 
 DataId = Hashable
+BatchItemT = TypeVar("BatchItemT")
 ReflectionCondition = Literal[
     "mini_admission_reflection",
     "compass_reflection",
 ]
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _run_batch_item(
+    operation: Callable[..., BatchItemT],
+    *args: Any,
+    stage: str,
+) -> BatchItemT | None:
+    """Return one batch item result, preserving an ordinary failure as an empty slot."""
+
+    try:
+        return operation(*args)
+    except MemoryError:
+        raise
+    except Exception:
+        _LOGGER.exception("%s item failed; this item will not be submitted", stage)
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,14 +120,20 @@ class SparseObservationDspyAdapter(DspyAdapter):
     def batch_evaluate(
         self,
         items: list[tuple[dict[str, str], list[Any]]],
-    ) -> list[EvaluationBatch]:
-        """Evaluate independent candidate/batch items and restore input order."""
+    ) -> list[EvaluationBatch | None]:
+        """Evaluate independent items, preserving failed positions without resubmission."""
 
         if not items:
             return []
         if len(items) == 1 or self.max_candidate_workers == 1:
             return [
-                self.evaluate(batch, candidate, capture_traces=True)
+                _run_batch_item(
+                    self.evaluate,
+                    batch,
+                    candidate,
+                    True,
+                    stage="DSPy candidate evaluation",
+                )
                 for candidate, batch in items
             ]
 
@@ -116,19 +142,19 @@ class SparseObservationDspyAdapter(DspyAdapter):
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(
+                    _run_batch_item,
                     self.evaluate,
                     batch,
                     candidate,
                     True,
+                    stage="DSPy candidate evaluation",
                 ): item_index
                 for item_index, (candidate, batch) in enumerate(items)
             }
             for future in as_completed(futures):
                 item_index = futures[future]
                 results[item_index] = future.result()
-        if any(result is None for result in results):
-            raise RuntimeError("DSPy candidate batch returned an empty result slot")
-        return [result for result in results if result is not None]
+        return results
 
     def propose_new_texts_batch(
         self,
@@ -139,8 +165,8 @@ class SparseObservationDspyAdapter(DspyAdapter):
                 list[str],
             ]
         ],
-    ) -> list[dict[str, str]]:
-        """Call the official DSPy proposer concurrently and restore task order."""
+    ) -> list[dict[str, str] | None]:
+        """Call the official DSPy proposer once per job and preserve failed slots."""
 
         if not jobs:
             return []
@@ -162,20 +188,30 @@ class SparseObservationDspyAdapter(DspyAdapter):
             )
 
         if len(jobs) == 1 or self.max_reflection_workers == 1:
-            return [propose(job) for job in jobs]
+            return [
+                _run_batch_item(
+                    propose,
+                    job,
+                    stage="DSPy reflection",
+                )
+                for job in jobs
+            ]
 
         results: list[dict[str, str] | None] = [None] * len(jobs)
         workers = min(self.max_reflection_workers, len(jobs))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(propose, job): job_index
+                executor.submit(
+                    _run_batch_item,
+                    propose,
+                    job,
+                    stage="DSPy reflection",
+                ): job_index
                 for job_index, job in enumerate(jobs)
             }
             for future in as_completed(futures):
                 results[futures[future]] = future.result()
-        if any(result is None for result in results):
-            raise RuntimeError("DSPy reflection batch returned an empty result slot")
-        return [result for result in results if result is not None]
+        return results
 
     def commit_program_observations(
         self,
