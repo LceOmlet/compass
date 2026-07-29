@@ -16,9 +16,11 @@ COMPASS optimizer semantics.
   `3593`, PUPA `2426`, AIME-2025 `1839`, LiveBench-Math `1839`.
 - Qwen task/reflection model: Qwen3-8B.
 - GPT task/reflection model: GPT-4.1 Mini.
-- `B_propose` and `B_admit` remain disjoint and ordered. Only independent
-  instances inside one batch, and the three teacher-forcing candidates for one
-  frozen rollout, may execute concurrently. Optimizer iterations never overlap.
+- `B_propose` and `B_admit` remain disjoint and task-indexed. One optimizer
+  iteration samples a complete shuffled-epoch proposal wave from its pre-wave
+  skill pool; independent evaluations, reflections, and teacher-forcing
+  candidates may execute concurrently. Results return to task order before
+  official selection and state commits, and optimizer iterations never overlap.
 - Credit-guided proposal selection keeps `n_candidates=3`, one true
   teacher-forcing batch of size three, and the existing dependency gate.
 - Final program selection is the existing optimizer rule: maximum clean

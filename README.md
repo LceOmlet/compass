@@ -55,9 +55,9 @@ bash scripts/prepare-upstreams.sh
 CUDA 依赖。入口默认要求 run 目录此前不存在；只有显式传入
 `--resume-existing` 时才会接受已存在且含官方 `gepa_state.bin` 的目录。
 
-## 批内并发与 teacher forcing
+## 并发与 teacher forcing
 
-配置 `11_ifbench_siliconflow_sparse_single_gpu_v17_batched_tf.json` 保持
+历史配置 `11_ifbench_siliconflow_sparse_single_gpu_v17_batched_tf.json` 保持
 `B_propose/B_admit` 各 3 个实例、`n_candidates=3`，并显式设置：
 
 - `official_gepa.num_threads=32`：DSPy 只在当前批的实例内并发；每批实际最多
@@ -81,6 +81,13 @@ CUDA 依赖。入口默认要求 run 目录此前不存在；只有显式传入
 并发保持不变。历史配置若只有 `n_candidates` 字段，会继续按原有的顺序 TF
 （batch size 1）解释。
 
+v22–v26 配置进一步启用 whole-epoch proposal wave：一个有序 GEPA iteration
+从同一个 wave 起点采样完整 shuffled epoch 的 proposal/admission 任务，独立
+实例、候选和 reflection 调用可以并发；结果按 task index 还原后，仍由官方
+GEPA selection/state transition 顺序提交。不同 optimizer iteration 不重叠。
+v26 关闭 teacher forcing，保持 `n_candidates=1`，并从其原 checkpoint 在冻结
+旧代码和旧配置下续跑。
+
 生产启动前应在实际任务模型/设备上执行：
 
 ```bash
@@ -92,5 +99,16 @@ python scripts/validate-token-replay-batch.py \
 排名，拒绝非有限值，但不把两种执行形状的数值或排名差异判为错位。候选行、
 mask、position 和 credited-token 坐标由接口测试严格验证。v17/v18 目前仅
 保存为配置，仓库操作不会自动启动实验。
+
+## Proposal-lineage exclusion 与 checkpoint 兼容
+
+新 schema-v7 状态对 skill `k` 使用递归 proposal-lineage exclusion：
+`X_k` 是 `k` 自身及全部传递祖先的 `B_propose` ID 并集。`B_admit` 不属于
+该排除集；除非同一 task ID 后来出现在谱系的 `B_propose`，admission 证据仍
+可进入 clean `F/E`、实例 frontier 和 reference ownership。
+
+带有旧 direct-parent 排除语义的 schema-v6 自定义 checkpoint 会被新代码
+拒绝加载，避免一次 run 在 resume 时静默更换算法。v26 不迁移 checkpoint，
+只由冻结的 schema-v6 代码和原配置继续完成；新递归实现用于之后新建的 run。
 
 快照状态和代码/产物边界见 `docs/snapshot-20260728.md`。

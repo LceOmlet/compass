@@ -12,9 +12,13 @@ _Avoid_: mini train val, validation batch
 The training-instance batch on which the final proposed child is compared with its bound references for admission.
 _Avoid_: mini train val, validation batch
 
-**Intra-batch concurrency**:
-Concurrent evaluation of independent instances or candidates belonging to one proposal or admission batch; optimizer iterations remain ordered and do not overlap.
-_Avoid_: epoch concurrency, concurrent iterations
+**Whole-epoch proposal wave**:
+One ordered optimizer iteration whose proposal/admission tasks cover one shuffled training epoch and may execute concurrently from the same pre-wave skill pool.
+_Avoid_: concurrent optimizer iterations, intra-batch-only concurrency
+
+**Proposal-lineage exclusion**:
+For a skill, the task IDs in its own proposal batch and every transitive ancestor's proposal batch; these IDs are excluded from its clean frontier evidence. Admission batches are not part of this exclusion.
+_Avoid_: admission exclusion, direct-parent exclusion
 
 **Final proposal candidate**:
 The single candidate remaining after terminal ranking and dependency gating; it is the only proposed child evaluated on the admission batch.

@@ -515,7 +515,7 @@ class MiniAdmissionHook:
 
 
 class CleanMiniAdmissionHook(MiniAdmissionHook):
-    """Add the frozen two-generation birth exclusion to mini-admission."""
+    """Exclude the prospective child's recursive ``B_propose`` lineage."""
 
     def frontier_ineligible_ids(
         self,

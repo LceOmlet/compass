@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0002
+---
+
 # Bound concurrency to one IFBench evaluation batch
 
 IFBench optimizer iterations remain ordered because parent selection, frontier evidence, and admission depend on the preceding state transition. Within one iteration, each three-instance proposal or admission batch is evaluated concurrently; teacher-forced selection scores three candidates in one GPU tensor batch, while disabling teacher forcing restores the official single-candidate proposal and retains dependency gating. Only the final candidate reaches admission, and a batch-three OOM fails the run instead of silently changing its experimental condition.
