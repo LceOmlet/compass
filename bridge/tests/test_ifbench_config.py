@@ -7,6 +7,7 @@ import dspy
 import pytest
 import yaml
 
+from bridge.b20_compass_reflection import CompassReflectionEngineConfig
 from bridge.siliconflow_lm import SiliconFlowLM
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -175,6 +176,69 @@ def test_v36_unconditional_admission_only_changes_acceptance_and_run_dir() -> No
         for key, value in v36["official_gepa"].items()
         if key != "acceptance_mode"
     } == v35["official_gepa"]
+
+
+def test_high_resolution_parent_selection_is_the_engine_default() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    config = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v35_dual_account_rate_limit_failover.json"
+    )
+    config["parent_selection"].pop("mode")
+
+    namespace["_require_configuration"](config)
+
+    assert "mode" not in config["parent_selection"]
+    assert (
+        CompassReflectionEngineConfig.__dataclass_fields__[
+            "parent_selection_score_mode"
+        ].default
+        == "high_resolution"
+    )
+
+
+def test_v37_and_v38_only_add_high_resolution_mode_and_acceptance_choice() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    v36 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v36_unconditional_admission_local.json"
+    )
+    v37 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v37_high_resolution_selection_strict_local.json"
+    )
+    v38 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v38_high_resolution_selection_always_accept_local.json"
+    )
+    for config in (v36, v37, v38):
+        namespace["_require_configuration"](config)
+
+    assert v37["parent_selection"] == v38["parent_selection"] == {
+        "top_n": 5,
+        "mode": "high_resolution",
+    }
+    assert v37["official_gepa"]["acceptance_mode"] == "strict_improvement"
+    assert v38["official_gepa"]["acceptance_mode"] == "always_accept"
+    assert v37["remote_lm"] == v38["remote_lm"] == v36["remote_lm"]
+    assert v37["epoch_parallel"] == v38["epoch_parallel"] == v36["epoch_parallel"]
+    assert {
+        key: value
+        for key, value in v37["official_gepa"].items()
+        if key != "acceptance_mode"
+    } == {
+        key: value
+        for key, value in v38["official_gepa"].items()
+        if key != "acceptance_mode"
+    } == {
+        key: value
+        for key, value in v36["official_gepa"].items()
+        if key != "acceptance_mode"
+    }
 
 
 def test_v35_router_uses_official_least_busy_rate_limit_failover() -> None:

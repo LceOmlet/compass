@@ -33,6 +33,7 @@ from gepa.strategies.proposal_selection import AllImprovements
 
 from bridge.b19_reversible_parent_selection import (
     ReversibleMaskedExposureCorrectedCandidateSelector,
+    SelectionScoreMode,
     evaluation_count,
     frontier_count,
     frontier_rate,
@@ -708,6 +709,7 @@ class CompassReflectionEngineConfig:
     display_progress_bar: bool
     raise_on_exception: bool
     use_cloudpickle: bool
+    parent_selection_score_mode: SelectionScoreMode = "high_resolution"
     epoch_parallel_enabled: bool = False
     max_reflection_workers: int = 1
     acceptance_mode: AcceptanceMode = "strict_improvement"
@@ -819,6 +821,7 @@ def run_compass_reflection_engine(
             _NoOpCandidatePoolObserver(),
             logger,
             top_n=config.parent_top_n,
+            score_mode=config.parent_selection_score_mode,
         )
     evaluation_policy = SparseMinibatchEvaluationPolicy()
 

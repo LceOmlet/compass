@@ -8,6 +8,11 @@ import pytest
 
 from bridge.b19_reversible_parent_selection import (
     ReversibleMaskedExposureCorrectedCandidateSelector,
+    evaluation_count,
+    frontier_count,
+    frontier_rate,
+    high_resolution_frontier_credits,
+    high_resolution_selection_rate,
     parent_selection_snapshot,
     selection_active_parent_rates,
 )
@@ -79,6 +84,24 @@ def _set_rate(
     assert state.is_consistent()
 
 
+def _state_with_fronts(
+    fronts: list[set[int]],
+    *,
+    candidate_count: int,
+    parents: list[list[int | None]],
+) -> GEPAState:
+    state = _state(
+        [(0, len(fronts)) for _ in range(candidate_count)],
+        parents,
+    )
+    state.program_at_pareto_front_valset = {
+        data_id: set(front)
+        for data_id, front in enumerate(fronts)
+    }
+    assert state.is_consistent()
+    return state
+
+
 @pytest.mark.parametrize(
     ("rates", "parents", "expected"),
     [
@@ -106,7 +129,11 @@ def test_reversible_ancestor_mask_uses_transitive_descendants_only(
 ) -> None:
     state = _state(rates, parents)
 
-    active = selection_active_parent_rates(state, top_n=5)
+    active = selection_active_parent_rates(
+        state,
+        top_n=5,
+        score_mode="raw_frontier_rate",
+    )
 
     assert set(active) == expected
 
@@ -141,7 +168,11 @@ def test_ancestor_mask_precedes_tie_inclusive_global_top_five() -> None:
         ],
     )
 
-    active = selection_active_parent_rates(state, top_n=5)
+    active = selection_active_parent_rates(
+        state,
+        top_n=5,
+        score_mode="raw_frontier_rate",
+    )
 
     assert active == {
         1: Fraction(9, 10),
@@ -159,10 +190,22 @@ def test_both_masks_recompute_from_current_official_state() -> None:
         [(8, 10), (3, 3)],
         [[None], [0]],
     )
-    assert set(selection_active_parent_rates(lineage_state, top_n=5)) == {1}
+    assert set(
+        selection_active_parent_rates(
+            lineage_state,
+            top_n=5,
+            score_mode="raw_frontier_rate",
+        )
+    ) == {1}
 
     _set_rate(lineage_state, 1, frontiers=4, exposure=6)
-    assert set(selection_active_parent_rates(lineage_state, top_n=5)) == {
+    assert set(
+        selection_active_parent_rates(
+            lineage_state,
+            top_n=5,
+            score_mode="raw_frontier_rate",
+        )
+    ) == {
         0,
         1,
     }
@@ -171,7 +214,13 @@ def test_both_masks_recompute_from_current_official_state() -> None:
         [(1, 10), (9, 10), (8, 10), (7, 10), (6, 10), (5, 10), (4, 10)],
         [[None], [0], [0], [0], [0], [0], [0]],
     )
-    assert set(selection_active_parent_rates(top_state, top_n=5)) == {
+    assert set(
+        selection_active_parent_rates(
+            top_state,
+            top_n=5,
+            score_mode="raw_frontier_rate",
+        )
+    ) == {
         1,
         2,
         3,
@@ -180,7 +229,13 @@ def test_both_masks_recompute_from_current_official_state() -> None:
     }
 
     _set_rate(top_state, 5, frontiers=3, exposure=10)
-    assert set(selection_active_parent_rates(top_state, top_n=5)) == {
+    assert set(
+        selection_active_parent_rates(
+            top_state,
+            top_n=5,
+            score_mode="raw_frontier_rate",
+        )
+    ) == {
         1,
         2,
         3,
@@ -253,6 +308,7 @@ def test_selector_samples_only_from_the_recomputed_active_set() -> None:
         observer,  # type: ignore[arg-type]
         _Logger(),
         top_n=5,
+        score_mode="raw_frontier_rate",
     )
 
     selected = selector.select_candidate_idx(state)
@@ -285,12 +341,192 @@ def test_parent_selection_snapshot_exposes_lineage_and_boundary_ties() -> None:
         [[None], [0], [0], [0], [0], [0], [0], [0], [0]],
     )
 
-    snapshot = parent_selection_snapshot(state, top_n=5)
+    snapshot = parent_selection_snapshot(
+        state,
+        top_n=5,
+        score_mode="raw_frontier_rate",
+    )
 
     assert snapshot.lineage_active == (1, 2, 3, 4, 5, 6, 7, 8)
     assert snapshot.selection_active == (1, 2, 3, 4, 5, 6, 7)
     assert snapshot.top_n_cutoff == Fraction(5, 10)
-    assert selection_active_parent_rates(state, top_n=5) == {
+    assert selection_active_parent_rates(
+        state,
+        top_n=5,
+        score_mode="raw_frontier_rate",
+    ) == {
         idx: snapshot.rates[idx]
         for idx in snapshot.selection_active
     }
+
+
+def test_high_resolution_credit_conserves_one_unit_per_nonempty_front() -> None:
+    state = _state(
+        [(4, 4), (3, 4), (2, 4)],
+        [[None], [0], [0]],
+    )
+
+    credits = high_resolution_frontier_credits(state)
+
+    assert credits == {
+        0: Fraction(13, 6),
+        1: Fraction(7, 6),
+        2: Fraction(2, 3),
+    }
+    assert sum(credits.values(), Fraction(0)) == 4
+    assert high_resolution_selection_rate(state, 0) == Fraction(13, 24)
+    assert high_resolution_selection_rate(state, 1) == Fraction(7, 24)
+    assert high_resolution_selection_rate(state, 2) == Fraction(1, 6)
+
+
+def test_high_resolution_is_default_and_raw_rate_remains_available() -> None:
+    state = _state(
+        [(4, 4), (3, 4), (2, 4)],
+        [[None], [0], [0]],
+    )
+
+    default_snapshot = parent_selection_snapshot(state, top_n=5)
+    explicit_snapshot = parent_selection_snapshot(
+        state,
+        top_n=5,
+        score_mode="high_resolution",
+    )
+    raw_snapshot = parent_selection_snapshot(
+        state,
+        top_n=5,
+        score_mode="raw_frontier_rate",
+    )
+
+    assert default_snapshot == explicit_snapshot
+    assert default_snapshot.rates == {
+        0: Fraction(13, 24),
+        1: Fraction(7, 24),
+        2: Fraction(1, 6),
+    }
+    assert default_snapshot.raw_rates == {
+        0: Fraction(1, 1),
+        1: Fraction(3, 4),
+        2: Fraction(1, 2),
+    }
+    assert raw_snapshot.rates == raw_snapshot.raw_rates
+    assert raw_snapshot.high_resolution_credits == {}
+
+
+def test_default_selector_samples_proportional_to_high_resolution_rate() -> None:
+    state = _state(
+        [(4, 4), (3, 4), (2, 4)],
+        [[None], [0], [0]],
+    )
+    core_before = deepcopy(
+        (
+            state.program_candidates,
+            state.parent_program_for_candidate,
+            state.prog_candidate_val_subscores,
+            state.program_at_pareto_front_valset,
+        )
+    )
+    raw_before = {
+        candidate_idx: (
+            frontier_count(state, candidate_idx),
+            evaluation_count(state, candidate_idx),
+            frontier_rate(state, candidate_idx),
+        )
+        for candidate_idx in range(3)
+    }
+    state.full_program_trace.append({"i": 0})
+    rng = _RecordingRandom()
+    logger = _Logger()
+    selector = ReversibleMaskedExposureCorrectedCandidateSelector(
+        rng,  # type: ignore[arg-type]
+        _Observer(),  # type: ignore[arg-type]
+        logger,
+        top_n=5,
+    )
+
+    selected = selector.select_candidate_idx(state)
+
+    assert selected == 2
+    assert rng.population == [0, 1, 2]
+    assert rng.weights == pytest.approx([13 / 24, 7 / 24, 1 / 6])
+    assert core_before == (
+        state.program_candidates,
+        state.parent_program_for_candidate,
+        state.prog_candidate_val_subscores,
+        state.program_at_pareto_front_valset,
+    )
+    assert raw_before == {
+        candidate_idx: (
+            frontier_count(state, candidate_idx),
+            evaluation_count(state, candidate_idx),
+            frontier_rate(state, candidate_idx),
+        )
+        for candidate_idx in range(3)
+    }
+    assert "score_mode=high_resolution" in logger.messages[-1]
+    assert "F_over_E=" in logger.messages[-1]
+    assert "shared_credit=" in logger.messages[-1]
+    assert "high_resolution_rate=" in logger.messages[-1]
+    trace = state.full_program_trace[-1]["parent_selection"]
+    assert trace["score_mode"] == "high_resolution"
+    assert trace["raw_rates"][0] == {"numerator": 1, "denominator": 1}
+    assert trace["high_resolution_credits"][0] == {
+        "numerator": 13,
+        "denominator": 6,
+    }
+    assert trace["rates"][0] == {"numerator": 13, "denominator": 24}
+
+
+def test_high_resolution_lineage_mask_is_reversible_from_official_fronts() -> None:
+    state = _state_with_fronts(
+        [{0}, {1, 2}],
+        candidate_count=3,
+        parents=[[None], [0], [0]],
+    )
+
+    raw_snapshot = parent_selection_snapshot(
+        state,
+        top_n=5,
+        score_mode="raw_frontier_rate",
+    )
+    shared_snapshot = parent_selection_snapshot(state, top_n=5)
+
+    assert raw_snapshot.rates == {
+        0: Fraction(1, 2),
+        1: Fraction(1, 2),
+        2: Fraction(1, 2),
+    }
+    assert raw_snapshot.lineage_active == (1, 2)
+    assert shared_snapshot.rates == {
+        0: Fraction(1, 2),
+        1: Fraction(1, 4),
+        2: Fraction(1, 4),
+    }
+    assert shared_snapshot.lineage_active == (0, 1, 2)
+
+    state.program_at_pareto_front_valset[1] = {1}
+    assert parent_selection_snapshot(state, top_n=5).lineage_active == (1,)
+
+    state.program_at_pareto_front_valset[1] = {1, 2}
+    assert parent_selection_snapshot(state, top_n=5).lineage_active == (0, 1, 2)
+
+
+def test_high_resolution_top_five_keeps_exact_boundary_ties() -> None:
+    state = _state_with_fronts(
+        [{1}, {2}, {3}, {4}, {5, 6}, {7, 8, 9}],
+        candidate_count=10,
+        parents=[[None], *([[0]] * 9)],
+    )
+
+    shared_snapshot = parent_selection_snapshot(state, top_n=5)
+    raw_snapshot = parent_selection_snapshot(
+        state,
+        top_n=5,
+        score_mode="raw_frontier_rate",
+    )
+
+    assert shared_snapshot.top_n_cutoff == Fraction(1, 12)
+    assert shared_snapshot.selection_active == (1, 2, 3, 4, 5, 6)
+    assert shared_snapshot.rates[5] == shared_snapshot.rates[6]
+    assert shared_snapshot.rates[7] == Fraction(1, 18)
+    assert raw_snapshot.top_n_cutoff == Fraction(1, 6)
+    assert raw_snapshot.selection_active == tuple(range(1, 10))

@@ -4,6 +4,7 @@ import random
 import threading
 import time
 from copy import deepcopy
+from fractions import Fraction
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -19,6 +20,10 @@ from gepa.strategies.acceptance import AcceptanceCriterion
 from gepa.strategies.proposal_selection import AllImprovements
 
 import bridge.b20_compass_reflection as compass_reflection
+from bridge.b19_reversible_parent_selection import (
+    frontier_rate,
+    high_resolution_selection_rate,
+)
 from bridge.b20_compass_reflection import (
     AlwaysAcceptAcceptance,
     SeedFallbackParetoCandidateSelector,
@@ -58,6 +63,53 @@ def _adapter() -> SparseObservationDspyAdapter:
         feedback_map={},
         max_candidate_workers=2,
     )
+
+
+def _raw_and_high_resolution_ranking_diverge_state() -> GEPAState:
+    fronts = (
+        {0, 1, 2, 3, 4, 5},
+        {0, 6, 7, 8, 9},
+        {0, 10, 11, 12, 13},
+        {1},
+    )
+    state = GEPAState(
+        {"prompt": "seed"},
+        ValsetEvaluation(
+            outputs_by_val_id={idx: "" for idx in range(len(fronts))},
+            scores_by_val_id={idx: 0.0 for idx in range(len(fronts))},
+            objective_scores_by_val_id=None,
+        ),
+        frontier_type="instance",
+    )
+    candidate_count = 14
+    state.program_candidates = [
+        {"prompt": f"skill-{idx}"}
+        for idx in range(candidate_count)
+    ]
+    state.parent_program_for_candidate = [
+        [None],
+        *([[0]] * (candidate_count - 1)),
+    ]
+    state.program_birth_propose_ids = [() for _ in range(candidate_count)]
+    state.prog_candidate_val_subscores = [
+        {data_id: 0.0 for data_id in range(len(fronts))}
+        for _ in range(candidate_count)
+    ]
+    state.prog_candidate_objective_scores = [{} for _ in range(candidate_count)]
+    state.named_predictor_id_to_update_next_for_program_candidate = [
+        0 for _ in range(candidate_count)
+    ]
+    state.num_metric_calls_by_discovery = [0 for _ in range(candidate_count)]
+    state.pareto_front_valset = {
+        data_id: 0.0
+        for data_id in range(len(fronts))
+    }
+    state.program_at_pareto_front_valset = {
+        data_id: set(front)
+        for data_id, front in enumerate(fronts)
+    }
+    assert state.is_consistent()
+    return state
 
 
 def test_always_accept_uses_official_criterion_seam_for_worse_proposal() -> None:
@@ -413,6 +465,27 @@ def test_sparse_final_selection_uses_rate_exposure_then_earliest() -> None:
     policy = SparseMinibatchEvaluationPolicy()
 
     assert policy.get_best_program(state) == 1
+
+
+def test_admission_reference_and_final_selection_remain_on_raw_frontier_rate() -> None:
+    state = _raw_and_high_resolution_ranking_diverge_state()
+
+    assert frontier_rate(state, 0) == pytest.approx(3 / 4)
+    assert frontier_rate(state, 1) == pytest.approx(1 / 2)
+    assert high_resolution_selection_rate(state, 0) == Fraction(17, 120)
+    assert high_resolution_selection_rate(state, 1) == Fraction(7, 24)
+    assert high_resolution_selection_rate(
+        state,
+        1,
+    ) > high_resolution_selection_rate(state, 0)
+
+    assert select_reference_program_idx(
+        state,
+        instance_id=0,
+        sampled_parent_idx=1,
+        rng=random.Random(0),
+    ) == 0
+    assert SparseMinibatchEvaluationPolicy().get_best_program(state) == 0
 
 
 def test_official_pareto_selector_falls_back_only_for_empty_seed_frontier() -> None:

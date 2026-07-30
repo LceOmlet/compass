@@ -20,7 +20,8 @@
     "top_p": 0.95
   },
   "parent_selection": {
-    "top_n": 5
+    "top_n": 5,
+    "mode": "raw_frontier_rate"
   },
   "epoch_parallel": {
     "enabled": true,

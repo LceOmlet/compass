@@ -71,6 +71,7 @@ CONFIG_KEYS = {
 }
 OPTIONAL_CONFIG_KEYS = {
     "remote_lm": {"rollout_timeout_seconds"},
+    "parent_selection": {"mode"},
     "official_gepa": {"acceptance_mode"},
 }
 
@@ -171,6 +172,14 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
         )
     if type(parent_selection["top_n"]) is not int or parent_selection["top_n"] <= 0:
         raise TypeError("parent_selection.top_n must be a positive JSON integer")
+    if parent_selection.get("mode", "high_resolution") not in {
+        "raw_frontier_rate",
+        "high_resolution",
+    }:
+        raise ValueError(
+            "parent_selection.mode must be "
+            "'raw_frontier_rate' or 'high_resolution'"
+        )
     if epoch_parallel["enabled"] is not True:
         raise ValueError("epoch_parallel.enabled must be true")
     for name in ("max_candidate_workers", "max_reflection_workers"):
@@ -276,6 +285,10 @@ def main() -> int:
             seed=official["seed"],
             reflection_minibatch_size=official["reflection_minibatch_size"],
             parent_top_n=config["parent_selection"]["top_n"],
+            parent_selection_score_mode=config["parent_selection"].get(
+                "mode",
+                "high_resolution",
+            ),
             max_metric_calls=official["max_metric_calls"],
             perfect_score=official["perfect_score"],
             failure_score=official["failure_score"],

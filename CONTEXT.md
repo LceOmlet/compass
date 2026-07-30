@@ -20,6 +20,14 @@ _Avoid_: concurrent optimizer iterations, intra-batch-only concurrency
 For a skill, the task IDs in its own proposal batch and every transitive ancestor's proposal batch; these IDs are excluded from its clean frontier evidence. Admission batches are not part of this exclusion.
 _Avoid_: admission exclusion, direct-parent exclusion
 
+**Raw frontier rate (`F/E`)**:
+The share of a skill's clean exposures on which it is an official instance-frontier owner, with every frontier membership counted in full.
+_Avoid_: shared frontier rate, unique coverage
+
+**High-resolution selection**:
+Proposal-parent scoring that conserves one selection-credit unit per clean instance by sharing it equally among all official clean frontier owners, then normalizes each skill's accumulated share by its unchanged clean exposure.
+_Avoid_: unbiased Pareto, task-difficulty weighting, semantic deduplication
+
 **Final proposal candidate**:
 The single proposed child evaluated on the admission batch. Terminal-analysis modes obtain it after their configured ranking and dependency gate; raw-feedback mode asks the official proposer for exactly one child directly.
 _Avoid_: admission candidate set, candidate batch
