@@ -4,9 +4,16 @@ import argparse
 import json
 import math
 import os
+import platform
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+# Python 3.12 resolves Windows platform metadata through WMI.  Resolve it once
+# on the main thread so concurrent OpenAI clients only read the stdlib cache
+# instead of entering WMI/RPC together.
+if os.name == "nt":
+    platform.platform()
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
