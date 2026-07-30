@@ -22,7 +22,7 @@ from gepa.proposer.reflective_mutation.admission import (
     AdmissionPlan,
     commit_adapter_observations,
 )
-from gepa.strategies.acceptance import StrictImprovementAcceptance
+from gepa.strategies.acceptance import AcceptanceCriterion, StrictImprovementAcceptance
 from gepa.strategies.batch_sampler import EpochShuffledBatchSampler
 from gepa.strategies.candidate_selector import ParetoCandidateSelector
 from gepa.strategies.proposal_sampling import (
@@ -43,6 +43,10 @@ BatchItemT = TypeVar("BatchItemT")
 ReflectionCondition = Literal[
     "mini_admission_reflection",
     "compass_reflection",
+]
+AcceptanceMode = Literal[
+    "strict_improvement",
+    "always_accept",
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -670,6 +674,22 @@ class _NoOpCandidatePoolObserver:
         del candidates
 
 
+class AlwaysAcceptAcceptance:
+    """Accept every fully evaluated proposal submitted by the GEPA proposer."""
+
+    def should_accept(self, proposal: Any, state: GEPAState) -> bool:
+        del proposal, state
+        return True
+
+
+def _acceptance_criterion(mode: AcceptanceMode) -> AcceptanceCriterion:
+    if mode == "strict_improvement":
+        return StrictImprovementAcceptance()
+    if mode == "always_accept":
+        return AlwaysAcceptAcceptance()
+    raise ValueError(f"unsupported acceptance mode: {mode!r}")
+
+
 @dataclass(frozen=True, slots=True)
 class CompassReflectionEngineConfig:
     run_dir: Path
@@ -690,6 +710,7 @@ class CompassReflectionEngineConfig:
     use_cloudpickle: bool
     epoch_parallel_enabled: bool = False
     max_reflection_workers: int = 1
+    acceptance_mode: AcceptanceMode = "strict_improvement"
 
 
 @dataclass(frozen=True, slots=True)
@@ -739,6 +760,9 @@ def run_compass_reflection_engine(
         raise RuntimeError("official program exposes no named predictors")
 
     logger = Logger(str(config.run_dir / "run_log.txt"))
+    acceptance_criterion = _acceptance_criterion(config.acceptance_mode)
+    if config.acceptance_mode != "strict_improvement":
+        logger.log(f"Admission acceptance mode: {config.acceptance_mode}")
     adapter_rng = random.Random(config.seed)
     strategy_rng = random.Random(config.seed)
     sampler = EpochShuffledBatchSampler(
@@ -829,7 +853,7 @@ def run_compass_reflection_engine(
         seed=config.seed,
         raise_on_exception=config.raise_on_exception,
         val_evaluation_policy=evaluation_policy,
-        acceptance_criterion=StrictImprovementAcceptance(),
+        acceptance_criterion=acceptance_criterion,
         sampling_strategy=sampling_strategy,
         selection_strategy=AllImprovements(),
         reflection_strategy=None,
@@ -843,6 +867,7 @@ def run_compass_reflection_engine(
 
 
 __all__ = [
+    "AlwaysAcceptAcceptance",
     "CleanMiniAdmissionHook",
     "CompassReflectionEngineConfig",
     "CompassReflectionRun",

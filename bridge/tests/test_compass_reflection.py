@@ -6,13 +6,21 @@ import time
 from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 import dspy
 import pytest
 from gepa.core.adapter import EvaluationBatch
+from gepa.core.engine import GEPAEngine
 from gepa.core.state import GEPAState, ValsetEvaluation
+from gepa.proposer.base import CandidateProposal, SubsampleEvaluation
+from gepa.proposer.reflective_mutation.admission import AdmissionPlan
+from gepa.strategies.acceptance import AcceptanceCriterion
+from gepa.strategies.proposal_selection import AllImprovements
 
+import bridge.b20_compass_reflection as compass_reflection
 from bridge.b20_compass_reflection import (
+    AlwaysAcceptAcceptance,
     SeedFallbackParetoCandidateSelector,
     SparseMinibatchEvaluationPolicy,
     SparseObservationDspyAdapter,
@@ -50,6 +58,93 @@ def _adapter() -> SparseObservationDspyAdapter:
         feedback_map={},
         max_candidate_workers=2,
     )
+
+
+def test_always_accept_uses_official_criterion_seam_for_worse_proposal() -> None:
+    criterion = AlwaysAcceptAcceptance()
+    proposal = SimpleNamespace(
+        subsample_scores_before=[1.0, 1.0],
+        subsample_scores_after=[0.0, 0.0],
+    )
+
+    assert isinstance(criterion, AcceptanceCriterion)
+    assert criterion.should_accept(proposal, _state()) is True
+    assert AllImprovements().select([proposal], _state(), criterion) == [proposal]
+
+
+def test_default_acceptance_mode_still_rejects_worse_proposal() -> None:
+    proposal = SimpleNamespace(
+        subsample_scores_before=[1.0],
+        subsample_scores_after=[0.0],
+    )
+
+    assert (
+        compass_reflection._acceptance_criterion(
+            "strict_improvement",
+        ).should_accept(proposal, _state())
+        is False
+    )
+    assert (
+        compass_reflection.CompassReflectionEngineConfig.__dataclass_fields__[
+            "acceptance_mode"
+        ].default
+        == "strict_improvement"
+    )
+
+
+def test_always_accept_commits_worse_admission_through_gepa_engine() -> None:
+    state = GEPAState(
+        {"prompt": "seed"},
+        ValsetEvaluation(outputs_by_val_id={}, scores_by_val_id={}),
+    )
+    state.i = 0
+    state.full_program_trace.append({"i": 1})
+    engine = object.__new__(GEPAEngine)
+    engine.acceptance_criterion = AlwaysAcceptAcceptance()
+    engine.selection_strategy = AllImprovements()
+    engine.logger = MagicMock()
+    engine.adapter = MagicMock()
+    engine.callbacks = None
+    engine.merge_proposer = None
+    engine._evaluate_programs_on_valset = MagicMock()
+    engine._add_evaluated_program = MagicMock(return_value=(1, 0))
+    engine._log_proposal_lm_calls = MagicMock()
+    proposal = CandidateProposal(
+        candidate={"prompt": "worse-child"},
+        parent_program_ids=[0],
+        subsample_indices=[11],
+        subsample_scores_before=[1.0],
+        subsample_scores_after=[0.0],
+        eval_before=SubsampleEvaluation(
+            scores=[1.0],
+            outputs=["old"],
+            trajectories=[{"trace": "old"}],
+        ),
+        eval_after=SubsampleEvaluation(
+            scores=[0.0],
+            outputs=["new"],
+            trajectories=[{"trace": "new"}],
+        ),
+        admission_plan=AdmissionPlan(
+            evaluation_ids=(11,),
+            evaluation_batch=({"id": 11},),
+            eval_before=EvaluationBatch(
+                outputs=["old"],
+                scores=[1.0],
+                trajectories=[{"trace": "old"}],
+            ),
+            birth_propose_ids=(3,),
+        ),
+    )
+
+    assert engine._run_reflective_batch([proposal], state)
+
+    engine._evaluate_programs_on_valset.assert_not_called()
+    call = engine._add_evaluated_program.call_args.kwargs
+    assert call["birth_propose_ids"] == (3,)
+    assert call["valset_evaluation"].scores_by_val_id == {11: 0.0}
+    assert call["valset_evaluation"].outputs_by_val_id == {11: "new"}
+    engine.adapter.commit_program_observations.assert_called_once()
 
 
 def test_sparse_observations_only_replace_with_strictly_higher_reward() -> None:

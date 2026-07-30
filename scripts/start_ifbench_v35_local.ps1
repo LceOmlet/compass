@@ -1,5 +1,6 @@
 param(
     [string]$RuntimeBase = "F:\compass-ifbench-local",
+    [string]$SourceName = "source-v35-20260730",
     [int]$ProxyPort = 40035,
     [string]$RunName = "11_ifbench_raw_feedback_k1_20260730_v35_local_dual_account",
     [string]$TrainingConfigName = "11_ifbench_siliconflow_v35_local_dual_account_20260730.json",
@@ -16,7 +17,7 @@ if (@($ProxyOnly, $TrainOnly, $HealthOnly).Where({ $_ }).Count -gt 1) {
     throw "-ProxyOnly, -TrainOnly, and -HealthOnly are mutually exclusive"
 }
 
-$source = Join-Path $RuntimeBase "source-v35-20260730"
+$source = Join-Path $RuntimeBase $SourceName
 $python = Join-Path $RuntimeBase ".venv-no-torch-py312\Scripts\python.exe"
 $litellm = Join-Path $RuntimeBase ".venv-no-torch-py312\Scripts\litellm.exe"
 $routerConfig = Join-Path $source "experiments\11_ifbench_litellm_two_account_router_v35.yaml"

@@ -147,6 +147,36 @@ def test_v35_dual_account_router_only_changes_transport_endpoint() -> None:
     assert isinstance(lm, SiliconFlowLM)
 
 
+def test_v36_unconditional_admission_only_changes_acceptance_and_run_dir() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    v35 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v35_dual_account_rate_limit_failover.json"
+    )
+    v36 = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v36_unconditional_admission_local.json"
+    )
+    namespace["_require_configuration"](v35)
+    namespace["_require_configuration"](v36)
+
+    assert v35["official_gepa"].get(
+        "acceptance_mode",
+        "strict_improvement",
+    ) == "strict_improvement"
+    assert v36["official_gepa"]["acceptance_mode"] == "always_accept"
+    assert v36["remote_lm"] == v35["remote_lm"]
+    assert v36["parent_selection"] == v35["parent_selection"]
+    assert v36["epoch_parallel"] == v35["epoch_parallel"]
+    assert {
+        key: value
+        for key, value in v36["official_gepa"].items()
+        if key != "acceptance_mode"
+    } == v35["official_gepa"]
+
+
 def test_v35_router_uses_official_least_busy_rate_limit_failover() -> None:
     router_path = (
         _ROOT / "experiments" / "11_ifbench_litellm_two_account_router_v35.yaml"

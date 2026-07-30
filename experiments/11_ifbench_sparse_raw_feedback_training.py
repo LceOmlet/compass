@@ -71,6 +71,7 @@ CONFIG_KEYS = {
 }
 OPTIONAL_CONFIG_KEYS = {
     "remote_lm": {"rollout_timeout_seconds"},
+    "official_gepa": {"acceptance_mode"},
 }
 
 
@@ -157,6 +158,12 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
             )
     if not isinstance(official["use_cloudpickle"], bool):
         raise TypeError("official_gepa.use_cloudpickle must be a JSON boolean")
+    acceptance_mode = official.get("acceptance_mode", "strict_improvement")
+    if acceptance_mode not in {"strict_improvement", "always_accept"}:
+        raise ValueError(
+            "official_gepa.acceptance_mode must be "
+            "'strict_improvement' or 'always_accept'"
+        )
     num_threads = official["num_threads"]
     if num_threads is not None and (type(num_threads) is not int or num_threads <= 0):
         raise TypeError(
@@ -282,6 +289,10 @@ def main() -> int:
             use_cloudpickle=official["use_cloudpickle"],
             epoch_parallel_enabled=epoch_parallel["enabled"],
             max_reflection_workers=epoch_parallel["max_reflection_workers"],
+            acceptance_mode=official.get(
+                "acceptance_mode",
+                "strict_improvement",
+            ),
         ),
     )
     return 0

@@ -1,0 +1,46 @@
+{
+  "deployment": {
+    "run_dir": "F:/compass-ifbench-local/runs/11_ifbench_raw_feedback_k1_20260730_v36_unconditional_admission"
+  },
+  "remote_lm": {
+    "api_base": "http://127.0.0.1:40035/v1",
+    "api_key_env": "COMPASS_LITELLM_PROXY_KEY",
+    "cache_dir_env": "DSPY_CACHEDIR",
+    "cache": true,
+    "cache_in_memory": true,
+    "enable_thinking": true,
+    "max_tokens": 16384,
+    "model": "openai/compass-qwen3-8b",
+    "model_type": "chat",
+    "n": 1,
+    "num_retries": 0,
+    "rollout_timeout_seconds": 600,
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95
+  },
+  "parent_selection": {
+    "top_n": 5
+  },
+  "epoch_parallel": {
+    "enabled": true,
+    "max_candidate_workers": 50,
+    "max_reflection_workers": 50
+  },
+  "official_gepa": {
+    "acceptance_mode": "always_accept",
+    "add_format_failure_as_feedback": false,
+    "dataset_mode": "lite",
+    "display_progress_bar": false,
+    "failure_score": 0,
+    "max_metric_calls": 3593,
+    "num_threads": 32,
+    "perfect_score": 1,
+    "raise_on_exception": true,
+    "reflection_minibatch_size": 3,
+    "seed": 0,
+    "skip_perfect_score": true,
+    "track_best_outputs": true,
+    "use_cloudpickle": true
+  }
+}
