@@ -280,20 +280,28 @@ def test_v35_router_uses_official_least_busy_rate_limit_failover() -> None:
     assert "sk-" not in router_text
 
 
-def test_v37_tertiary_router_uses_only_the_isolated_new_account() -> None:
+def test_v37_router_uses_all_three_accounts() -> None:
     router_path = (
-        _ROOT / "experiments" / "11_ifbench_litellm_tertiary_router_v37.yaml"
+        _ROOT / "experiments" / "11_ifbench_litellm_three_account_router_v37.yaml"
     )
     router_text = router_path.read_text(encoding="utf-8")
     router = yaml.safe_load(router_text)
 
-    assert len(router["model_list"]) == 1
-    deployment = router["model_list"][0]
-    assert deployment["model_name"] == "compass-qwen3-8b"
-    assert deployment["litellm_params"]["api_key"] == (
-        "os.environ/SILICONFLOW_API_KEY_TERTIARY"
-    )
-    assert deployment["model_info"]["id"] == "siliconflow-tertiary"
+    assert [entry["model_name"] for entry in router["model_list"]] == [
+        "compass-qwen3-8b",
+        "compass-qwen3-8b",
+        "compass-qwen3-8b",
+    ]
+    assert [entry["litellm_params"]["api_key"] for entry in router["model_list"]] == [
+        "os.environ/SILICONFLOW_API_KEY_PRIMARY",
+        "os.environ/SILICONFLOW_API_KEY_SECONDARY",
+        "os.environ/SILICONFLOW_API_KEY_TERTIARY",
+    ]
+    assert [entry["model_info"]["id"] for entry in router["model_list"]] == [
+        "siliconflow-primary",
+        "siliconflow-secondary",
+        "siliconflow-tertiary",
+    ]
     assert router["router_settings"] == {
         "routing_strategy": "least-busy",
         "num_retries": 0,
