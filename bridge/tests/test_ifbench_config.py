@@ -224,7 +224,17 @@ def test_v37_and_v38_only_add_high_resolution_mode_and_acceptance_choice() -> No
     }
     assert v37["official_gepa"]["acceptance_mode"] == "strict_improvement"
     assert v38["official_gepa"]["acceptance_mode"] == "always_accept"
-    assert v37["remote_lm"] == v38["remote_lm"] == v36["remote_lm"]
+    assert v37["remote_lm"] == v38["remote_lm"]
+    assert v37["remote_lm"]["api_base"] == "http://127.0.0.1:40037/v1"
+    assert {
+        key: value
+        for key, value in v37["remote_lm"].items()
+        if key != "api_base"
+    } == {
+        key: value
+        for key, value in v36["remote_lm"].items()
+        if key != "api_base"
+    }
     assert v37["epoch_parallel"] == v38["epoch_parallel"] == v36["epoch_parallel"]
     assert {
         key: value
@@ -268,3 +278,43 @@ def test_v35_router_uses_official_least_busy_rate_limit_failover() -> None:
         "telemetry": False,
     }
     assert "sk-" not in router_text
+
+
+def test_v37_tertiary_router_uses_only_the_isolated_new_account() -> None:
+    router_path = (
+        _ROOT / "experiments" / "11_ifbench_litellm_tertiary_router_v37.yaml"
+    )
+    router_text = router_path.read_text(encoding="utf-8")
+    router = yaml.safe_load(router_text)
+
+    assert len(router["model_list"]) == 1
+    deployment = router["model_list"][0]
+    assert deployment["model_name"] == "compass-qwen3-8b"
+    assert deployment["litellm_params"]["api_key"] == (
+        "os.environ/SILICONFLOW_API_KEY_TERTIARY"
+    )
+    assert deployment["model_info"]["id"] == "siliconflow-tertiary"
+    assert router["router_settings"] == {
+        "routing_strategy": "least-busy",
+        "num_retries": 0,
+        "retry_policy": {"RateLimitErrorRetries": 1},
+        "max_fallbacks": 0,
+    }
+    assert router["litellm_settings"] == {
+        "num_retries": 0,
+        "telemetry": False,
+    }
+    assert "sk-" not in router_text
+
+
+def test_local_launcher_supports_an_isolated_router_without_changing_default() -> None:
+    launcher = (
+        _ROOT / "scripts" / "start_ifbench_v35_local.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        '[string]$RouterConfigName = '
+        '"11_ifbench_litellm_two_account_router_v35.yaml"'
+    ) in launcher
+    assert "SILICONFLOW_API_KEY_TERTIARY" in launcher
+    assert '$LogStem.litellm.proxy.pid' in launcher

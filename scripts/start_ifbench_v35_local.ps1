@@ -2,6 +2,7 @@ param(
     [string]$RuntimeBase = "F:\compass-ifbench-local",
     [string]$SourceName = "source-v35-20260730",
     [int]$ProxyPort = 40035,
+    [string]$RouterConfigName = "11_ifbench_litellm_two_account_router_v35.yaml",
     [string]$RunName = "11_ifbench_raw_feedback_k1_20260730_v35_local_dual_account",
     [string]$TrainingConfigName = "11_ifbench_siliconflow_v35_local_dual_account_20260730.json",
     [string]$CacheName = "cache_v35_local_dual_account",
@@ -20,7 +21,7 @@ if (@($ProxyOnly, $TrainOnly, $HealthOnly).Where({ $_ }).Count -gt 1) {
 $source = Join-Path $RuntimeBase $SourceName
 $python = Join-Path $RuntimeBase ".venv-no-torch-py312\Scripts\python.exe"
 $litellm = Join-Path $RuntimeBase ".venv-no-torch-py312\Scripts\litellm.exe"
-$routerConfig = Join-Path $source "experiments\11_ifbench_litellm_two_account_router_v35.yaml"
+$routerConfig = Join-Path (Join-Path $source "experiments") $RouterConfigName
 $trainingConfig = Join-Path (Join-Path $RuntimeBase "config") $TrainingConfigName
 $secretPath = Join-Path $RuntimeBase "secrets\v35-dual-account.dpapi.json"
 $cacheDir = Join-Path $RuntimeBase $CacheName
@@ -81,6 +82,10 @@ function Unprotect-Secret([string]$CipherText) {
 
 $env:SILICONFLOW_API_KEY_PRIMARY = Unprotect-Secret $encrypted.SILICONFLOW_API_KEY_PRIMARY
 $env:SILICONFLOW_API_KEY_SECONDARY = Unprotect-Secret $encrypted.SILICONFLOW_API_KEY_SECONDARY
+if ($encrypted.PSObject.Properties.Name -contains "SILICONFLOW_API_KEY_TERTIARY") {
+    $env:SILICONFLOW_API_KEY_TERTIARY = Unprotect-Secret `
+        $encrypted.SILICONFLOW_API_KEY_TERTIARY
+}
 $env:COMPASS_LITELLM_PROXY_KEY = Unprotect-Secret $encrypted.COMPASS_LITELLM_PROXY_KEY
 $env:LITELLM_MASTER_KEY = $env:COMPASS_LITELLM_PROXY_KEY
 
@@ -127,7 +132,9 @@ try {
             -RedirectStandardError $proxyErr `
             -WindowStyle Hidden `
             -PassThru
-        $proxy.Id | Set-Content -LiteralPath (Join-Path $logs "proxy.pid") -Encoding ascii
+        $proxy.Id | Set-Content `
+            -LiteralPath (Join-Path $logs "$LogStem.litellm.proxy.pid") `
+            -Encoding ascii
 
         $proxyReady = $false
         for ($attempt = 0; $attempt -lt 60; $attempt++) {
@@ -193,6 +200,7 @@ try {
 finally {
     Remove-Item Env:SILICONFLOW_API_KEY_PRIMARY -ErrorAction SilentlyContinue
     Remove-Item Env:SILICONFLOW_API_KEY_SECONDARY -ErrorAction SilentlyContinue
+    Remove-Item Env:SILICONFLOW_API_KEY_TERTIARY -ErrorAction SilentlyContinue
     Remove-Item Env:COMPASS_LITELLM_PROXY_KEY -ErrorAction SilentlyContinue
     Remove-Item Env:LITELLM_MASTER_KEY -ErrorAction SilentlyContinue
 }

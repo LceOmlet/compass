@@ -3,7 +3,7 @@
     "run_dir": "F:/compass-ifbench-local/runs/11_ifbench_raw_feedback_k1_20260730_v37_high_resolution_selection_strict"
   },
   "remote_lm": {
-    "api_base": "http://127.0.0.1:40035/v1",
+    "api_base": "http://127.0.0.1:40037/v1",
     "api_key_env": "COMPASS_LITELLM_PROXY_KEY",
     "cache_dir_env": "DSPY_CACHEDIR",
     "cache": true,
