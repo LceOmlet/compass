@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-07-29T20:33:11+08:00",
+  "captured_at": "2026-07-31T13:21:09+08:00",
   "source_root": "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill",
   "policy": {
     "official_sources_are_semantic_owners": true,
@@ -13,8 +13,8 @@
       "origin": "https://github.com/gepa-ai/gepa.git",
       "commit": "665cbc368313b7223f2b0638d2ef47da7a130dad",
       "patch": "patches/gepa-working-tree.patch",
-      "patch_sha256": "a494bee0501adc04f608744352b00dfb48963c7db138747a90fe0d9686e6411f",
-      "status": "patched owner for recursive proposal-lineage state, engine, admission, whole-epoch batches, per-item proposal failures, and fatal-memory semantics"
+      "patch_sha256": "5cf954dbbdcb6bc81d05343dad3d398511c00895105807de35895fe29f543610",
+      "status": "patched owner for recursive proposal-lineage state, independent admission data and sampling, whole-epoch batches, per-item proposal failures, and fatal-memory semantics"
     },
     "dspy": {
       "path": "upstreams/dspy",

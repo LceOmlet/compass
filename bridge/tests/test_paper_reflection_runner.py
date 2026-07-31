@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from experiments.paper.run_compass_reflection import (
+    _minibatch_config_kwargs,
     _require_frozen_protocol,
     load_run_config,
 )
@@ -85,3 +86,51 @@ def test_runner_config_rejects_deployment_context_equal_to_output_cap(
     loaded = load_run_config(path)
     with pytest.raises(ValueError, match="must exceed model.max_tokens"):
         _require_frozen_protocol(loaded, budget=3593)
+
+
+def test_runner_config_accepts_explicit_split_minibatches(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    del config["optimizer"]["reflection_minibatch_size"]
+    config["optimizer"]["proposal_minibatch_size"] = 2
+    config["optimizer"]["admission_minibatch_size"] = 5
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+    loaded = load_run_config(path)
+    _require_frozen_protocol(loaded, budget=3593)
+
+    assert _minibatch_config_kwargs(loaded["optimizer"]) == {
+        "reflection_minibatch_size": None,
+        "proposal_minibatch_size": 2,
+        "admission_minibatch_size": 5,
+    }
+
+
+def test_runner_config_rejects_mixed_legacy_and_split_minibatches(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    config["optimizer"]["proposal_minibatch_size"] = 2
+    config["optimizer"]["admission_minibatch_size"] = 5
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        load_run_config(path)
+
+
+def test_runner_config_rejects_split_batches_for_mini_admission(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    config["condition"] = "mini_admission_reflection"
+    del config["optimizer"]["reflection_minibatch_size"]
+    config["optimizer"]["proposal_minibatch_size"] = 2
+    config["optimizer"]["admission_minibatch_size"] = 5
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires condition='compass_reflection'"):
+        load_run_config(path)

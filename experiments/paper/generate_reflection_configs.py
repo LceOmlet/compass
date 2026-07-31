@@ -5,11 +5,17 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from bridge.minibatch_config import minibatch_config_kwargs  # noqa: E402
+
 DEFAULT_REMOTE_ROOT = Path(
     "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill/reflection-bridge"
 )
@@ -29,6 +35,7 @@ SNAPSHOT_FILES = (
     "bridge/b16_official_gepa_ifbench.py",
     "bridge/b19_reversible_parent_selection.py",
     "bridge/b20_compass_reflection.py",
+    "bridge/minibatch_config.py",
     "bridge/paper_benchmark_registry.py",
     "experiments/paper/generate_reflection_configs.py",
     "experiments/paper/model_profiles.json",
@@ -105,6 +112,8 @@ def build_run_config(
     model_profile: Mapping[str, Any],
     remote_root: Path,
     snapshot: Mapping[str, Any],
+    proposal_minibatch_size: int | None = None,
+    admission_minibatch_size: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     if task_id not in TASK_BUDGETS:
         raise ValueError(f"unknown paper task: {task_id!r}")
@@ -116,6 +125,35 @@ def build_run_config(
         raise ValueError("tag must contain only letters, digits, dot, dash, underscore")
     if not TAG_PATTERN.fullmatch(model_profile_name):
         raise ValueError("model profile name is not path-safe")
+    if (
+        proposal_minibatch_size is not None
+        or admission_minibatch_size is not None
+    ) and condition != "compass_reflection":
+        raise ValueError(
+            "split train/validation admission requires "
+            "condition='compass_reflection'"
+        )
+    raw_minibatch_config = (
+        {"reflection_minibatch_size": 3}
+        if proposal_minibatch_size is None
+        and admission_minibatch_size is None
+        else {
+            name: value
+            for name, value in (
+                ("proposal_minibatch_size", proposal_minibatch_size),
+                ("admission_minibatch_size", admission_minibatch_size),
+            )
+            if value is not None
+        }
+    )
+    minibatch_config = {
+        name: value
+        for name, value in minibatch_config_kwargs(
+            raw_minibatch_config,
+            namespace="optimizer",
+        ).items()
+        if value is not None
+    }
 
     slug = (
         f"paper_{model_profile_name}_{condition}_{task_id}_"
@@ -136,10 +174,10 @@ def build_run_config(
             "parent_top_n": 5,
             "perfect_score": 1,
             "raise_on_exception": True,
-            "reflection_minibatch_size": 3,
             "skip_perfect_score": True,
             "track_best_outputs": True,
             "use_cloudpickle": True,
+            **minibatch_config,
         },
         "optimizer_seed": seed,
         "run_dir": str(remote_root / "runs" / slug),
@@ -179,6 +217,8 @@ def main() -> int:
         default=tuple(TASK_BUDGETS),
     )
     parser.add_argument("--seeds", nargs="+", type=int, default=(0,))
+    parser.add_argument("--proposal-minibatch-size", type=int)
+    parser.add_argument("--admission-minibatch-size", type=int)
     parser.add_argument("--tag", required=True)
     parser.add_argument(
         "--model-profiles",
@@ -213,6 +253,8 @@ def main() -> int:
                 model_profile=profiles[args.model_profile],
                 remote_root=args.remote_root,
                 snapshot=snapshot,
+                proposal_minibatch_size=args.proposal_minibatch_size,
+                admission_minibatch_size=args.admission_minibatch_size,
             )
             path = args.output_dir / f"{slug}.json"
             _write_new_json(path, config)

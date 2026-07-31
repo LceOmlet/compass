@@ -15,7 +15,7 @@ from typing import Any, Literal, TypeVar
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter
 from gepa import optimize
 from gepa.core.adapter import EvaluationBatch
-from gepa.core.data_loader import DataLoader
+from gepa.core.data_loader import DataLoader, ListDataLoader
 from gepa.core.state import GEPAState, ValsetEvaluation
 from gepa.logging.logger import Logger, LoggerProtocol
 from gepa.proposer.reflective_mutation.admission import (
@@ -38,6 +38,7 @@ from bridge.b19_reversible_parent_selection import (
     frontier_count,
     frontier_rate,
 )
+from bridge.minibatch_config import minibatch_config_kwargs
 
 DataId = Hashable
 BatchItemT = TypeVar("BatchItemT")
@@ -440,6 +441,16 @@ class MiniAdmissionHook:
         ):
             positions = missing_by_program[program_idx]
             group_ids = tuple(ids[position] for position in positions)
+            if evaluation is None:
+                self.logger.log(
+                    "Admission reference evaluation failed: "
+                    f"program={program_idx},ids={list(group_ids)}; "
+                    "skipping only the affected proposal task."
+                )
+                raise RuntimeError(
+                    "admission reference evaluation failed for the affected "
+                    "proposal task"
+                )
             if (
                 len(evaluation.outputs) != len(group_ids)
                 or len(evaluation.scores) != len(group_ids)
@@ -696,7 +707,6 @@ class CompassReflectionEngineConfig:
     run_dir: Path
     condition: ReflectionCondition
     seed: int
-    reflection_minibatch_size: int
     parent_top_n: int
     max_metric_calls: int
     perfect_score: float
@@ -713,6 +723,9 @@ class CompassReflectionEngineConfig:
     epoch_parallel_enabled: bool = False
     max_reflection_workers: int = 1
     acceptance_mode: AcceptanceMode = "strict_improvement"
+    reflection_minibatch_size: int | None = None
+    proposal_minibatch_size: int | None = None
+    admission_minibatch_size: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -720,6 +733,42 @@ class CompassReflectionRun:
     result: Any
     adapter: SparseObservationDspyAdapter
     evaluation_policy: SparseMinibatchEvaluationPolicy
+
+
+def resolve_minibatch_sizes(
+    config: CompassReflectionEngineConfig,
+) -> tuple[int, int, bool]:
+    """Resolve legacy or split proposal/admission minibatch configuration."""
+
+    configured = {
+        name: value
+        for name, value in (
+            ("reflection_minibatch_size", config.reflection_minibatch_size),
+            ("proposal_minibatch_size", config.proposal_minibatch_size),
+            ("admission_minibatch_size", config.admission_minibatch_size),
+        )
+        if value is not None
+    }
+    resolved = minibatch_config_kwargs(configured, namespace="optimizer")
+    legacy_size = resolved["reflection_minibatch_size"]
+    if legacy_size is not None:
+        return legacy_size, legacy_size, False
+    proposal_size = resolved["proposal_minibatch_size"]
+    admission_size = resolved["admission_minibatch_size"]
+    assert proposal_size is not None and admission_size is not None
+    return proposal_size, admission_size, True
+
+
+def build_split_admission_loaders(
+    trainset: Sequence[Any],
+    validation_set: Sequence[Any],
+) -> tuple[DataLoader[int, Any], DataLoader[int, Any]]:
+    """Build aligned proposal and admission views using GEPA's list loader."""
+
+    train_items = list(trainset)
+    proposal_loader = ListDataLoader(train_items)
+    admission_loader = ListDataLoader([*train_items, *validation_set])
+    return proposal_loader, admission_loader
 
 
 def proposal_sampling_strategy(
@@ -744,6 +793,7 @@ def run_compass_reflection_engine(
     metric_fn: Callable[..., Any],
     feedback_map: dict[str, Callable[..., Mapping[str, Any]]],
     trainset: list[Any],
+    validation_set: list[Any] | None = None,
     reflection_lm: Any,
     config: CompassReflectionEngineConfig,
 ) -> CompassReflectionRun:
@@ -765,16 +815,56 @@ def run_compass_reflection_engine(
     acceptance_criterion = _acceptance_criterion(config.acceptance_mode)
     if config.acceptance_mode != "strict_improvement":
         logger.log(f"Admission acceptance mode: {config.acceptance_mode}")
+    proposal_minibatch_size, admission_minibatch_size, split_admission = (
+        resolve_minibatch_sizes(config)
+    )
+    if split_admission and config.condition != "compass_reflection":
+        raise ValueError(
+            "split train/validation admission is defined only for "
+            "condition='compass_reflection', which owns recursive "
+            "proposal-lineage exclusion"
+        )
     adapter_rng = random.Random(config.seed)
     strategy_rng = random.Random(config.seed)
     sampler = EpochShuffledBatchSampler(
-        minibatch_size=config.reflection_minibatch_size,
+        minibatch_size=proposal_minibatch_size,
         rng=strategy_rng,
         iteration_is_epoch=config.epoch_parallel_enabled,
     )
+    admission_set: DataLoader[int, Any] | None = None
+    admission_batch_sampler: EpochShuffledBatchSampler[int, Any] | None = None
+    admission_reference_rng = strategy_rng
+    optimization_trainset: Sequence[Any] | DataLoader[int, Any] = trainset
+    optimization_valset: Sequence[Any] | DataLoader[int, Any] = trainset
+    if split_admission:
+        if validation_set is None or not validation_set:
+            raise ValueError(
+                "split admission requires a non-empty validation_set"
+            )
+        optimization_trainset, admission_set = build_split_admission_loaders(
+            trainset,
+            validation_set,
+        )
+        optimization_valset = admission_set
+        admission_batch_sampler = EpochShuffledBatchSampler(
+            minibatch_size=admission_minibatch_size,
+            rng=random.Random(f"compass:{config.seed}:admission-batch"),
+            iteration_is_epoch=config.epoch_parallel_enabled,
+        )
+        admission_reference_rng = random.Random(
+            f"compass:{config.seed}:admission-reference"
+        )
+        logger.log(
+            "Split admission enabled: "
+            f"proposal_minibatch_size={proposal_minibatch_size},"
+            f"admission_minibatch_size={admission_minibatch_size},"
+            f"trainset_size={len(trainset)},"
+            f"validation_size={len(validation_set)},"
+            f"admission_universe_size={len(admission_set)}"
+        )
     sampling_strategy = proposal_sampling_strategy(
         trainset_size=len(trainset),
-        minibatch_size=config.reflection_minibatch_size,
+        minibatch_size=proposal_minibatch_size,
         epoch_parallel_enabled=config.epoch_parallel_enabled,
     )
     if config.epoch_parallel_enabled:
@@ -782,7 +872,8 @@ def run_compass_reflection_engine(
         logger.log(
             "Whole-epoch proposal wave enabled: "
             f"trainset_size={len(trainset)}, "
-            f"minibatch_size={config.reflection_minibatch_size}, "
+            f"proposal_minibatch_size={proposal_minibatch_size}, "
+            f"admission_minibatch_size={admission_minibatch_size}, "
             f"n_tasks={sampling_strategy.n}, "
             f"max_candidate_workers={config.max_candidate_workers}, "
             f"max_reflection_workers={config.max_reflection_workers}"
@@ -797,7 +888,7 @@ def run_compass_reflection_engine(
         rng=adapter_rng,
         reflection_lm=reflection_lm,
         warn_on_score_mismatch=True,
-        reflection_minibatch_size=config.reflection_minibatch_size,
+        reflection_minibatch_size=proposal_minibatch_size,
         raise_on_error=config.raise_on_exception,
         max_candidate_workers=config.max_candidate_workers,
         max_reflection_workers=config.max_reflection_workers,
@@ -809,7 +900,7 @@ def run_compass_reflection_engine(
     )
     admission_hook = hook_class(
         adapter=adapter,
-        rng=strategy_rng,
+        rng=admission_reference_rng,
         run_dir=config.run_dir,
         logger=logger,
     )
@@ -827,8 +918,8 @@ def run_compass_reflection_engine(
 
     result = optimize(
         seed_candidate=seed_candidate,
-        trainset=trainset,
-        valset=trainset,
+        trainset=optimization_trainset,
+        valset=optimization_valset,
         adapter=adapter,
         task_lm=None,
         evaluator=None,
@@ -860,6 +951,8 @@ def run_compass_reflection_engine(
         sampling_strategy=sampling_strategy,
         selection_strategy=AllImprovements(),
         reflection_strategy=None,
+        admission_set=admission_set,
+        admission_batch_sampler=admission_batch_sampler,
         admission_hook=admission_hook,
     )
     return CompassReflectionRun(
@@ -879,7 +972,10 @@ __all__ = [
     "SparseMinibatchEvaluationPolicy",
     "SparseObservation",
     "SparseObservationDspyAdapter",
+    "build_split_admission_loaders",
+    "minibatch_config_kwargs",
     "proposal_sampling_strategy",
+    "resolve_minibatch_sizes",
     "run_compass_reflection_engine",
     "select_reference_program_idx",
 ]

@@ -96,6 +96,26 @@ whole-epoch 中各 task 的官方反思与 candidate/admission evaluation 仍可
 随后按 task index 还原，并继续使用递归 `B_propose` exclusion、独立
 `B_admit` 与 `StrictImprovement`。v26 的冻结目录和 checkpoint 不会被改写。
 
+新建的 `compass_reflection` run 可用两个整数分别分配 proposal/admission
+的名义采样预算：
+
+```json
+{
+  "proposal_minibatch_size": 3,
+  "admission_minibatch_size": 6
+}
+```
+
+此模式下 `B_propose` 仍只从 train 采样；`B_admit` 由 GEPA owner 层的独立
+epoch-shuffled sampler 从 validation 与 train 的联合 ID 空间采样，并在采样时
+排除 prospective child 及全部祖先的 `B_propose` train ID。两种来源的 admit
+观测进入同一实例 frontier、clean `F/E`、高分辨率选择和既有 admission 流程；
+test 不进入优化。proposal 与 admission 使用独立确定性 RNG 流，因此改变
+`admission_minibatch_size` 不会推进 proposal RNG。只含旧字段
+`reflection_minibatch_size=m` 的配置仍保持原来的 train-only `m:m` 和共享
+sampler/RNG 语义，已有 checkpoint 不会被静默切换。两个整数只规定名义样本
+配比；缺失 reference rollout 仍按既有逻辑计入 `max_metric_calls`。
+
 生产启动前应在实际任务模型/设备上执行：
 
 ```bash

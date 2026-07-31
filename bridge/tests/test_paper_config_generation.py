@@ -59,3 +59,54 @@ def test_generated_config_rejects_unsafe_tag() -> None:
             remote_root=Path("/shared/reflection-bridge"),
             snapshot={},
         )
+
+
+def test_generated_config_can_enable_split_admission_budget() -> None:
+    _, config = build_run_config(
+        task_id="ifbench",
+        condition="compass_reflection",
+        seed=0,
+        tag="20260731_split",
+        model_profile_name="qwen3_8b_local_vllm",
+        model_profile=_profile(),
+        remote_root=Path("/shared/reflection-bridge"),
+        snapshot={"root_head": "abc"},
+        proposal_minibatch_size=2,
+        admission_minibatch_size=5,
+    )
+
+    optimizer = config["optimizer"]
+    assert "reflection_minibatch_size" not in optimizer
+    assert optimizer["proposal_minibatch_size"] == 2
+    assert optimizer["admission_minibatch_size"] == 5
+
+
+def test_generated_config_requires_both_split_batch_sizes() -> None:
+    with pytest.raises(ValueError, match="must be provided together"):
+        build_run_config(
+            task_id="ifbench",
+            condition="compass_reflection",
+            seed=0,
+            tag="20260731_split",
+            model_profile_name="qwen3_8b_local_vllm",
+            model_profile=_profile(),
+            remote_root=Path("/shared/reflection-bridge"),
+            snapshot={},
+            proposal_minibatch_size=2,
+        )
+
+
+def test_generated_split_admission_requires_compass_condition() -> None:
+    with pytest.raises(ValueError, match="requires condition='compass_reflection'"):
+        build_run_config(
+            task_id="ifbench",
+            condition="mini_admission_reflection",
+            seed=0,
+            tag="20260731_split",
+            model_profile_name="qwen3_8b_local_vllm",
+            model_profile=_profile(),
+            remote_root=Path("/shared/reflection-bridge"),
+            snapshot={},
+            proposal_minibatch_size=2,
+            admission_minibatch_size=5,
+        )

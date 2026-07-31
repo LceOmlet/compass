@@ -21,6 +21,7 @@ from bridge.b20_compass_reflection import (
     CompassReflectionEngineConfig,
     run_compass_reflection_engine,
 )
+from bridge.minibatch_config import minibatch_config_kwargs
 from bridge.paper_benchmark_registry import (
     canonical_feedback_map,
     instantiate_official_splits,
@@ -38,7 +39,7 @@ ROOT_KEYS = {
     "source_snapshot",
     "task_id",
 }
-OPTIMIZER_KEYS = {
+OPTIMIZER_REQUIRED_KEYS = {
     "add_format_failure_as_feedback",
     "display_progress_bar",
     "failure_score",
@@ -48,10 +49,14 @@ OPTIMIZER_KEYS = {
     "parent_top_n",
     "perfect_score",
     "raise_on_exception",
-    "reflection_minibatch_size",
     "skip_perfect_score",
     "track_best_outputs",
     "use_cloudpickle",
+}
+OPTIMIZER_BATCH_KEYS = {
+    "reflection_minibatch_size",
+    "proposal_minibatch_size",
+    "admission_minibatch_size",
 }
 MODEL_REQUIRED_KEYS = {
     "api_key_env",
@@ -105,14 +110,33 @@ def _model_mapping(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
+def _optimizer_mapping(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError("optimizer must be a JSON object")
+    missing = OPTIMIZER_REQUIRED_KEYS.difference(value)
+    extra = set(value).difference(
+        OPTIMIZER_REQUIRED_KEYS | OPTIMIZER_BATCH_KEYS
+    )
+    if missing or extra:
+        raise ValueError(
+            f"optimizer keys mismatch; missing={sorted(missing)}, "
+            f"extra={sorted(extra)}"
+        )
+    optimizer = dict(value)
+    minibatch_config_kwargs(optimizer, namespace="optimizer")
+    return optimizer
+
+
+def _minibatch_config_kwargs(
+    optimizer: Mapping[str, Any],
+) -> dict[str, int | None]:
+    return minibatch_config_kwargs(optimizer, namespace="optimizer")
+
+
 def load_run_config(path: Path) -> dict[str, Any]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     config = _exact_mapping(raw, name="config", keys=ROOT_KEYS)
-    config["optimizer"] = _exact_mapping(
-        config["optimizer"],
-        name="optimizer",
-        keys=OPTIMIZER_KEYS,
-    )
+    config["optimizer"] = _optimizer_mapping(config["optimizer"])
     config["model"] = _model_mapping(config["model"])
     if not isinstance(config["source_snapshot"], Mapping):
         raise TypeError("source_snapshot must be a JSON object")
@@ -121,6 +145,14 @@ def load_run_config(path: Path) -> dict[str, Any]:
         "compass_reflection",
     ):
         raise ValueError("unsupported reflection condition")
+    if (
+        "proposal_minibatch_size" in config["optimizer"]
+        and config["condition"] != "compass_reflection"
+    ):
+        raise ValueError(
+            "split train/validation admission requires "
+            "condition='compass_reflection'"
+        )
     if (
         isinstance(config["optimizer_seed"], bool)
         or not isinstance(config["optimizer_seed"], int)
@@ -146,7 +178,6 @@ def _require_frozen_protocol(
         "parent_top_n": 5,
         "perfect_score": 1,
         "raise_on_exception": True,
-        "reflection_minibatch_size": 3,
         "skip_perfect_score": True,
         "track_best_outputs": True,
         "use_cloudpickle": True,
@@ -409,9 +440,6 @@ def main() -> int:
                 run_dir=run_dir,
                 condition=config["condition"],
                 seed=config["optimizer_seed"],
-                reflection_minibatch_size=config["optimizer"][
-                    "reflection_minibatch_size"
-                ],
                 parent_top_n=config["optimizer"]["parent_top_n"],
                 max_metric_calls=config["optimizer"]["max_metric_calls"],
                 perfect_score=config["optimizer"]["perfect_score"],
@@ -430,12 +458,14 @@ def main() -> int:
                 ],
                 raise_on_exception=config["optimizer"]["raise_on_exception"],
                 use_cloudpickle=config["optimizer"]["use_cloudpickle"],
+                **_minibatch_config_kwargs(config["optimizer"]),
             )
             run = run_compass_reflection_engine(
                 program=spec.program,
                 metric_fn=metric,
                 feedback_map=canonical_feedback_map(spec),
                 trainset=list(splits.train),
+                validation_set=list(splits.validation),
                 reflection_lm=lm,
                 config=engine_config,
             )

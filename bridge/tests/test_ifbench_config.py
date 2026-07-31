@@ -251,6 +251,27 @@ def test_v37_and_v38_only_add_high_resolution_mode_and_acceptance_choice() -> No
     }
 
 
+def test_raw_feedback_config_accepts_explicit_proposal_admission_ratio() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    config = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v37_high_resolution_selection_strict_local.json"
+    )
+    official = config["official_gepa"]
+    del official["reflection_minibatch_size"]
+    official["proposal_minibatch_size"] = 2
+    official["admission_minibatch_size"] = 5
+
+    namespace["_require_configuration"](config)
+
+    assert namespace["_minibatch_config_kwargs"](official) == {
+        "reflection_minibatch_size": None,
+        "proposal_minibatch_size": 2,
+        "admission_minibatch_size": 5,
+    }
+
+
 def test_v35_router_uses_official_least_busy_rate_limit_failover() -> None:
     router_path = (
         _ROOT / "experiments" / "11_ifbench_litellm_two_account_router_v35.yaml"

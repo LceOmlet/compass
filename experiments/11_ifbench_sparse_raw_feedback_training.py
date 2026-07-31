@@ -23,6 +23,7 @@ from bridge.b20_compass_reflection import (
     CompassReflectionEngineConfig,
     run_compass_reflection_engine,
 )
+from bridge.minibatch_config import minibatch_config_kwargs
 from bridge.paper_benchmark_registry import (
     canonical_feedback_map,
     load_official_benchmark_specs,
@@ -62,7 +63,6 @@ CONFIG_KEYS = {
         "num_threads",
         "perfect_score",
         "raise_on_exception",
-        "reflection_minibatch_size",
         "seed",
         "skip_perfect_score",
         "track_best_outputs",
@@ -72,7 +72,12 @@ CONFIG_KEYS = {
 OPTIONAL_CONFIG_KEYS = {
     "remote_lm": {"rollout_timeout_seconds"},
     "parent_selection": {"mode"},
-    "official_gepa": {"acceptance_mode"},
+    "official_gepa": {
+        "acceptance_mode",
+        "reflection_minibatch_size",
+        "proposal_minibatch_size",
+        "admission_minibatch_size",
+    },
 }
 
 
@@ -108,6 +113,12 @@ def load_config(path: Path) -> dict[str, dict[str, Any]]:
     }
 
 
+def _minibatch_config_kwargs(
+    official: Mapping[str, Any],
+) -> dict[str, int | None]:
+    return minibatch_config_kwargs(official, namespace="official_gepa")
+
+
 def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
     remote = config["remote_lm"]
     parent_selection = config["parent_selection"]
@@ -132,7 +143,6 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
         "max_metric_calls": 3593,
         "perfect_score": 1,
         "raise_on_exception": True,
-        "reflection_minibatch_size": 3,
         "seed": 0,
         "skip_perfect_score": True,
         "track_best_outputs": True,
@@ -157,6 +167,7 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
             raise ValueError(
                 f"official_gepa.{name} must equal the required value {expected!r}"
             )
+    _minibatch_config_kwargs(official)
     if not isinstance(official["use_cloudpickle"], bool):
         raise TypeError("official_gepa.use_cloudpickle must be a JSON boolean")
     acceptance_mode = official.get("acceptance_mode", "strict_improvement")
@@ -278,12 +289,12 @@ def main() -> int:
         metric_fn=spec.benchmark_meta.metric,
         feedback_map=canonical_feedback_map(spec),
         trainset=benchmark.train_set,
+        validation_set=benchmark.val_set,
         reflection_lm=lm,
         config=CompassReflectionEngineConfig(
             run_dir=run_dir,
             condition="compass_reflection",
             seed=official["seed"],
-            reflection_minibatch_size=official["reflection_minibatch_size"],
             parent_top_n=config["parent_selection"]["top_n"],
             parent_selection_score_mode=config["parent_selection"].get(
                 "mode",
@@ -306,6 +317,7 @@ def main() -> int:
                 "acceptance_mode",
                 "strict_improvement",
             ),
+            **_minibatch_config_kwargs(official),
         ),
     )
     return 0
