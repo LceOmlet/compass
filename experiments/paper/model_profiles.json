@@ -16,6 +16,23 @@
     "top_k": 20,
     "top_p": 0.95
   },
+  "qwen3_8b_local_vllm_18000": {
+    "api_base": "http://127.0.0.1:18000/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "cache": true,
+    "cache_in_memory": true,
+    "checkpoint": "/mnt/geogpt-doc-new/deepresearch/tool_jepa_qwen35_9b/models/Qwen3-8B",
+    "enable_thinking": true,
+    "max_tokens": 16384,
+    "model": "openai/Qwen3-8B",
+    "model_type": "chat",
+    "num_retries": 0,
+    "serving_backend": "vllm",
+    "serving_max_model_len": 40960,
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95
+  },
   "qwen3_8b_siliconflow": {
     "api_base": "https://api.siliconflow.cn/v1",
     "api_key_env": "SILICONFLOW_API_KEY",

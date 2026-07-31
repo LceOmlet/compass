@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 from experiments.paper.run_compass_reflection import (
+    _method_config_kwargs,
     _minibatch_config_kwargs,
+    _require_aime_gepa_protocol,
     _require_frozen_protocol,
     load_run_config,
 )
@@ -134,3 +136,41 @@ def test_runner_config_rejects_split_batches_for_mini_admission(
 
     with pytest.raises(ValueError, match="requires condition='compass_reflection'"):
         load_run_config(path)
+
+
+def test_runner_forwards_existing_compass_method_controls(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config["optimizer"].update(
+        {
+            "acceptance_mode": "always_accept",
+            "epoch_parallel_enabled": True,
+            "max_reflection_workers": 5,
+            "parent_selection_score_mode": "raw_frontier_rate",
+            "proposal_tasks_per_iteration": 5,
+        }
+    )
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+    loaded = load_run_config(path)
+
+    assert _method_config_kwargs(loaded["optimizer"]) == {
+        "acceptance_mode": "always_accept",
+        "epoch_parallel_enabled": True,
+        "max_reflection_workers": 5,
+        "parent_selection_score_mode": "raw_frontier_rate",
+        "proposal_tasks_per_iteration": 5,
+    }
+
+
+def test_aime_gepa_protocol_rejects_decoding_drift(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config["task_id"] = "aime_2025"
+    config["optimizer"]["max_metric_calls"] = 1839
+    config["model"]["temperature"] = 0.7
+
+    with pytest.raises(ValueError, match="model.temperature"):
+        _require_aime_gepa_protocol(config)
+
+    config["model"]["temperature"] = 0.6
+    _require_aime_gepa_protocol(config)

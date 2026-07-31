@@ -58,6 +58,13 @@ OPTIMIZER_BATCH_KEYS = {
     "proposal_minibatch_size",
     "admission_minibatch_size",
 }
+OPTIMIZER_METHOD_KEYS = {
+    "acceptance_mode",
+    "epoch_parallel_enabled",
+    "max_reflection_workers",
+    "parent_selection_score_mode",
+    "proposal_tasks_per_iteration",
+}
 MODEL_REQUIRED_KEYS = {
     "api_key_env",
     "cache",
@@ -115,7 +122,9 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
         raise TypeError("optimizer must be a JSON object")
     missing = OPTIMIZER_REQUIRED_KEYS.difference(value)
     extra = set(value).difference(
-        OPTIMIZER_REQUIRED_KEYS | OPTIMIZER_BATCH_KEYS
+        OPTIMIZER_REQUIRED_KEYS
+        | OPTIMIZER_BATCH_KEYS
+        | OPTIMIZER_METHOD_KEYS
     )
     if missing or extra:
         raise ValueError(
@@ -124,6 +133,53 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
         )
     optimizer = dict(value)
     minibatch_config_kwargs(optimizer, namespace="optimizer")
+    acceptance_mode = optimizer.get(
+        "acceptance_mode",
+        "strict_improvement",
+    )
+    if acceptance_mode not in {"strict_improvement", "always_accept"}:
+        raise ValueError(
+            "optimizer.acceptance_mode must be 'strict_improvement' "
+            "or 'always_accept'"
+        )
+    score_mode = optimizer.get(
+        "parent_selection_score_mode",
+        "high_resolution",
+    )
+    if score_mode not in {"raw_frontier_rate", "high_resolution"}:
+        raise ValueError(
+            "optimizer.parent_selection_score_mode must be "
+            "'raw_frontier_rate' or 'high_resolution'"
+        )
+    epoch_parallel_enabled = optimizer.get(
+        "epoch_parallel_enabled",
+        False,
+    )
+    if not isinstance(epoch_parallel_enabled, bool):
+        raise TypeError("optimizer.epoch_parallel_enabled must be a JSON boolean")
+    proposal_tasks = optimizer.get("proposal_tasks_per_iteration")
+    if proposal_tasks is not None and (
+        isinstance(proposal_tasks, bool)
+        or not isinstance(proposal_tasks, int)
+        or proposal_tasks <= 0
+    ):
+        raise TypeError(
+            "optimizer.proposal_tasks_per_iteration must be a positive integer"
+        )
+    if proposal_tasks is not None and not epoch_parallel_enabled:
+        raise ValueError(
+            "optimizer.proposal_tasks_per_iteration requires "
+            "optimizer.epoch_parallel_enabled=true"
+        )
+    max_reflection_workers = optimizer.get("max_reflection_workers", 1)
+    if (
+        isinstance(max_reflection_workers, bool)
+        or not isinstance(max_reflection_workers, int)
+        or max_reflection_workers <= 0
+    ):
+        raise TypeError(
+            "optimizer.max_reflection_workers must be a positive integer"
+        )
     return optimizer
 
 
@@ -131,6 +187,32 @@ def _minibatch_config_kwargs(
     optimizer: Mapping[str, Any],
 ) -> dict[str, int | None]:
     return minibatch_config_kwargs(optimizer, namespace="optimizer")
+
+
+def _method_config_kwargs(optimizer: Mapping[str, Any]) -> dict[str, Any]:
+    """Resolve explicitly configured COMPASS method choices without copying GEPA."""
+
+    return {
+        "acceptance_mode": optimizer.get(
+            "acceptance_mode",
+            "strict_improvement",
+        ),
+        "epoch_parallel_enabled": optimizer.get(
+            "epoch_parallel_enabled",
+            False,
+        ),
+        "max_reflection_workers": optimizer.get(
+            "max_reflection_workers",
+            1,
+        ),
+        "parent_selection_score_mode": optimizer.get(
+            "parent_selection_score_mode",
+            "high_resolution",
+        ),
+        "proposal_tasks_per_iteration": optimizer.get(
+            "proposal_tasks_per_iteration"
+        ),
+    }
 
 
 def load_run_config(path: Path) -> dict[str, Any]:
@@ -218,6 +300,38 @@ def _require_frozen_protocol(
             raise ValueError(
                 "model.serving_max_model_len must exceed model.max_tokens "
                 "so non-empty prompts fit in the deployed context window"
+            )
+
+
+def _require_aime_gepa_protocol(config: Mapping[str, Any]) -> None:
+    """Reject AIME settings that drift from the official GEPA comparison."""
+
+    expected_optimizer = {
+        "max_metric_calls": 1839,
+        "num_threads": 32,
+    }
+    for key, expected_value in expected_optimizer.items():
+        if config["optimizer"][key] != expected_value:
+            raise ValueError(
+                f"AIME GEPA parity requires optimizer.{key}="
+                f"{expected_value!r}"
+            )
+    if config["optimizer_seed"] != 0:
+        raise ValueError("AIME GEPA parity requires optimizer_seed=0")
+
+    expected_model = {
+        "enable_thinking": True,
+        "max_tokens": 16384,
+        "model_type": "chat",
+        "num_retries": 0,
+        "temperature": 0.6,
+        "top_k": 20,
+        "top_p": 0.95,
+    }
+    for key, expected_value in expected_model.items():
+        if config["model"].get(key) != expected_value:
+            raise ValueError(
+                f"AIME GEPA parity requires model.{key}={expected_value!r}"
             )
 
 
@@ -338,6 +452,8 @@ def main() -> int:
         raise ValueError(f"unknown paper task: {task_id!r}")
     spec = specs[task_id]
     _require_frozen_protocol(config, budget=spec.max_metric_calls)
+    if task_id == "aime_2025":
+        _require_aime_gepa_protocol(config)
 
     api_key_env = config["model"]["api_key_env"]
     if not isinstance(api_key_env, str) or not api_key_env:
@@ -459,6 +575,7 @@ def main() -> int:
                 raise_on_exception=config["optimizer"]["raise_on_exception"],
                 use_cloudpickle=config["optimizer"]["use_cloudpickle"],
                 **_minibatch_config_kwargs(config["optimizer"]),
+                **_method_config_kwargs(config["optimizer"]),
             )
             run = run_compass_reflection_engine(
                 program=spec.program,

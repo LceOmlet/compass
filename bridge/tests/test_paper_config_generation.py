@@ -7,6 +7,7 @@ import pytest
 from experiments.paper.generate_reflection_configs import (
     TASK_BUDGETS,
     build_run_config,
+    load_model_profiles,
 )
 
 
@@ -79,6 +80,64 @@ def test_generated_config_can_enable_split_admission_budget() -> None:
     assert "reflection_minibatch_size" not in optimizer
     assert optimizer["proposal_minibatch_size"] == 2
     assert optimizer["admission_minibatch_size"] == 5
+
+
+def test_generated_aime_config_matches_gepa_and_current_four_cell_controls() -> None:
+    profiles = load_model_profiles(
+        Path("experiments/paper/model_profiles.json")
+    )
+    profile = profiles["qwen3_8b_local_vllm_18000"]
+    _, config = build_run_config(
+        task_id="aime_2025",
+        condition="compass_reflection",
+        seed=0,
+        tag="v50_high_resolution_always_accept_window5",
+        model_profile_name="qwen3_8b_local_vllm_18000",
+        model_profile=profile,
+        remote_root=Path("F:/compass-aime-local"),
+        snapshot={"root_head": "abc"},
+        proposal_minibatch_size=3,
+        admission_minibatch_size=3,
+        acceptance_mode="always_accept",
+        epoch_parallel_enabled=True,
+        max_candidate_workers=5,
+        max_reflection_workers=5,
+        parent_selection_score_mode="high_resolution",
+        proposal_tasks_per_iteration=5,
+    )
+
+    optimizer = config["optimizer"]
+    assert config["optimizer_seed"] == 0
+    assert optimizer["max_metric_calls"] == 1839
+    assert optimizer["num_threads"] == 32
+    assert optimizer["proposal_minibatch_size"] == 3
+    assert optimizer["admission_minibatch_size"] == 3
+    assert optimizer["acceptance_mode"] == "always_accept"
+    assert optimizer["parent_selection_score_mode"] == "high_resolution"
+    assert optimizer["epoch_parallel_enabled"] is True
+    assert optimizer["proposal_tasks_per_iteration"] == 5
+    assert optimizer["max_candidate_workers"] == 5
+    assert optimizer["max_reflection_workers"] == 5
+    assert profile == {
+        "api_base": "http://127.0.0.1:18000/v1",
+        "api_key_env": "OPENAI_API_KEY",
+        "cache": True,
+        "cache_in_memory": True,
+        "checkpoint": (
+            "/mnt/geogpt-doc-new/deepresearch/"
+            "tool_jepa_qwen35_9b/models/Qwen3-8B"
+        ),
+        "enable_thinking": True,
+        "max_tokens": 16384,
+        "model": "openai/Qwen3-8B",
+        "model_type": "chat",
+        "num_retries": 0,
+        "serving_backend": "vllm",
+        "serving_max_model_len": 40960,
+        "temperature": 0.6,
+        "top_k": 20,
+        "top_p": 0.95,
+    }
 
 
 def test_generated_config_requires_both_split_batch_sizes() -> None:

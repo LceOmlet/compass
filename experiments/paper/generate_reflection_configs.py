@@ -41,6 +41,7 @@ SNAPSHOT_FILES = (
     "experiments/paper/model_profiles.json",
     "experiments/paper/run_compass_reflection.py",
     "experiments/paper/serve_qwen3_8b_vllm_metax.sh",
+    "scripts/start_aime_v47_v50_gepa_parity_local.ps1",
 )
 SUBMODULES = (
     "upstreams/dspy",
@@ -114,6 +115,12 @@ def build_run_config(
     snapshot: Mapping[str, Any],
     proposal_minibatch_size: int | None = None,
     admission_minibatch_size: int | None = None,
+    acceptance_mode: str = "strict_improvement",
+    epoch_parallel_enabled: bool = False,
+    max_candidate_workers: int = 3,
+    max_reflection_workers: int = 1,
+    parent_selection_score_mode: str = "high_resolution",
+    proposal_tasks_per_iteration: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     if task_id not in TASK_BUDGETS:
         raise ValueError(f"unknown paper task: {task_id!r}")
@@ -125,6 +132,31 @@ def build_run_config(
         raise ValueError("tag must contain only letters, digits, dot, dash, underscore")
     if not TAG_PATTERN.fullmatch(model_profile_name):
         raise ValueError("model profile name is not path-safe")
+    if acceptance_mode not in {"strict_improvement", "always_accept"}:
+        raise ValueError("unknown acceptance mode")
+    if parent_selection_score_mode not in {
+        "raw_frontier_rate",
+        "high_resolution",
+    }:
+        raise ValueError("unknown parent-selection score mode")
+    if not isinstance(epoch_parallel_enabled, bool):
+        raise TypeError("epoch_parallel_enabled must be a boolean")
+    for name, value in (
+        ("max_candidate_workers", max_candidate_workers),
+        ("max_reflection_workers", max_reflection_workers),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise TypeError(f"{name} must be a positive integer")
+    if proposal_tasks_per_iteration is not None and (
+        isinstance(proposal_tasks_per_iteration, bool)
+        or not isinstance(proposal_tasks_per_iteration, int)
+        or proposal_tasks_per_iteration <= 0
+    ):
+        raise TypeError("proposal_tasks_per_iteration must be a positive integer")
+    if proposal_tasks_per_iteration is not None and not epoch_parallel_enabled:
+        raise ValueError(
+            "proposal_tasks_per_iteration requires epoch_parallel_enabled=true"
+        )
     if (
         proposal_minibatch_size is not None
         or admission_minibatch_size is not None
@@ -168,15 +200,20 @@ def build_run_config(
             "add_format_failure_as_feedback": False,
             "display_progress_bar": False,
             "failure_score": 0,
-            "max_candidate_workers": 3,
+            "acceptance_mode": acceptance_mode,
+            "epoch_parallel_enabled": epoch_parallel_enabled,
+            "max_candidate_workers": max_candidate_workers,
             "max_metric_calls": TASK_BUDGETS[task_id],
+            "max_reflection_workers": max_reflection_workers,
             "num_threads": 32,
+            "parent_selection_score_mode": parent_selection_score_mode,
             "parent_top_n": 5,
             "perfect_score": 1,
             "raise_on_exception": True,
             "skip_perfect_score": True,
             "track_best_outputs": True,
             "use_cloudpickle": True,
+            "proposal_tasks_per_iteration": proposal_tasks_per_iteration,
             **minibatch_config,
         },
         "optimizer_seed": seed,
@@ -219,6 +256,20 @@ def main() -> int:
     parser.add_argument("--seeds", nargs="+", type=int, default=(0,))
     parser.add_argument("--proposal-minibatch-size", type=int)
     parser.add_argument("--admission-minibatch-size", type=int)
+    parser.add_argument(
+        "--acceptance-mode",
+        choices=("strict_improvement", "always_accept"),
+        default="strict_improvement",
+    )
+    parser.add_argument(
+        "--parent-selection-score-mode",
+        choices=("raw_frontier_rate", "high_resolution"),
+        default="high_resolution",
+    )
+    parser.add_argument("--epoch-parallel-enabled", action="store_true")
+    parser.add_argument("--proposal-tasks-per-iteration", type=int)
+    parser.add_argument("--max-candidate-workers", type=int, default=3)
+    parser.add_argument("--max-reflection-workers", type=int, default=1)
     parser.add_argument("--tag", required=True)
     parser.add_argument(
         "--model-profiles",
@@ -255,6 +306,16 @@ def main() -> int:
                 snapshot=snapshot,
                 proposal_minibatch_size=args.proposal_minibatch_size,
                 admission_minibatch_size=args.admission_minibatch_size,
+                acceptance_mode=args.acceptance_mode,
+                epoch_parallel_enabled=args.epoch_parallel_enabled,
+                max_candidate_workers=args.max_candidate_workers,
+                max_reflection_workers=args.max_reflection_workers,
+                parent_selection_score_mode=(
+                    args.parent_selection_score_mode
+                ),
+                proposal_tasks_per_iteration=(
+                    args.proposal_tasks_per_iteration
+                ),
             )
             path = args.output_dir / f"{slug}.json"
             _write_new_json(path, config)
