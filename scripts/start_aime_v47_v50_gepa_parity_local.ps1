@@ -230,16 +230,35 @@ finally {
     $apiKey = $null
 }
 
-Start-Sleep -Seconds 15
+$startupDeadline = [DateTime]::UtcNow.AddSeconds(60)
+do {
+    $allManifestsReady = $true
+    foreach ($run in $runs) {
+        $process = Get-Process -Id $run.ProcessId -ErrorAction SilentlyContinue
+        if (-not $process) {
+            $tail = Get-Content `
+                -LiteralPath $run.Stderr `
+                -Tail 40 `
+                -ErrorAction SilentlyContinue
+            throw (
+                "$($run.Version) exited during startup: " +
+                ($tail -join [Environment]::NewLine)
+            )
+        }
+        $manifest = Join-Path $run.RunDir "manifest.json"
+        if (-not (Test-Path -LiteralPath $manifest)) {
+            $allManifestsReady = $false
+        }
+    }
+    if (-not $allManifestsReady) {
+        Start-Sleep -Seconds 2
+    }
+} while (-not $allManifestsReady -and [DateTime]::UtcNow -lt $startupDeadline)
+
+if (-not $allManifestsReady) {
+    throw "AIME processes stayed alive but manifests were not ready within 60 seconds"
+}
 foreach ($run in $runs) {
-    $process = Get-Process -Id $run.ProcessId -ErrorAction SilentlyContinue
-    if (-not $process) {
-        $tail = Get-Content -LiteralPath $run.Stderr -Tail 40 -ErrorAction SilentlyContinue
-        throw "$($run.Version) exited during startup: $($tail -join [Environment]::NewLine)"
-    }
     $manifest = Join-Path $run.RunDir "manifest.json"
-    if (-not (Test-Path -LiteralPath $manifest)) {
-        throw "$($run.Version) is alive but did not create its manifest"
-    }
     Write-Output "running=$($run.Version),pid=$($run.ProcessId),manifest=$manifest"
 }
