@@ -2,10 +2,12 @@ param(
     [string]$RuntimeBase = "F:\compass-ifbench-local",
     [string]$SourceName = "source-v39-v42-split-1to1-20260731",
     [int]$ProxyPort = 40037,
-    [string]$WaitForPidFile = "F:\compass-ifbench-local\logs\14_ifbench_four_method_top1_test_20260731.pid"
+    [string]$WaitForPidFile = "F:\compass-ifbench-local\logs\14_ifbench_four_method_top1_test_20260731.pid",
+    [switch]$ResumePrepared
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $source = Join-Path $RuntimeBase $SourceName
@@ -44,8 +46,13 @@ $runs = @(
     }
 )
 
-if (Test-Path -LiteralPath $source) {
-    throw "Refusing to reuse existing frozen source directory: $source"
+if ($ResumePrepared) {
+    if (-not (Test-Path -LiteralPath $source)) {
+        throw "Prepared frozen source directory is missing: $source"
+    }
+}
+elseif (Test-Path -LiteralPath $source) {
+    throw "Refusing to reuse existing frozen source directory without -ResumePrepared: $source"
 }
 
 New-Item -ItemType Directory -Force -Path $configDir, $logs | Out-Null
@@ -57,30 +64,67 @@ foreach ($run in $runs) {
     $cacheDir = Join-Path $RuntimeBase $run.Cache
     $stdout = Join-Path $logs "$($run.LogStem).training.stdout.log"
     $stderr = Join-Path $logs "$($run.LogStem).training.stderr.log"
-    if (-not (Test-Path -LiteralPath $sourceConfig)) {
-        throw "Missing repository configuration: $sourceConfig"
+    $pidFile = Join-Path $logs "$($run.LogStem).training.pid"
+    if ($ResumePrepared) {
+        $frozenConfig = Join-Path (Join-Path $source "experiments") $run.Config
+        foreach ($required in @($frozenConfig, $runtimeConfig)) {
+            if (-not (Test-Path -LiteralPath $required)) {
+                throw "Prepared runtime input is missing: $required"
+            }
+        }
+        $frozenConfigHash = (
+            Get-FileHash -LiteralPath $frozenConfig -Algorithm SHA256
+        ).Hash
+        $runtimeConfigHash = (
+            Get-FileHash -LiteralPath $runtimeConfig -Algorithm SHA256
+        ).Hash
+        if ($frozenConfigHash -ne $runtimeConfigHash) {
+            throw "Prepared runtime configuration differs from frozen source: $runtimeConfig"
+        }
+        foreach ($target in @($runDir, $stdout, $stderr, $pidFile)) {
+            if (Test-Path -LiteralPath $target) {
+                throw "Refusing to resume over an existing run artifact: $target"
+            }
+        }
     }
-    foreach ($target in @($runtimeConfig, $runDir, $cacheDir, $stdout, $stderr)) {
-        if (Test-Path -LiteralPath $target) {
-            throw "Refusing to overwrite an existing runtime target: $target"
+    else {
+        if (-not (Test-Path -LiteralPath $sourceConfig)) {
+            throw "Missing repository configuration: $sourceConfig"
+        }
+        foreach ($target in @(
+            $runtimeConfig,
+            $runDir,
+            $cacheDir,
+            $stdout,
+            $stderr,
+            $pidFile
+        )) {
+            if (Test-Path -LiteralPath $target) {
+                throw "Refusing to overwrite an existing runtime target: $target"
+            }
         }
     }
 }
 
-Write-Output "snapshot_source=$repoRoot"
-Write-Output "snapshot_target=$source"
-& robocopy.exe $repoRoot $source /E /COPY:DAT /DCOPY:DAT /R:2 /W:1 `
-    /XD .git .venv .pytest_cache .ruff_cache .local-runs .codex-tmp __pycache__ secrets `
-    /XF .git *.pyc | Out-Host
-$copyExitCode = $LASTEXITCODE
-if ($copyExitCode -gt 7) {
-    throw "Source snapshot failed with robocopy exit code $copyExitCode"
-}
+if (-not $ResumePrepared) {
+    Write-Output "snapshot_source=$repoRoot"
+    Write-Output "snapshot_target=$source"
+    & robocopy.exe $repoRoot $source /E /COPY:DAT /DCOPY:DAT /R:2 /W:1 `
+        /XD .git .venv .pytest_cache .ruff_cache .local-runs .codex-tmp __pycache__ secrets `
+        /XF .git *.pyc | Out-Host
+    $copyExitCode = $LASTEXITCODE
+    if ($copyExitCode -gt 7) {
+        throw "Source snapshot failed with robocopy exit code $copyExitCode"
+    }
 
-foreach ($run in $runs) {
-    Copy-Item `
-        -LiteralPath (Join-Path (Join-Path $source "experiments") $run.Config) `
-        -Destination (Join-Path $configDir $run.Config)
+    foreach ($run in $runs) {
+        Copy-Item `
+            -LiteralPath (Join-Path (Join-Path $source "experiments") $run.Config) `
+            -Destination (Join-Path $configDir $run.Config)
+    }
+}
+else {
+    Write-Output "reusing_prepared_source=$source"
 }
 
 $launcher = Join-Path (Join-Path $source "scripts") $launcherName
