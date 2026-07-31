@@ -304,6 +304,7 @@ def test_v37_router_uses_all_three_accounts() -> None:
     ]
     assert router["router_settings"] == {
         "routing_strategy": "least-busy",
+        "timeout": 600,
         "num_retries": 0,
         "retry_policy": {"RateLimitErrorRetries": 1},
         "max_fallbacks": 0,
