@@ -272,6 +272,57 @@ def test_raw_feedback_config_accepts_explicit_proposal_admission_ratio() -> None
     }
 
 
+@pytest.mark.parametrize(
+    ("config_name", "selection_mode", "acceptance_mode"),
+    [
+        (
+            "11_ifbench_siliconflow_v43_split_1to1_raw_strict_window5_local.json",
+            "raw_frontier_rate",
+            "strict_improvement",
+        ),
+        (
+            "11_ifbench_siliconflow_v44_split_1to1_raw_always_accept_window5_local.json",
+            "raw_frontier_rate",
+            "always_accept",
+        ),
+        (
+            "11_ifbench_siliconflow_v45_split_1to1_high_resolution_strict_window5_local.json",
+            "high_resolution",
+            "strict_improvement",
+        ),
+        (
+            "11_ifbench_siliconflow_v46_split_1to1_high_resolution_always_accept_window5_local.json",
+            "high_resolution",
+            "always_accept",
+        ),
+    ],
+)
+def test_window5_split_configs_preserve_the_four_method_grid(
+    config_name: str,
+    selection_mode: str,
+    acceptance_mode: str,
+) -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    config = namespace["load_config"](_ROOT / "experiments" / config_name)
+    namespace["_require_configuration"](config)
+
+    assert config["parent_selection"] == {
+        "top_n": 5,
+        "mode": selection_mode,
+    }
+    assert config["epoch_parallel"] == {
+        "enabled": True,
+        "proposal_tasks_per_iteration": 5,
+        "max_candidate_workers": 5,
+        "max_reflection_workers": 5,
+    }
+    assert config["official_gepa"]["acceptance_mode"] == acceptance_mode
+    assert config["official_gepa"]["proposal_minibatch_size"] == 3
+    assert config["official_gepa"]["admission_minibatch_size"] == 3
+    assert config["remote_lm"]["rollout_timeout_seconds"] == 600
+    assert config["remote_lm"]["api_base"] == "http://127.0.0.1:40037/v1"
+
+
 def test_v35_router_uses_official_least_busy_rate_limit_failover() -> None:
     router_path = (
         _ROOT / "experiments" / "11_ifbench_litellm_two_account_router_v35.yaml"

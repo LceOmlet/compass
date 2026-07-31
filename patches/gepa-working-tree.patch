@@ -1,5 +1,5 @@
 diff --git a/src/gepa/__init__.py b/src/gepa/__init__.py
-index 353b33f460a164138d8a33da5836ebaffd49bb05..a9b79381099058e75ca293d4dd8f0af9e5d5a611 100644
+index 353b33f..a9b7938 100644
 --- a/src/gepa/__init__.py
 +++ b/src/gepa/__init__.py
 @@ -10,6 +10,11 @@ from .core.adapter import EvaluationBatch, GEPAAdapter
@@ -15,7 +15,7 @@ index 353b33f460a164138d8a33da5836ebaffd49bb05..a9b79381099058e75ca293d4dd8f0af9
      CompositeStopper,
      FileStopper,
 diff --git a/src/gepa/api.py b/src/gepa/api.py
-index 7a2fa550851899436f423b7ff20b8425e71bdaca..a4fc85b30d88c0aba3de4fe6d302de3377bf6e36 100644
+index 7a2fa55..a4fc85b 100644
 --- a/src/gepa/api.py
 +++ b/src/gepa/api.py
 @@ -23,6 +23,7 @@ from gepa.logging.experiment_tracker import create_experiment_tracker
@@ -67,7 +67,7 @@ index 7a2fa550851899436f423b7ff20b8425e71bdaca..a4fc85b30d88c0aba3de4fe6d302de33
  
      def evaluator_fn(
 diff --git a/src/gepa/core/adapter.py b/src/gepa/core/adapter.py
-index e5103bff60890dde34ad77241301fbcf2a19b06d..e345326999999d9d6a4e96a7513b0016acdf30d1 100644
+index e5103bf..e345326 100644
 --- a/src/gepa/core/adapter.py
 +++ b/src/gepa/core/adapter.py
 @@ -212,6 +212,22 @@ class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
@@ -94,7 +94,7 @@ index e5103bff60890dde34ad77241301fbcf2a19b06d..e345326999999d9d6a4e96a7513b0016
  
  def default_batch_evaluate(
 diff --git a/src/gepa/core/engine.py b/src/gepa/core/engine.py
-index e29f612e2ac6b30afaafc6e5308011a19c756e41..610b1463bfc8f83d2fd965c98693e0d69a9b806f 100644
+index e29f612..610b146 100644
 --- a/src/gepa/core/engine.py
 +++ b/src/gepa/core/engine.py
 @@ -39,6 +39,7 @@ from gepa.logging.logger import LoggerProtocol
@@ -228,7 +228,7 @@ index e29f612e2ac6b30afaafc6e5308011a19c756e41..610b1463bfc8f83d2fd965c98693e0d6
              notify_callbacks(
                  self.callbacks,
 diff --git a/src/gepa/core/state.py b/src/gepa/core/state.py
-index 19ead87861b11a76fab1455e5a12f7dfc83c558b..dcf503b620863e446a3a2ca5c19bc709be529cba 100644
+index 19ead87..dcf503b 100644
 --- a/src/gepa/core/state.py
 +++ b/src/gepa/core/state.py
 @@ -3,6 +3,7 @@
@@ -499,7 +499,7 @@ index 19ead87861b11a76fab1455e5a12f7dfc83c558b..dcf503b620863e446a3a2ca5c19bc709
          valset_scores = dict(valset_evaluation.scores_by_val_id)
          self.prog_candidate_val_subscores.append(valset_scores)
 diff --git a/src/gepa/proposer/base.py b/src/gepa/proposer/base.py
-index 6650ba6a4ed0e4af7501c7dd4680899966da0cb9..9cce7869ae7078ac55ba0b4d0cab7dd7870c3842 100644
+index 6650ba6..9cce786 100644
 --- a/src/gepa/proposer/base.py
 +++ b/src/gepa/proposer/base.py
 @@ -6,6 +6,7 @@ from typing import Any, Generic, Protocol
@@ -522,7 +522,7 @@ index 6650ba6a4ed0e4af7501c7dd4680899966da0cb9..9cce7869ae7078ac55ba0b4d0cab7dd7
  
  class ProposeNewCandidate(Protocol[DataId]):
 diff --git a/src/gepa/proposer/reflective_mutation/__init__.py b/src/gepa/proposer/reflective_mutation/__init__.py
-index e69de29bb2d1d6434b8b29ae775ad8c2e48c5391..ff7ff3a5683a750345cb110287cff33b112711d1 100644
+index e69de29..ff7ff3a 100644
 --- a/src/gepa/proposer/reflective_mutation/__init__.py
 +++ b/src/gepa/proposer/reflective_mutation/__init__.py
 @@ -0,0 +1,5 @@
@@ -531,73 +531,8 @@ index e69de29bb2d1d6434b8b29ae775ad8c2e48c5391..ff7ff3a5683a750345cb110287cff33b
 +    AdmissionPlan,
 +    commit_adapter_observations,
 +)
-diff --git a/src/gepa/proposer/reflective_mutation/admission.py b/src/gepa/proposer/reflective_mutation/admission.py
-new file mode 100644
-index 0000000000000000000000000000000000000000..b6ec85218a6fc2d9fa2446043e9fa3840e6fe8e9
---- /dev/null
-+++ b/src/gepa/proposer/reflective_mutation/admission.py
-@@ -0,0 +1,59 @@
-+# Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
-+# https://github.com/gepa-ai/gepa
-+
-+"""Optional admission-stage extension points for reflective mutation."""
-+
-+from collections.abc import Mapping, Sequence
-+from dataclasses import dataclass
-+from typing import Any, Generic, Protocol
-+
-+from gepa.core.adapter import DataInst, EvaluationBatch, RolloutOutput, Trajectory
-+from gepa.core.data_loader import DataId
-+from gepa.core.state import GEPAState
-+
-+
-+@dataclass(frozen=True, slots=True)
-+class AdmissionPlan(Generic[DataId, DataInst, Trajectory, RolloutOutput]):
-+    """Evaluation inputs and reference results for an admission-stage candidate check."""
-+
-+    evaluation_ids: tuple[DataId, ...]
-+    evaluation_batch: tuple[DataInst, ...]
-+    eval_before: EvaluationBatch[Trajectory, RolloutOutput]
-+    birth_propose_ids: tuple[DataId, ...] | None = None
-+
-+
-+class AdmissionHook(Protocol[DataId, DataInst, Trajectory, RolloutOutput]):
-+    """Prepare an optional, independent admission evaluation for one reflection job."""
-+
-+    def prepare(
-+        self,
-+        *,
-+        state: GEPAState[RolloutOutput, DataId],
-+        parent_program_idx: int,
-+        parent_candidate: dict[str, str],
-+        components_to_update: Sequence[str],
-+        reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
-+        propose_evaluation: EvaluationBatch[Trajectory, RolloutOutput],
-+        admission_ids: Sequence[DataId],
-+        admission_batch: Sequence[DataInst],
-+    ) -> AdmissionPlan[DataId, DataInst, Trajectory, RolloutOutput] | None: ...
-+
-+
-+def commit_adapter_observations(
-+    adapter: Any,
-+    *,
-+    program_idx: int,
-+    evaluation_ids: Sequence[DataId],
-+    evaluation: EvaluationBatch[Trajectory, RolloutOutput],
-+    committed_ids: Sequence[DataId],
-+) -> None:
-+    """Forward committed observations to adapters that expose an observation sink."""
-+    commit = getattr(adapter, "commit_program_observations", None)
-+    if commit is None:
-+        return
-+    commit(
-+        program_idx=program_idx,
-+        evaluation_ids=evaluation_ids,
-+        evaluation=evaluation,
-+        committed_ids=committed_ids,
-+    )
 diff --git a/src/gepa/proposer/reflective_mutation/reflective_mutation.py b/src/gepa/proposer/reflective_mutation/reflective_mutation.py
-index dc4f385bed676c4c6149fa020a8559474133bf71..6fe9879bb5649d8962054ad41f41dc52f16e192f 100644
+index dc4f385..6fe9879 100644
 --- a/src/gepa/proposer/reflective_mutation/reflective_mutation.py
 +++ b/src/gepa/proposer/reflective_mutation/reflective_mutation.py
 @@ -3,6 +3,8 @@
@@ -1166,7 +1101,7 @@ index dc4f385bed676c4c6149fa020a8559474133bf71..6fe9879bb5649d8962054ad41f41dc52
              proposals.append(proposal)
  
 diff --git a/src/gepa/strategies/batch_sampler.py b/src/gepa/strategies/batch_sampler.py
-index c6e0dd2c9ab2578ad8bf5047375b8097b6941f34..2535b3a9a5a8f3634515eb6d76746d872677bc23 100644
+index c6e0dd2..91466cc 100644
 --- a/src/gepa/strategies/batch_sampler.py
 +++ b/src/gepa/strategies/batch_sampler.py
 @@ -3,6 +3,7 @@
@@ -1191,7 +1126,7 @@ index c6e0dd2c9ab2578ad8bf5047375b8097b6941f34..2535b3a9a5a8f3634515eb6d76746d87
  
  
  class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
-@@ -31,14 +37,24 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+@@ -31,14 +37,32 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
      - Deterministic via state.rng1
      """
  
@@ -1202,11 +1137,19 @@ index c6e0dd2c9ab2578ad8bf5047375b8097b6941f34..2535b3a9a5a8f3634515eb6d76746d87
 +        rng: random.Random | None = None,
 +        *,
 +        iteration_is_epoch: bool = False,
++        minibatches_per_iteration: int = 1,
 +    ):
 +        if not isinstance(iteration_is_epoch, bool):
 +            raise TypeError("iteration_is_epoch must be a boolean")
++        if (
++            isinstance(minibatches_per_iteration, bool)
++            or not isinstance(minibatches_per_iteration, int)
++            or minibatches_per_iteration <= 0
++        ):
++            raise TypeError("minibatches_per_iteration must be a positive integer")
          self.minibatch_size = minibatch_size
 +        self.iteration_is_epoch = iteration_is_epoch
++        self.minibatches_per_iteration = minibatches_per_iteration
          self.shuffled_ids: list[DataId] = []
          self.epoch = -1
          self.id_freqs = Counter()
@@ -1217,7 +1160,7 @@ index c6e0dd2c9ab2578ad8bf5047375b8097b6941f34..2535b3a9a5a8f3634515eb6d76746d87
          if rng is None:
              self.rng = random.Random(0)
          else:
-@@ -66,7 +82,12 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+@@ -66,7 +90,12 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
                  self.shuffled_ids.append(selected_id)
                  self.id_freqs[selected_id] += 1
  
@@ -1231,7 +1174,7 @@ index c6e0dd2c9ab2578ad8bf5047375b8097b6941f34..2535b3a9a5a8f3634515eb6d76746d87
          trainset_size = len(loader)
          if trainset_size == 0:
              raise ValueError("Cannot sample a minibatch from an empty loader.")
-@@ -77,19 +98,43 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+@@ -77,19 +106,47 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
          # call of an iteration is unchanged from the classic behavior. Chunks
          # wrap around, so distinctness holds only while the iteration's call
          # count stays within len(shuffled_ids) / minibatch_size.
@@ -1265,7 +1208,11 @@ index c6e0dd2c9ab2578ad8bf5047375b8097b6941f34..2535b3a9a5a8f3634515eb6d76746d87
 +                self._update_shuffled(loader)
 +            base_idx = self._positions_consumed_in_iteration
 +        else:
-+            base_idx = state.i * self.minibatch_size
++            base_idx = (
++                state.i
++                * self.minibatch_size
++                * self.minibatches_per_iteration
++            )
 +            remainder = trainset_size % self.minibatch_size
 +            padded_trainset_size = trainset_size + (
 +                self.minibatch_size - remainder if remainder else 0
@@ -1284,7 +1231,7 @@ index c6e0dd2c9ab2578ad8bf5047375b8097b6941f34..2535b3a9a5a8f3634515eb6d76746d87
  
          assert len(self.shuffled_ids) >= self.minibatch_size
          assert len(self.shuffled_ids) % self.minibatch_size == 0
-@@ -97,7 +142,24 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+@@ -97,7 +154,24 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
          # The epoch bookkeeping above uses the un-offset base_idx (constant
          # within an iteration), so repeat calls never trigger a reshuffle and
          # the shuffle sequence stays identical to the single-call path.
@@ -1313,250 +1260,11 @@ index c6e0dd2c9ab2578ad8bf5047375b8097b6941f34..2535b3a9a5a8f3634515eb6d76746d87
 +                selected.append(data_id)
 +        self._positions_consumed_in_iteration += scanned
 +        return selected
-diff --git a/tests/test_admission.py b/tests/test_admission.py
-new file mode 100644
-index 0000000000000000000000000000000000000000..d4a6450e09df7206d05c8f0b4b799d6ad4dc5453
---- /dev/null
-+++ b/tests/test_admission.py
-@@ -0,0 +1,81 @@
-+from gepa import AdmissionHook, AdmissionPlan, commit_adapter_observations
-+from gepa.core.adapter import EvaluationBatch
-+from gepa.proposer.base import CandidateProposal
-+
-+
-+def test_admission_plan_is_an_explicit_optional_candidate_field():
-+    eval_before = EvaluationBatch(
-+        outputs=["old-output"],
-+        scores=[0.75],
-+        trajectories=[{"call": "old"}],
-+    )
-+    plan = AdmissionPlan(
-+        evaluation_ids=(7,),
-+        evaluation_batch=({"id": 7},),
-+        eval_before=eval_before,
-+    )
-+
-+    proposal = CandidateProposal(
-+        candidate={"prompt": "new"},
-+        parent_program_ids=[0],
-+        admission_plan=plan,
-+    )
-+
-+    assert proposal.admission_plan is plan
-+    assert proposal.admission_plan.evaluation_ids == (7,)
-+    assert proposal.admission_plan.evaluation_batch == ({"id": 7},)
-+    assert proposal.admission_plan.eval_before is eval_before
-+    assert AdmissionHook is not None
-+
-+
-+def test_candidate_proposal_positional_constructor_remains_backward_compatible():
-+    proposal = CandidateProposal(
-+        {"prompt": "new"},
-+        [0],
-+        [3],
-+        [0.25],
-+        [0.5],
-+        None,
-+        None,
-+        "reflective_mutation",
-+        {"source": "default"},
-+    )
-+
-+    assert proposal.tag == "reflective_mutation"
-+    assert proposal.metadata == {"source": "default"}
-+    assert proposal.admission_plan is None
-+
-+
-+def test_commit_adapter_observations_is_an_optional_duck_typed_sink():
-+    evaluation = EvaluationBatch(outputs=["out"], scores=[1.0], trajectories=[{"trace": 1}])
-+
-+    class StatefulAdapter:
-+        def __init__(self):
-+            self.call = None
-+
-+        def commit_program_observations(self, **kwargs):
-+            self.call = kwargs
-+
-+    adapter = StatefulAdapter()
-+    commit_adapter_observations(
-+        adapter,
-+        program_idx=3,
-+        evaluation_ids=(8,),
-+        evaluation=evaluation,
-+        committed_ids=(8,),
-+    )
-+
-+    assert adapter.call == {
-+        "program_idx": 3,
-+        "evaluation_ids": (8,),
-+        "evaluation": evaluation,
-+        "committed_ids": (8,),
-+    }
-+
-+    commit_adapter_observations(
-+        object(),
-+        program_idx=3,
-+        evaluation_ids=(8,),
-+        evaluation=evaluation,
-+        committed_ids=(),
-+    )
-diff --git a/tests/test_admission_engine.py b/tests/test_admission_engine.py
-new file mode 100644
-index 0000000000000000000000000000000000000000..ea30d3e6d5cc972ad2d11a1a6848003bf429046d
---- /dev/null
-+++ b/tests/test_admission_engine.py
-@@ -0,0 +1,146 @@
-+from unittest.mock import MagicMock
-+
-+import pytest
-+
-+from gepa.core.adapter import EvaluationBatch
-+from gepa.core.engine import GEPAEngine
-+from gepa.core.state import GEPAState, ValsetEvaluation
-+from gepa.proposer.base import CandidateProposal, SubsampleEvaluation
-+from gepa.proposer.reflective_mutation.admission import AdmissionPlan
-+from gepa.strategies.acceptance import StrictImprovementAcceptance
-+from gepa.strategies.proposal_selection import AllImprovements
-+
-+
-+def _state() -> GEPAState:
-+    state = GEPAState(
-+        {"prompt": "seed"},
-+        ValsetEvaluation(outputs_by_val_id={}, scores_by_val_id={}),
-+    )
-+    state.i = 0
-+    state.full_program_trace.append({"i": 1})
-+    return state
-+
-+
-+def _engine() -> GEPAEngine:
-+    engine = object.__new__(GEPAEngine)
-+    engine.acceptance_criterion = StrictImprovementAcceptance()
-+    engine.selection_strategy = AllImprovements()
-+    engine.logger = MagicMock()
-+    engine.adapter = MagicMock()
-+    engine.callbacks = None
-+    engine.merge_proposer = None
-+    engine._evaluate_programs_on_valset = MagicMock()
-+    engine._add_evaluated_program = MagicMock(return_value=(1, 0))
-+    engine._log_proposal_lm_calls = MagicMock()
-+    return engine
-+
-+
-+def _proposal(*, before: float, after: float, admission: bool) -> CandidateProposal:
-+    plan = (
-+        AdmissionPlan(
-+            evaluation_ids=(11,),
-+            evaluation_batch=({"id": 11},),
-+            eval_before=EvaluationBatch(
-+                outputs=["old"],
-+                scores=[before],
-+                trajectories=[{"trace": "old"}],
-+            ),
-+            birth_propose_ids=(3,),
-+        )
-+        if admission
-+        else None
-+    )
-+    return CandidateProposal(
-+        candidate={"prompt": "child"},
-+        parent_program_ids=[0],
-+        subsample_indices=[11],
-+        subsample_scores_before=[before],
-+        subsample_scores_after=[after],
-+        eval_before=SubsampleEvaluation(
-+            scores=[before],
-+            outputs=["old"],
-+            trajectories=[{"trace": "old"}],
-+        ),
-+        eval_after=SubsampleEvaluation(
-+            scores=[after],
-+            outputs=["new"],
-+            trajectories=[{"trace": "new"}],
-+        ),
-+        admission_plan=plan,
-+    )
-+
-+
-+def test_admission_acceptance_directly_adds_stage4_result_without_val_policy():
-+    engine = _engine()
-+    proposal = _proposal(before=0.25, after=0.75, admission=True)
-+
-+    assert engine._run_reflective_batch([proposal], _state())
-+
-+    engine._evaluate_programs_on_valset.assert_not_called()
-+    call = engine._add_evaluated_program.call_args.kwargs
-+    assert call["num_actual_evals"] == 0
-+    assert call["birth_propose_ids"] == (3,)
-+    assert call["valset_evaluation"].scores_by_val_id == {11: 0.75}
-+    assert call["valset_evaluation"].outputs_by_val_id == {11: "new"}
-+    engine.adapter.commit_program_observations.assert_called_once()
-+
-+
-+def test_rejected_admission_proposal_commits_no_candidate_observation():
-+    engine = _engine()
-+    proposal = _proposal(before=0.75, after=0.25, admission=True)
-+
-+    assert not engine._run_reflective_batch([proposal], _state())
-+
-+    engine._evaluate_programs_on_valset.assert_not_called()
-+    engine._add_evaluated_program.assert_not_called()
-+    engine.adapter.commit_program_observations.assert_not_called()
-+
-+
-+def test_default_proposal_keeps_official_val_policy_path():
-+    engine = _engine()
-+    proposal = _proposal(before=0.25, after=0.75, admission=False)
-+    val_eval = ValsetEvaluation(outputs_by_val_id={5: "val"}, scores_by_val_id={5: 0.5})
-+    engine._evaluate_programs_on_valset.return_value = [(val_eval, 1)]
-+
-+    assert engine._run_reflective_batch([proposal], _state())
-+
-+    engine._evaluate_programs_on_valset.assert_called_once_with(
-+        [proposal.candidate],
-+        engine._add_evaluated_program.call_args.kwargs["state"],
-+    )
-+    call = engine._add_evaluated_program.call_args.kwargs
-+    assert call["valset_evaluation"] is val_eval
-+    assert call["num_actual_evals"] == 1
-+    assert call["birth_propose_ids"] is None
-+    engine.adapter.commit_program_observations.assert_not_called()
-+
-+
-+def test_birth_evaluation_overlap_fails_before_budget_or_state_mutation():
-+    engine = object.__new__(GEPAEngine)
-+    state = _state()
-+    state.total_num_evals = 7
-+    state.num_full_ds_evals = 2
-+    before = (
-+        state.total_num_evals,
-+        state.num_full_ds_evals,
-+        len(state.program_candidates),
-+    )
-+
-+    with pytest.raises(ValueError, match="frontier-ineligible"):
-+        engine._add_evaluated_program(
-+            new_program={"prompt": "leaked"},
-+            state=state,
-+            parent_program_idx=[0],
-+            valset_evaluation=ValsetEvaluation(
-+                outputs_by_val_id={3: "leaked"},
-+                scores_by_val_id={3: 1.0},
-+            ),
-+            num_actual_evals=1,
-+            birth_propose_ids=(3,),
-+        )
-+
-+    assert before == (
-+        state.total_num_evals,
-+        state.num_full_ds_evals,
-+        len(state.program_candidates),
-+    )
 diff --git a/tests/test_batch_sampler.py b/tests/test_batch_sampler.py
-index cc5b4a2b66889757f20af22ebb1d2d1618664118..3ccfe56268a74efacc2bcd307ee31522a46c9744 100644
+index cc5b4a2..a3e8ff2 100644
 --- a/tests/test_batch_sampler.py
 +++ b/tests/test_batch_sampler.py
-@@ -51,6 +51,37 @@ def test_repeated_calls_within_iteration_return_distinct_minibatches():
+@@ -51,6 +51,83 @@ def test_repeated_calls_within_iteration_return_distinct_minibatches():
      assert tuple(sampler.next_minibatch_ids(loader, state)) == batches[0]
  
  
@@ -1591,10 +1299,56 @@ index cc5b4a2b66889757f20af22ebb1d2d1618664118..3ccfe56268a74efacc2bcd307ee31522
 +    assert second_order != first_order
 +
 +
++def test_windowed_iterations_cover_one_epoch_without_overlap():
++    loader = ListDataLoader(list(range(30)))
++    sampler = EpochShuffledBatchSampler(
++        minibatch_size=3,
++        rng=random.Random(0),
++        minibatches_per_iteration=5,
++    )
++    state = SimpleNamespace(i=0)
++
++    first_window = [
++        sampler.next_minibatch_ids(loader, state)
++        for _ in range(5)
++    ]
++    first_order = [item for batch in first_window for item in batch]
++
++    state.i += 1
++    second_window = [
++        sampler.next_minibatch_ids(loader, state)
++        for _ in range(5)
++    ]
++    second_order = [item for batch in second_window for item in batch]
++
++    assert set(first_order).isdisjoint(second_order)
++    assert sorted(first_order + second_order) == list(range(30))
++
++    state.i += 1
++    next_epoch_first_window = [
++        sampler.next_minibatch_ids(loader, state)
++        for _ in range(5)
++    ]
++    next_epoch_first_order = [
++        item for batch in next_epoch_first_window for item in batch
++    ]
++    assert sampler.epoch == 1
++    assert next_epoch_first_order != first_order
++
++
++@pytest.mark.parametrize("value", [True, 0, -1, 1.5])
++def test_minibatches_per_iteration_must_be_a_positive_integer(value):
++    with pytest.raises(TypeError, match="positive integer"):
++        EpochShuffledBatchSampler(
++            minibatch_size=3,
++            minibatches_per_iteration=value,
++        )
++
++
  def test_extra_calls_do_not_perturb_later_iterations():
      # The first call of each iteration must be byte-identical whether or not
      # earlier iterations made extra (multi-proposal) calls.
-@@ -65,3 +96,53 @@ def test_extra_calls_do_not_perturb_later_iterations():
+@@ -65,3 +142,53 @@ def test_extra_calls_do_not_perturb_later_iterations():
          assert multi.next_minibatch_ids(loader_multi, state) == expected
          for _ in range(4):
              multi.next_minibatch_ids(loader_multi, state)
@@ -1649,7 +1403,7 @@ index cc5b4a2b66889757f20af22ebb1d2d1618664118..3ccfe56268a74efacc2bcd307ee31522
 +    with pytest.raises(ValueError, match="full minibatch"):
 +        sampler.next_minibatch_ids(loader, state, excluded_ids=(0, 1, 2))
 diff --git a/tests/test_candidate_selector.py b/tests/test_candidate_selector.py
-index 6375191adbd94308acd7ac505beef6f58760105a..11a5decb7bfd486a5fe092131227258084a88a93 100644
+index 6375191..11a5dec 100644
 --- a/tests/test_candidate_selector.py
 +++ b/tests/test_candidate_selector.py
 @@ -39,6 +39,8 @@ def mock_state():
@@ -1662,7 +1416,7 @@ index 6375191adbd94308acd7ac505beef6f58760105a..11a5decb7bfd486a5fe0921312272580
      state.named_predictor_id_to_update_next_for_program_candidate.append(0)
      state.named_predictor_id_to_update_next_for_program_candidate.append(0)
 diff --git a/tests/test_module_selector.py b/tests/test_module_selector.py
-index f4f31cc638e1093c765ef7e8b1fb6fd798e04d11..bd6947f46990eac13bb69e49c7cd00bbfc908baf 100644
+index f4f31cc..bd6947f 100644
 --- a/tests/test_module_selector.py
 +++ b/tests/test_module_selector.py
 @@ -226,6 +226,40 @@ def test_batch_sampler_configuration(mock_proposer, mock_run, common_mocks, base
@@ -1707,7 +1461,7 @@ index f4f31cc638e1093c765ef7e8b1fb6fd798e04d11..bd6947f46990eac13bb69e49c7cd00bb
      """Test that invalid batch_sampler configurations raise appropriate errors."""
      custom_batch_sampler = EpochShuffledBatchSampler(minibatch_size=5)
 diff --git a/tests/test_parallel_proposals.py b/tests/test_parallel_proposals.py
-index e4c35931348c77f96dafa7ae700850fa104b2724..70ae3064e301954478d889bc5a0824b20cb0b26e 100644
+index e4c3593..70ae306 100644
 --- a/tests/test_parallel_proposals.py
 +++ b/tests/test_parallel_proposals.py
 @@ -43,6 +43,7 @@ def mock_state():
@@ -1719,7 +1473,7 @@ index e4c35931348c77f96dafa7ae700850fa104b2724..70ae3064e301954478d889bc5a0824b2
      state.num_metric_calls_by_discovery.append(0)
  
 diff --git a/tests/test_reflection_lm.py b/tests/test_reflection_lm.py
-index 1bfb31206375b44295dc4c4ece3b8a216d398444..f9b4b181838fbc48bf42f3240203f622b343c6de 100644
+index 1bfb312..f9b4b18 100644
 --- a/tests/test_reflection_lm.py
 +++ b/tests/test_reflection_lm.py
 @@ -3,6 +3,8 @@
@@ -2195,7 +1949,7 @@ index 1bfb31206375b44295dc4c4ece3b8a216d398444..f9b4b181838fbc48bf42f3240203f622
  
  # ---------------------------------------------------------------------------
 diff --git a/tests/test_state.py b/tests/test_state.py
-index 7809d3c572f97a4750bf38b485f6adf678e90a9f..17e23e26d17e95f9f3d55c91d2bf774fecd40d1c 100644
+index 7809d3c..17e23e2 100644
 --- a/tests/test_state.py
 +++ b/tests/test_state.py
 @@ -305,9 +305,9 @@ def test_adapter_state_save_and_load(run_dir):
@@ -2576,3 +2330,307 @@ index 7809d3c572f97a4750bf38b485f6adf678e90a9f..17e23e26d17e95f9f3d55c91d2bf774f
  def test_existing_adapters_lack_adapter_state_methods():
      """DefaultAdapter doesn't define get/set_adapter_state — duck typing is safe."""
      from gepa.adapters.default_adapter.default_adapter import DefaultAdapter
+diff --git a/src/gepa/proposer/reflective_mutation/admission.py b/src/gepa/proposer/reflective_mutation/admission.py
+new file mode 100644
+index 0000000..b6ec852
+--- /dev/null
++++ b/src/gepa/proposer/reflective_mutation/admission.py
+@@ -0,0 +1,59 @@
++# Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
++# https://github.com/gepa-ai/gepa
++
++"""Optional admission-stage extension points for reflective mutation."""
++
++from collections.abc import Mapping, Sequence
++from dataclasses import dataclass
++from typing import Any, Generic, Protocol
++
++from gepa.core.adapter import DataInst, EvaluationBatch, RolloutOutput, Trajectory
++from gepa.core.data_loader import DataId
++from gepa.core.state import GEPAState
++
++
++@dataclass(frozen=True, slots=True)
++class AdmissionPlan(Generic[DataId, DataInst, Trajectory, RolloutOutput]):
++    """Evaluation inputs and reference results for an admission-stage candidate check."""
++
++    evaluation_ids: tuple[DataId, ...]
++    evaluation_batch: tuple[DataInst, ...]
++    eval_before: EvaluationBatch[Trajectory, RolloutOutput]
++    birth_propose_ids: tuple[DataId, ...] | None = None
++
++
++class AdmissionHook(Protocol[DataId, DataInst, Trajectory, RolloutOutput]):
++    """Prepare an optional, independent admission evaluation for one reflection job."""
++
++    def prepare(
++        self,
++        *,
++        state: GEPAState[RolloutOutput, DataId],
++        parent_program_idx: int,
++        parent_candidate: dict[str, str],
++        components_to_update: Sequence[str],
++        reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
++        propose_evaluation: EvaluationBatch[Trajectory, RolloutOutput],
++        admission_ids: Sequence[DataId],
++        admission_batch: Sequence[DataInst],
++    ) -> AdmissionPlan[DataId, DataInst, Trajectory, RolloutOutput] | None: ...
++
++
++def commit_adapter_observations(
++    adapter: Any,
++    *,
++    program_idx: int,
++    evaluation_ids: Sequence[DataId],
++    evaluation: EvaluationBatch[Trajectory, RolloutOutput],
++    committed_ids: Sequence[DataId],
++) -> None:
++    """Forward committed observations to adapters that expose an observation sink."""
++    commit = getattr(adapter, "commit_program_observations", None)
++    if commit is None:
++        return
++    commit(
++        program_idx=program_idx,
++        evaluation_ids=evaluation_ids,
++        evaluation=evaluation,
++        committed_ids=committed_ids,
++    )
+diff --git a/tests/test_admission.py b/tests/test_admission.py
+new file mode 100644
+index 0000000..d4a6450
+--- /dev/null
++++ b/tests/test_admission.py
+@@ -0,0 +1,81 @@
++from gepa import AdmissionHook, AdmissionPlan, commit_adapter_observations
++from gepa.core.adapter import EvaluationBatch
++from gepa.proposer.base import CandidateProposal
++
++
++def test_admission_plan_is_an_explicit_optional_candidate_field():
++    eval_before = EvaluationBatch(
++        outputs=["old-output"],
++        scores=[0.75],
++        trajectories=[{"call": "old"}],
++    )
++    plan = AdmissionPlan(
++        evaluation_ids=(7,),
++        evaluation_batch=({"id": 7},),
++        eval_before=eval_before,
++    )
++
++    proposal = CandidateProposal(
++        candidate={"prompt": "new"},
++        parent_program_ids=[0],
++        admission_plan=plan,
++    )
++
++    assert proposal.admission_plan is plan
++    assert proposal.admission_plan.evaluation_ids == (7,)
++    assert proposal.admission_plan.evaluation_batch == ({"id": 7},)
++    assert proposal.admission_plan.eval_before is eval_before
++    assert AdmissionHook is not None
++
++
++def test_candidate_proposal_positional_constructor_remains_backward_compatible():
++    proposal = CandidateProposal(
++        {"prompt": "new"},
++        [0],
++        [3],
++        [0.25],
++        [0.5],
++        None,
++        None,
++        "reflective_mutation",
++        {"source": "default"},
++    )
++
++    assert proposal.tag == "reflective_mutation"
++    assert proposal.metadata == {"source": "default"}
++    assert proposal.admission_plan is None
++
++
++def test_commit_adapter_observations_is_an_optional_duck_typed_sink():
++    evaluation = EvaluationBatch(outputs=["out"], scores=[1.0], trajectories=[{"trace": 1}])
++
++    class StatefulAdapter:
++        def __init__(self):
++            self.call = None
++
++        def commit_program_observations(self, **kwargs):
++            self.call = kwargs
++
++    adapter = StatefulAdapter()
++    commit_adapter_observations(
++        adapter,
++        program_idx=3,
++        evaluation_ids=(8,),
++        evaluation=evaluation,
++        committed_ids=(8,),
++    )
++
++    assert adapter.call == {
++        "program_idx": 3,
++        "evaluation_ids": (8,),
++        "evaluation": evaluation,
++        "committed_ids": (8,),
++    }
++
++    commit_adapter_observations(
++        object(),
++        program_idx=3,
++        evaluation_ids=(8,),
++        evaluation=evaluation,
++        committed_ids=(),
++    )
+diff --git a/tests/test_admission_engine.py b/tests/test_admission_engine.py
+new file mode 100644
+index 0000000..ea30d3e
+--- /dev/null
++++ b/tests/test_admission_engine.py
+@@ -0,0 +1,146 @@
++from unittest.mock import MagicMock
++
++import pytest
++
++from gepa.core.adapter import EvaluationBatch
++from gepa.core.engine import GEPAEngine
++from gepa.core.state import GEPAState, ValsetEvaluation
++from gepa.proposer.base import CandidateProposal, SubsampleEvaluation
++from gepa.proposer.reflective_mutation.admission import AdmissionPlan
++from gepa.strategies.acceptance import StrictImprovementAcceptance
++from gepa.strategies.proposal_selection import AllImprovements
++
++
++def _state() -> GEPAState:
++    state = GEPAState(
++        {"prompt": "seed"},
++        ValsetEvaluation(outputs_by_val_id={}, scores_by_val_id={}),
++    )
++    state.i = 0
++    state.full_program_trace.append({"i": 1})
++    return state
++
++
++def _engine() -> GEPAEngine:
++    engine = object.__new__(GEPAEngine)
++    engine.acceptance_criterion = StrictImprovementAcceptance()
++    engine.selection_strategy = AllImprovements()
++    engine.logger = MagicMock()
++    engine.adapter = MagicMock()
++    engine.callbacks = None
++    engine.merge_proposer = None
++    engine._evaluate_programs_on_valset = MagicMock()
++    engine._add_evaluated_program = MagicMock(return_value=(1, 0))
++    engine._log_proposal_lm_calls = MagicMock()
++    return engine
++
++
++def _proposal(*, before: float, after: float, admission: bool) -> CandidateProposal:
++    plan = (
++        AdmissionPlan(
++            evaluation_ids=(11,),
++            evaluation_batch=({"id": 11},),
++            eval_before=EvaluationBatch(
++                outputs=["old"],
++                scores=[before],
++                trajectories=[{"trace": "old"}],
++            ),
++            birth_propose_ids=(3,),
++        )
++        if admission
++        else None
++    )
++    return CandidateProposal(
++        candidate={"prompt": "child"},
++        parent_program_ids=[0],
++        subsample_indices=[11],
++        subsample_scores_before=[before],
++        subsample_scores_after=[after],
++        eval_before=SubsampleEvaluation(
++            scores=[before],
++            outputs=["old"],
++            trajectories=[{"trace": "old"}],
++        ),
++        eval_after=SubsampleEvaluation(
++            scores=[after],
++            outputs=["new"],
++            trajectories=[{"trace": "new"}],
++        ),
++        admission_plan=plan,
++    )
++
++
++def test_admission_acceptance_directly_adds_stage4_result_without_val_policy():
++    engine = _engine()
++    proposal = _proposal(before=0.25, after=0.75, admission=True)
++
++    assert engine._run_reflective_batch([proposal], _state())
++
++    engine._evaluate_programs_on_valset.assert_not_called()
++    call = engine._add_evaluated_program.call_args.kwargs
++    assert call["num_actual_evals"] == 0
++    assert call["birth_propose_ids"] == (3,)
++    assert call["valset_evaluation"].scores_by_val_id == {11: 0.75}
++    assert call["valset_evaluation"].outputs_by_val_id == {11: "new"}
++    engine.adapter.commit_program_observations.assert_called_once()
++
++
++def test_rejected_admission_proposal_commits_no_candidate_observation():
++    engine = _engine()
++    proposal = _proposal(before=0.75, after=0.25, admission=True)
++
++    assert not engine._run_reflective_batch([proposal], _state())
++
++    engine._evaluate_programs_on_valset.assert_not_called()
++    engine._add_evaluated_program.assert_not_called()
++    engine.adapter.commit_program_observations.assert_not_called()
++
++
++def test_default_proposal_keeps_official_val_policy_path():
++    engine = _engine()
++    proposal = _proposal(before=0.25, after=0.75, admission=False)
++    val_eval = ValsetEvaluation(outputs_by_val_id={5: "val"}, scores_by_val_id={5: 0.5})
++    engine._evaluate_programs_on_valset.return_value = [(val_eval, 1)]
++
++    assert engine._run_reflective_batch([proposal], _state())
++
++    engine._evaluate_programs_on_valset.assert_called_once_with(
++        [proposal.candidate],
++        engine._add_evaluated_program.call_args.kwargs["state"],
++    )
++    call = engine._add_evaluated_program.call_args.kwargs
++    assert call["valset_evaluation"] is val_eval
++    assert call["num_actual_evals"] == 1
++    assert call["birth_propose_ids"] is None
++    engine.adapter.commit_program_observations.assert_not_called()
++
++
++def test_birth_evaluation_overlap_fails_before_budget_or_state_mutation():
++    engine = object.__new__(GEPAEngine)
++    state = _state()
++    state.total_num_evals = 7
++    state.num_full_ds_evals = 2
++    before = (
++        state.total_num_evals,
++        state.num_full_ds_evals,
++        len(state.program_candidates),
++    )
++
++    with pytest.raises(ValueError, match="frontier-ineligible"):
++        engine._add_evaluated_program(
++            new_program={"prompt": "leaked"},
++            state=state,
++            parent_program_idx=[0],
++            valset_evaluation=ValsetEvaluation(
++                outputs_by_val_id={3: "leaked"},
++                scores_by_val_id={3: 1.0},
++            ),
++            num_actual_evals=1,
++            birth_propose_ids=(3,),
++        )
++
++    assert before == (
++        state.total_num_evals,
++        state.num_full_ds_evals,
++        len(state.program_candidates),
++    )

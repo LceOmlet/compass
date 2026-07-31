@@ -721,6 +721,7 @@ class CompassReflectionEngineConfig:
     use_cloudpickle: bool
     parent_selection_score_mode: SelectionScoreMode = "high_resolution"
     epoch_parallel_enabled: bool = False
+    proposal_tasks_per_iteration: int | None = None
     max_reflection_workers: int = 1
     acceptance_mode: AcceptanceMode = "strict_improvement"
     reflection_minibatch_size: int | None = None
@@ -776,15 +777,26 @@ def proposal_sampling_strategy(
     trainset_size: int,
     minibatch_size: int,
     epoch_parallel_enabled: bool,
+    proposal_tasks_per_iteration: int | None = None,
 ) -> SingleMutationSampling | IndependentSampling:
-    """Use one proposal task or one independent task per epoch minibatch."""
+    """Use one proposal task or a bounded window of epoch minibatches."""
 
     if not epoch_parallel_enabled:
         return SingleMutationSampling()
-    proposal_tasks = (trainset_size + minibatch_size - 1) // minibatch_size
-    if proposal_tasks <= 0:
+    epoch_tasks = (trainset_size + minibatch_size - 1) // minibatch_size
+    if epoch_tasks <= 0:
         raise ValueError("whole-epoch proposal sampling requires a non-empty trainset")
-    return IndependentSampling(proposal_tasks)
+    if proposal_tasks_per_iteration is not None:
+        if (
+            isinstance(proposal_tasks_per_iteration, bool)
+            or not isinstance(proposal_tasks_per_iteration, int)
+            or proposal_tasks_per_iteration <= 0
+        ):
+            raise TypeError(
+                "proposal_tasks_per_iteration must be a positive integer"
+            )
+        epoch_tasks = min(epoch_tasks, proposal_tasks_per_iteration)
+    return IndependentSampling(epoch_tasks)
 
 
 def run_compass_reflection_engine(
@@ -826,10 +838,29 @@ def run_compass_reflection_engine(
         )
     adapter_rng = random.Random(config.seed)
     strategy_rng = random.Random(config.seed)
+    sampling_strategy = proposal_sampling_strategy(
+        trainset_size=len(trainset),
+        minibatch_size=proposal_minibatch_size,
+        epoch_parallel_enabled=config.epoch_parallel_enabled,
+        proposal_tasks_per_iteration=config.proposal_tasks_per_iteration,
+    )
+    tasks_per_iteration = (
+        sampling_strategy.n
+        if isinstance(sampling_strategy, IndependentSampling)
+        else 1
+    )
+    epoch_tasks = (
+        len(trainset) + proposal_minibatch_size - 1
+    ) // proposal_minibatch_size
+    whole_epoch_wave = (
+        config.epoch_parallel_enabled
+        and tasks_per_iteration == epoch_tasks
+    )
     sampler = EpochShuffledBatchSampler(
         minibatch_size=proposal_minibatch_size,
         rng=strategy_rng,
-        iteration_is_epoch=config.epoch_parallel_enabled,
+        iteration_is_epoch=whole_epoch_wave,
+        minibatches_per_iteration=tasks_per_iteration,
     )
     admission_set: DataLoader[int, Any] | None = None
     admission_batch_sampler: EpochShuffledBatchSampler[int, Any] | None = None
@@ -862,18 +893,15 @@ def run_compass_reflection_engine(
             f"validation_size={len(validation_set)},"
             f"admission_universe_size={len(admission_set)}"
         )
-    sampling_strategy = proposal_sampling_strategy(
-        trainset_size=len(trainset),
-        minibatch_size=proposal_minibatch_size,
-        epoch_parallel_enabled=config.epoch_parallel_enabled,
-    )
     if config.epoch_parallel_enabled:
         assert isinstance(sampling_strategy, IndependentSampling)
+        wave_kind = "Whole-epoch" if whole_epoch_wave else "Windowed-epoch"
         logger.log(
-            "Whole-epoch proposal wave enabled: "
+            f"{wave_kind} proposal wave enabled: "
             f"trainset_size={len(trainset)}, "
             f"proposal_minibatch_size={proposal_minibatch_size}, "
             f"admission_minibatch_size={admission_minibatch_size}, "
+            f"epoch_tasks={epoch_tasks}, "
             f"n_tasks={sampling_strategy.n}, "
             f"max_candidate_workers={config.max_candidate_workers}, "
             f"max_reflection_workers={config.max_reflection_workers}"

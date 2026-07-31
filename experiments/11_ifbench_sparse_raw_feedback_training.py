@@ -72,6 +72,7 @@ CONFIG_KEYS = {
 OPTIONAL_CONFIG_KEYS = {
     "remote_lm": {"rollout_timeout_seconds"},
     "parent_selection": {"mode"},
+    "epoch_parallel": {"proposal_tasks_per_iteration"},
     "official_gepa": {
         "acceptance_mode",
         "reflection_minibatch_size",
@@ -197,6 +198,17 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
         value = epoch_parallel[name]
         if type(value) is not int or value <= 0:
             raise TypeError(f"epoch_parallel.{name} must be a positive JSON integer")
+    proposal_tasks_per_iteration = epoch_parallel.get(
+        "proposal_tasks_per_iteration"
+    )
+    if proposal_tasks_per_iteration is not None and (
+        type(proposal_tasks_per_iteration) is not int
+        or proposal_tasks_per_iteration <= 0
+    ):
+        raise TypeError(
+            "epoch_parallel.proposal_tasks_per_iteration must be a "
+            "positive JSON integer"
+        )
 
 
 def _prepare_run_dir(run_dir: Path, *, resume_existing: bool) -> None:
@@ -312,6 +324,9 @@ def main() -> int:
             raise_on_exception=official["raise_on_exception"],
             use_cloudpickle=official["use_cloudpickle"],
             epoch_parallel_enabled=epoch_parallel["enabled"],
+            proposal_tasks_per_iteration=epoch_parallel.get(
+                "proposal_tasks_per_iteration"
+            ),
             max_reflection_workers=epoch_parallel["max_reflection_workers"],
             acceptance_mode=official.get(
                 "acceptance_mode",

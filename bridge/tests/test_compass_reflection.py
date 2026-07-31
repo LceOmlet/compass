@@ -209,6 +209,18 @@ def test_minibatch_config_resolves_legacy_and_split_modes(
         )
 
 
+def test_epoch_sampling_can_be_windowed_to_five_minibatches() -> None:
+    strategy = compass_reflection.proposal_sampling_strategy(
+        trainset_size=150,
+        minibatch_size=3,
+        epoch_parallel_enabled=True,
+        proposal_tasks_per_iteration=5,
+    )
+
+    assert isinstance(strategy, compass_reflection.IndependentSampling)
+    assert strategy.n == 5
+
+
 def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -274,6 +286,63 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
         is not captured["admission_batch_sampler"].rng
     )
     assert captured["admission_hook"].rng is not captured["batch_sampler"].rng
+
+
+def test_split_engine_uses_five_minibatch_windows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    train = [object() for _ in range(30)]
+    validation = [object() for _ in range(10)]
+    captured: dict[str, Any] = {}
+    program = SimpleNamespace(
+        named_predictors=lambda: [
+            (
+                "prompt",
+                SimpleNamespace(
+                    signature=SimpleNamespace(instructions="seed")
+                ),
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        compass_reflection,
+        "SparseObservationDspyAdapter",
+        lambda **_kwargs: object(),
+    )
+
+    def optimize_stub(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(compass_reflection, "optimize", optimize_stub)
+
+    run_compass_reflection_engine(
+        program=program,
+        metric_fn=lambda *_args, **_kwargs: 0.0,
+        feedback_map={},
+        trainset=train,
+        validation_set=validation,
+        reflection_lm=object(),
+        config=replace(
+            _engine_config(
+                tmp_path,
+                proposal_minibatch_size=3,
+                admission_minibatch_size=3,
+            ),
+            epoch_parallel_enabled=True,
+            proposal_tasks_per_iteration=5,
+        ),
+    )
+
+    strategy = captured["sampling_strategy"]
+    proposal_sampler = captured["batch_sampler"]
+    admission_sampler = captured["admission_batch_sampler"]
+    assert isinstance(strategy, compass_reflection.IndependentSampling)
+    assert strategy.n == 5
+    assert proposal_sampler.iteration_is_epoch is False
+    assert proposal_sampler.minibatches_per_iteration == 5
+    assert admission_sampler.iteration_is_epoch is True
 
 
 def test_legacy_engine_keeps_train_only_shared_sampler_path(
