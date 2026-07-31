@@ -3,7 +3,13 @@ param(
     [string]$SourceName = "source-v47-v50-aime-gepa-parity-20260731",
     [string]$Python = "F:\compass-ifbench-local\.venv-no-torch-py312\Scripts\python.exe",
     [int]$SshPort = 31906,
-    [int]$TunnelPort = 18000
+    [int]$TunnelPort = 18000,
+    [int]$FirstVersion = 47,
+    [string]$TagSuffix = "window5",
+    [int]$ProposalTasksPerIteration = 5,
+    [int]$MaxCandidateWorkers = 5,
+    [int]$MaxReflectionWorkers = 5,
+    [switch]$SequentialMinibatches
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,32 +22,42 @@ $hfHome = "F:\compass-ifbench-local\hf-home"
 $modelProfile = "qwen3_8b_local_vllm_18000"
 $runnerRelative = "experiments\paper\run_compass_reflection.py"
 
-$runs = @(
+$runSpecs = @(
     @{
-        Version = "v47"
+        Offset = 0
         ScoreMode = "raw_frontier_rate"
         AcceptanceMode = "strict_improvement"
-        Tag = "v47_raw_strict_window5"
+        Label = "raw_strict"
     },
     @{
-        Version = "v48"
+        Offset = 1
         ScoreMode = "raw_frontier_rate"
         AcceptanceMode = "always_accept"
-        Tag = "v48_raw_always_accept_window5"
+        Label = "raw_always_accept"
     },
     @{
-        Version = "v49"
+        Offset = 2
         ScoreMode = "high_resolution"
         AcceptanceMode = "strict_improvement"
-        Tag = "v49_high_resolution_strict_window5"
+        Label = "high_resolution_strict"
     },
     @{
-        Version = "v50"
+        Offset = 3
         ScoreMode = "high_resolution"
         AcceptanceMode = "always_accept"
-        Tag = "v50_high_resolution_always_accept_window5"
+        Label = "high_resolution_always_accept"
     }
 )
+
+$runs = foreach ($spec in $runSpecs) {
+    $versionNumber = $FirstVersion + $spec.Offset
+    @{
+        Version = "v$versionNumber"
+        ScoreMode = $spec.ScoreMode
+        AcceptanceMode = $spec.AcceptanceMode
+        Tag = "v${versionNumber}_$($spec.Label)_$TagSuffix"
+    }
+}
 
 foreach ($run in $runs) {
     $run.Slug = (
@@ -92,22 +108,28 @@ $repoPythonPath = @(
 $env:PYTHONPATH = $repoPythonPath
 $generator = Join-Path $repoRoot "experiments\paper\generate_reflection_configs.py"
 foreach ($run in $runs) {
-    & $Python $generator `
-        --model-profile $modelProfile `
-        --condition compass_reflection `
-        --tasks aime_2025 `
-        --seeds 0 `
-        --proposal-minibatch-size 3 `
-        --admission-minibatch-size 3 `
-        --acceptance-mode $run.AcceptanceMode `
-        --parent-selection-score-mode $run.ScoreMode `
-        --epoch-parallel-enabled `
-        --proposal-tasks-per-iteration 5 `
-        --max-candidate-workers 5 `
-        --max-reflection-workers 5 `
-        --tag $run.Tag `
-        --output-dir $configDir `
-        --remote-root $RuntimeBase
+    $generatorArgs = @(
+        "--model-profile", $modelProfile,
+        "--condition", "compass_reflection",
+        "--tasks", "aime_2025",
+        "--seeds", "0",
+        "--proposal-minibatch-size", "3",
+        "--admission-minibatch-size", "3",
+        "--acceptance-mode", $run.AcceptanceMode,
+        "--parent-selection-score-mode", $run.ScoreMode,
+        "--max-candidate-workers", "$MaxCandidateWorkers",
+        "--max-reflection-workers", "$MaxReflectionWorkers",
+        "--tag", $run.Tag,
+        "--output-dir", $configDir,
+        "--remote-root", $RuntimeBase
+    )
+    if (-not $SequentialMinibatches) {
+        $generatorArgs += @(
+            "--epoch-parallel-enabled",
+            "--proposal-tasks-per-iteration", "$ProposalTasksPerIteration"
+        )
+    }
+    & $Python $generator @generatorArgs
     if ($LASTEXITCODE -ne 0) {
         throw "$($run.Version) configuration generation failed"
     }

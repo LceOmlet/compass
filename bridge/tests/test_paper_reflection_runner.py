@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from experiments.paper.run_compass_reflection import (
+    _create_lm,
     _method_config_kwargs,
     _minibatch_config_kwargs,
     _require_aime_gepa_protocol,
@@ -174,3 +175,21 @@ def test_aime_gepa_protocol_rejects_decoding_drift(tmp_path: Path) -> None:
 
     config["model"]["temperature"] = 0.6
     _require_aime_gepa_protocol(config)
+
+
+def test_runner_forwards_owner_request_timeout_to_dspy(tmp_path: Path) -> None:
+    model = _config(tmp_path)["model"]
+    model["timeout"] = 6000
+    lm = _create_lm(model, api_key="test-key")
+
+    assert lm.kwargs["timeout"] == 6000
+
+
+def test_runner_rejects_nonpositive_request_timeout(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config["model"]["timeout"] = 0
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(TypeError, match="model.timeout"):
+        load_run_config(path)

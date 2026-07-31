@@ -118,6 +118,7 @@ def test_generated_aime_config_matches_gepa_and_current_four_cell_controls() -> 
     assert optimizer["proposal_tasks_per_iteration"] == 5
     assert optimizer["max_candidate_workers"] == 5
     assert optimizer["max_reflection_workers"] == 5
+    assert config["model"]["timeout"] == 6000
     assert profile == {
         "api_base": "http://127.0.0.1:18000/v1",
         "api_key_env": "OPENAI_API_KEY",
@@ -135,9 +136,38 @@ def test_generated_aime_config_matches_gepa_and_current_four_cell_controls() -> 
         "serving_backend": "vllm",
         "serving_max_model_len": 40960,
         "temperature": 0.6,
+        "timeout": 6000,
         "top_k": 20,
         "top_p": 0.95,
     }
+
+
+def test_generated_aime_window_one_limits_only_outer_minibatch_concurrency() -> None:
+    profile = load_model_profiles(
+        Path("experiments/paper/model_profiles.json")
+    )["qwen3_8b_local_vllm_18000"]
+    _, config = build_run_config(
+        task_id="aime_2025",
+        condition="compass_reflection",
+        seed=0,
+        tag="v51_raw_strict_window1_timeout6000",
+        model_profile_name="qwen3_8b_local_vllm_18000",
+        model_profile=profile,
+        remote_root=Path("F:/compass-aime-local"),
+        snapshot={"root_head": "abc"},
+        proposal_minibatch_size=3,
+        admission_minibatch_size=3,
+        epoch_parallel_enabled=False,
+        max_candidate_workers=1,
+        max_reflection_workers=1,
+    )
+
+    assert config["optimizer"]["proposal_tasks_per_iteration"] is None
+    assert config["optimizer"]["epoch_parallel_enabled"] is False
+    assert config["optimizer"]["max_candidate_workers"] == 1
+    assert config["optimizer"]["max_reflection_workers"] == 1
+    assert config["optimizer"]["num_threads"] == 32
+    assert config["model"]["timeout"] == 6000
 
 
 def test_generated_config_requires_both_split_batch_sizes() -> None:

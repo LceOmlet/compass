@@ -83,6 +83,7 @@ MODEL_OPTIONAL_KEYS = {
     "serving_max_model_len",
     "top_k",
     "top_p",
+    "timeout",
 }
 
 
@@ -114,7 +115,16 @@ def _model_mapping(value: Any) -> dict[str, Any]:
             f"model keys mismatch; missing={sorted(missing)}, "
             f"extra={sorted(extra)}"
         )
-    return dict(value)
+    model = dict(value)
+    timeout = model.get("timeout")
+    if timeout is not None and (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout <= 0
+    ):
+        raise TypeError("model.timeout must be a positive finite number")
+    return model
 
 
 def _optimizer_mapping(value: Any) -> dict[str, Any]:
@@ -389,6 +399,9 @@ def _create_lm(model_config: Mapping[str, Any], *, api_key: str) -> dspy.LM:
     api_base = model_config.get("api_base")
     if api_base is not None:
         kwargs["api_base"] = api_base
+    timeout = model_config.get("timeout")
+    if timeout is not None:
+        kwargs["timeout"] = timeout
     top_p = model_config.get("top_p")
     if top_p is not None:
         kwargs["top_p"] = top_p

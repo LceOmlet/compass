@@ -30,6 +30,7 @@
     "serving_backend": "vllm",
     "serving_max_model_len": 40960,
     "temperature": 0.6,
+    "timeout": 6000,
     "top_k": 20,
     "top_p": 0.95
   },

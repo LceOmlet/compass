@@ -42,6 +42,7 @@ SNAPSHOT_FILES = (
     "experiments/paper/run_compass_reflection.py",
     "experiments/paper/serve_qwen3_8b_vllm_metax.sh",
     "scripts/start_aime_v47_v50_gepa_parity_local.ps1",
+    "scripts/start_aime_v51_v54_window1_timeout6000_local.ps1",
 )
 SUBMODULES = (
     "upstreams/dspy",
