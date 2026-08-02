@@ -9,6 +9,7 @@ param(
     [int]$ProposalTasksPerIteration = 5,
     [int]$MaxCandidateWorkers = 5,
     [int]$MaxReflectionWorkers = 5,
+    [int]$StartupTimeoutSeconds = 180,
     [switch]$SequentialMinibatches
 )
 
@@ -290,7 +291,7 @@ finally {
     $apiKey = $null
 }
 
-$startupDeadline = [DateTime]::UtcNow.AddSeconds(60)
+$startupDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
 do {
     $allManifestsReady = $true
     foreach ($run in $runs) {
@@ -316,7 +317,10 @@ do {
 } while (-not $allManifestsReady -and [DateTime]::UtcNow -lt $startupDeadline)
 
 if (-not $allManifestsReady) {
-    throw "AIME processes stayed alive but manifests were not ready within 60 seconds"
+    throw (
+        "AIME processes stayed alive but manifests were not ready within " +
+        "$StartupTimeoutSeconds seconds"
+    )
 }
 foreach ($run in $runs) {
     $manifest = Join-Path $run.RunDir "manifest.json"
