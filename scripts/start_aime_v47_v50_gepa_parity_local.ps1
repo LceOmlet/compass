@@ -166,46 +166,84 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to inspect the selected Python runtime"
 }
 
-$listener = Get-NetTCPConnection `
-    -LocalAddress 127.0.0.1 `
-    -LocalPort $TunnelPort `
-    -State Listen `
-    -ErrorAction SilentlyContinue
-if ($listener) {
-    $listenerProcess = Get-CimInstance Win32_Process `
-        -Filter "ProcessId = $($listener.OwningProcess)"
-    $expectedTunnel = "127.0.0.1:${TunnelPort}:127.0.0.1:8000"
-    if (
-        $listenerProcess.Name -ne "ssh.exe" -or
-        $listenerProcess.CommandLine -notlike "*$expectedTunnel*" -or
-        $listenerProcess.CommandLine -notlike "*-p $SshPort*"
-    ) {
+$expectedTunnel = "127.0.0.1:${TunnelPort}:127.0.0.1:8000"
+$tunnelSupervisor = Join-Path $PSScriptRoot "keep_ssh_tunnel.ps1"
+$tunnelSupervisorLog = Join-Path $logs "aime_tunnel_${TunnelPort}.supervisor.log"
+$tunnelSupervisorPidFile = Join-Path $logs "aime_tunnel_${TunnelPort}.supervisor.pid"
+
+function Get-ExpectedTunnelListener {
+    $candidateListeners = @(
+        Get-NetTCPConnection `
+            -LocalAddress 127.0.0.1 `
+            -LocalPort $TunnelPort `
+            -State Listen `
+            -ErrorAction SilentlyContinue
+    )
+    foreach ($candidateListener in $candidateListeners) {
+        $candidateProcess = Get-CimInstance Win32_Process `
+            -Filter "ProcessId = $($candidateListener.OwningProcess)"
+        if (
+            $candidateProcess.Name -eq "ssh.exe" -and
+            $candidateProcess.CommandLine -like "*$expectedTunnel*" -and
+            $candidateProcess.CommandLine -like "*-p $SshPort*"
+        ) {
+            return $candidateListener
+        }
         throw "Port $TunnelPort is owned by an unexpected process"
     }
+    return $null
 }
-else {
-    $tunnelArgs = @(
-        "-N", "-T",
-        "-L", "127.0.0.1:${TunnelPort}:127.0.0.1:8000",
-        "-p", "$SshPort",
-        "-o", "ExitOnForwardFailure=yes",
-        "-o", "ServerAliveInterval=30",
-        "-o", "ServerAliveCountMax=3",
-        "root@ssh.v5000-prod-gw.nhss.zhejianglab.com"
-    )
-    $tunnel = Start-Process ssh.exe `
-        -ArgumentList $tunnelArgs `
-        -PassThru `
-        -WindowStyle Hidden
-    Start-Sleep -Seconds 3
-    if ($tunnel.HasExited) {
-        throw "SSH tunnel exited before becoming ready"
+
+$listener = Get-ExpectedTunnelListener
+if (-not $listener) {
+    if (-not (Test-Path -LiteralPath $tunnelSupervisor)) {
+        throw "Tunnel supervisor is missing: $tunnelSupervisor"
     }
-    $listener = Get-NetTCPConnection `
-        -LocalAddress 127.0.0.1 `
-        -LocalPort $TunnelPort `
-        -State Listen `
-        -ErrorAction Stop
+    $supervisorProcess = $null
+    if (Test-Path -LiteralPath $tunnelSupervisorPidFile) {
+        $supervisorPid = Get-Content -LiteralPath $tunnelSupervisorPidFile
+        if ($supervisorPid -match '^\d+$') {
+            $supervisorProcess = Get-Process `
+                -Id ([int]$supervisorPid) `
+                -ErrorAction SilentlyContinue
+        }
+    }
+    if (-not $supervisorProcess) {
+        $powerShellExe = (Get-Process -Id $PID).Path
+        $supervisorArgs = @(
+            "-NoLogo", "-NoProfile", "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-File", ('"{0}"' -f $tunnelSupervisor),
+            "-SshPort", "$SshPort",
+            "-TunnelPort", "$TunnelPort",
+            "-LogPath", ('"{0}"' -f $tunnelSupervisorLog),
+            "-PidFile", ('"{0}"' -f $tunnelSupervisorPidFile)
+        )
+        $supervisorProcess = Start-Process $powerShellExe `
+            -ArgumentList $supervisorArgs `
+            -PassThru `
+            -WindowStyle Hidden
+    }
+
+    $tunnelDeadline = [DateTime]::UtcNow.AddSeconds(60)
+    do {
+        Start-Sleep -Seconds 1
+        if ($supervisorProcess.HasExited) {
+            $tail = Get-Content `
+                -LiteralPath $tunnelSupervisorLog `
+                -Tail 40 `
+                -ErrorAction SilentlyContinue
+            throw (
+                "SSH tunnel supervisor exited before becoming ready: " +
+                ($tail -join [Environment]::NewLine)
+            )
+        }
+        $listener = Get-ExpectedTunnelListener
+    } while (-not $listener -and [DateTime]::UtcNow -lt $tunnelDeadline)
+
+    if (-not $listener) {
+        throw "SSH tunnel did not become ready within 60 seconds"
+    }
 }
 
 $apiKey = (
