@@ -109,6 +109,7 @@ class ResolvedMechanismBenchmark:
     metric_with_feedback: Callable[..., Any]
     splits: OfficialDatasetSplits
     provenance: Mapping[str, Any]
+    custom_instruction_proposer: Any | None = None
     score_breakdown: Callable[[Any, Any], Mapping[str, Any]] | None = None
     num_threads: int | None = None
     feedback_fn_maps: None = None
@@ -321,6 +322,10 @@ def _resolve_chartqa(
     lm: Any,
     roots: MechanismOwnerRoots,
 ) -> ResolvedMechanismBenchmark:
+    from dspy.teleprompt.gepa.instruction_proposal import (
+        MultiModalInstructionProposer,
+    )
+
     from bridge.mechanism_chartqa import (
         build_prepared_chartqa_owner_composition,
         chartqa_doc_to_text,
@@ -364,6 +369,7 @@ def _resolve_chartqa(
         metric=composition.metric,
         metric_with_feedback=composition.metric_with_feedback,
         splits=_freeze_splits(composition.splits),
+        custom_instruction_proposer=MultiModalInstructionProposer(),
         provenance={
             "optimization_splits": "vis-nlp/ChartQA",
             "optimization_owner_commit": CHARTQA_OWNER_COMMIT,
@@ -371,6 +377,10 @@ def _resolve_chartqa(
             "program_owner_commit": CHARTQA_PROGRAM_OWNER_COMMIT,
             "test_metric": "lmms-eval/chartqa",
             "test_metric_owner_commit": CHARTQA_LMMS_OWNER_COMMIT,
+            "reflection_proposer": (
+                "dspy.teleprompt.gepa.instruction_proposal."
+                "MultiModalInstructionProposer"
+            ),
             "prepared_manifest_sha256": hashlib.sha256(
                 (roots.chartqa_prepared / "manifest.json").read_bytes()
             ).hexdigest(),

@@ -241,6 +241,7 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
     adapter = object()
     adapter_kwargs: dict[str, Any] = {}
     captured: dict[str, Any] = {}
+    instruction_proposer = object()
     program = SimpleNamespace(
         named_predictors=lambda: [
             (
@@ -275,6 +276,7 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
         trainset=train,
         validation_set=validation,
         reflection_lm=object(),
+        custom_instruction_proposer=instruction_proposer,
         config=replace(
             _engine_config(
                 tmp_path,
@@ -289,6 +291,7 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
     admission_loader = captured["admission_set"]
     assert run.adapter is adapter
     assert adapter_kwargs["evaluation_timeout"] == 0
+    assert adapter_kwargs["custom_instruction_proposer"] is instruction_proposer
     assert captured["valset"] is admission_loader
     assert proposal_loader.all_ids() == [0, 1, 2]
     assert admission_loader.all_ids() == [0, 1, 2, 3, 4]

@@ -13,6 +13,9 @@ sys.path.insert(
 )
 
 import dspy
+from dspy.teleprompt.gepa.instruction_proposal import (
+    MultiModalInstructionProposer,
+)
 
 from bridge import mechanism_benchmark_registry as mechanism_registry
 from bridge.mechanism_benchmark_registry import (
@@ -140,6 +143,13 @@ def test_chartqa_resolution_passes_the_run_lm_to_the_owner_program(
     assert resolved.splits.train is owner_splits.train
     assert resolved.provenance["optimization_splits"] == "vis-nlp/ChartQA"
     assert resolved.provenance["test_metric"] == "lmms-eval/chartqa"
+    assert isinstance(
+        resolved.custom_instruction_proposer,
+        MultiModalInstructionProposer,
+    )
+    assert "MultiModalInstructionProposer" in resolved.provenance[
+        "reflection_proposer"
+    ]
 
 
 def test_hitab_resolution_uses_only_the_frozen_prepared_views(

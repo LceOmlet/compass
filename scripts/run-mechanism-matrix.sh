@@ -3,16 +3,26 @@ set -euo pipefail
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 matrix_dir=${1:-"$repo_root/experiments/mechanism/generated/hitab_chartqa_clutrr_mechanism_v1"}
+lane_filter=${2:-all}
 queue_file="$matrix_dir/launch_queue_all.jsonl"
 manifest_file="$matrix_dir/matrix_manifest.json"
-control_python="$repo_root/.venv/Scripts/python.exe"
+control_python=${COMPASS_CONTROL_PYTHON:-"$repo_root/.venv/Scripts/python.exe"}
 
-if [ -z "${COMPASS_LITELLM_PROXY_KEY:-}" ]; then
+case "$lane_filter" in
+    all|hitab|chartqa|clutrr) ;;
+    *)
+        echo "lane must be one of: all, hitab, chartqa, clutrr" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$lane_filter" != "clutrr" ] && [ -z "${COMPASS_LITELLM_PROXY_KEY:-}" ]; then
     echo "COMPASS_LITELLM_PROXY_KEY must be explicitly set to a non-empty local client token" >&2
     exit 2
 fi
 
-if [ -z "${COMPASS_VLLM_API_KEY:-}" ]; then
+if { [ "$lane_filter" = "all" ] || [ "$lane_filter" = "clutrr" ]; } && \
+        [ -z "${COMPASS_VLLM_API_KEY:-}" ]; then
     COMPASS_VLLM_API_KEY=$(
         ssh \
             -p "${COMPASS_VLLM_SSH_PORT:-31906}" \
@@ -23,7 +33,8 @@ if [ -z "${COMPASS_VLLM_API_KEY:-}" ]; then
     )
     export COMPASS_VLLM_API_KEY
 fi
-if [ -z "$COMPASS_VLLM_API_KEY" ]; then
+if { [ "$lane_filter" = "all" ] || [ "$lane_filter" = "clutrr" ]; } && \
+        [ -z "${COMPASS_VLLM_API_KEY:-}" ]; then
     echo "COMPASS_VLLM_API_KEY is unavailable" >&2
     exit 2
 fi
@@ -45,13 +56,19 @@ for command_name in xargs curl; do
     fi
 done
 
-curl --fail --silent --show-error --max-time 8 \
-    http://127.0.0.1:40038/v1/models >/dev/null
-curl --fail --silent --show-error --max-time 8 \
-    http://127.0.0.1:40039/v1/models >/dev/null
-printf 'header = "Authorization: Bearer %s"\n' "$COMPASS_VLLM_API_KEY" | \
-    curl --config - --fail --silent --show-error --max-time 8 \
-        http://127.0.0.1:18000/v1/models >/dev/null
+if [ "$lane_filter" = "all" ] || [ "$lane_filter" = "hitab" ]; then
+    curl --fail --silent --show-error --max-time 8 \
+        http://127.0.0.1:40038/v1/models >/dev/null
+fi
+if [ "$lane_filter" = "all" ] || [ "$lane_filter" = "chartqa" ]; then
+    curl --fail --silent --show-error --max-time 8 \
+        http://127.0.0.1:40039/v1/models >/dev/null
+fi
+if [ "$lane_filter" = "all" ] || [ "$lane_filter" = "clutrr" ]; then
+    printf 'header = "Authorization: Bearer %s"\n' "$COMPASS_VLLM_API_KEY" | \
+        curl --config - --fail --silent --show-error --max-time 8 \
+            http://127.0.0.1:18000/v1/models >/dev/null
+fi
 
 export HITAB_PREPARED_ROOT=${HITAB_PREPARED_ROOT:-F:/compass-hitab-local/datasets/hitab_d179602662b490249baf068a76fbe4137029126e}
 export CHARTQA_PREPARED_ROOT=${CHARTQA_PREPARED_ROOT:-F:/compass-chartqa-local/datasets/chartqa_044eabfc306abfe9340c5741f0093aefc5973d06}
@@ -142,8 +159,8 @@ for row in rows:
     if row_lane(row["task_id"]) == lane:
         selected.append(row)
 
-expected = {"hitab": 4, "chartqa": 4, "clutrr": 36}.get(lane)
-if expected is None or len(selected) != expected:
+expected = sum(row_lane(row["task_id"]) == lane for row in rows)
+if expected == 0 or len(selected) != expected:
     raise SystemExit(f"frozen lane count mismatch for {lane}: {len(selected)}")
 
 fields = (
@@ -225,21 +242,31 @@ run_lane() {
         bash -c "$launch_record" _
 }
 
-run_lane hitab 1 &
-hitab_pid=$!
-run_lane chartqa 1 &
-chartqa_pid=$!
-run_lane clutrr 4 &
-clutrr_pid=$!
-
 failures=0
-for lane_pid in "$hitab_pid" "$chartqa_pid" "$clutrr_pid"; do
-    if ! wait "$lane_pid"; then
-        failures=$((failures + 1))
+if [ "$lane_filter" = "all" ]; then
+    run_lane hitab 1 &
+    hitab_pid=$!
+    run_lane chartqa 1 &
+    chartqa_pid=$!
+    run_lane clutrr 4 &
+    clutrr_pid=$!
+    for lane_pid in "$hitab_pid" "$chartqa_pid" "$clutrr_pid"; do
+        if ! wait "$lane_pid"; then
+            failures=$((failures + 1))
+        fi
+    done
+else
+    parallel=1
+    if [ "$lane_filter" = "clutrr" ]; then
+        parallel=4
     fi
-done
+    if ! run_lane "$lane_filter" "$parallel"; then
+        failures=1
+    fi
+fi
 if [ "$failures" -ne 0 ]; then
     echo "mechanism matrix ended with $failures failed lane(s)" >&2
     exit 1
 fi
-printf "%s COMPLETE mechanism matrix\n" "$(date -Iseconds)"
+printf "%s COMPLETE mechanism matrix lane=%s\n" \
+    "$(date -Iseconds)" "$lane_filter"

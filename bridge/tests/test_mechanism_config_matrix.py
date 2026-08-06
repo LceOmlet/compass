@@ -230,6 +230,38 @@ def test_create_only_output_has_hashed_manifest_and_launch_queues(tmp_path: Path
         )
 
 
+def test_queue_can_use_a_frozen_worktree_with_external_pinned_dependencies(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "matrix"
+    dependency_root = tmp_path / "dependency-checkout"
+    chartqa_python = tmp_path / "chartqa-runtime" / "python.exe"
+    write_matrix(
+        output,
+        matrix_id="test_mechanism_v1",
+        runtime_root=Path("F:/mechanism-test"),
+        snapshot={"root_head": "test", "file_sha256": {}},
+        dependency_root=dependency_root,
+        chartqa_python=chartqa_python,
+    )
+
+    chartqa_rows = _read_jsonl(output / "launch_queue_visual.jsonl")
+    assert len(chartqa_rows) == 4
+    for row in chartqa_rows:
+        assert Path(row["argv"][0]) == chartqa_python.resolve()
+        assert Path(row["pythonpath"][0]) == Path(__file__).resolve().parents[2]
+        assert Path(row["pythonpath"][1]) == (
+            dependency_root / "upstreams" / "dspy"
+        ).resolve()
+        assert Path(row["pythonpath"][-1]) == (
+            dependency_root
+            / "upstreams"
+            / "skill-factory"
+            / "upstream"
+            / "lmms-eval"
+        ).resolve()
+
+
 def test_generated_configs_are_accepted_by_the_shared_runner_schema(tmp_path: Path) -> None:
     output = tmp_path / "matrix"
     write_matrix(

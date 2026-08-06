@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar
 import dspy
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter
 from gepa import optimize
-from gepa.core.adapter import EvaluationBatch
+from gepa.core.adapter import EvaluationBatch, ProposalFn
 from gepa.core.data_loader import DataLoader, ListDataLoader
 from gepa.core.state import GEPAState, ValsetEvaluation
 from gepa.logging.logger import Logger, LoggerProtocol
@@ -1066,6 +1066,7 @@ def run_compass_reflection_engine(
     validation_set: list[Any] | None = None,
     reflection_lm: Any,
     config: CompassReflectionEngineConfig,
+    custom_instruction_proposer: ProposalFn | None = None,
 ) -> CompassReflectionRun:
     """Run reflection through the official GEPA engine and DSPy adapter."""
 
@@ -1190,6 +1191,7 @@ def run_compass_reflection_engine(
         add_format_failure_as_feedback=config.add_format_failure_as_feedback,
         rng=adapter_rng,
         reflection_lm=reflection_lm,
+        custom_instruction_proposer=custom_instruction_proposer,
         warn_on_score_mismatch=True,
         reflection_minibatch_size=proposal_minibatch_size,
         raise_on_error=config.raise_on_exception,

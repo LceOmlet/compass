@@ -415,6 +415,8 @@ def _queue_entry(
     *,
     config_path: Path,
     runtime_root: Path,
+    dependency_root: Path = PROJECT_ROOT,
+    chartqa_python: Path = DEFAULT_CHARTQA_PYTHON,
 ) -> dict[str, Any]:
     config = record["config"]
     slug = record["slug"]
@@ -422,15 +424,15 @@ def _queue_entry(
     required_env = tuple(dict.fromkeys((key_env, *TASK_REQUIRED_ENV[record["task_id"]])))
     common_pythonpath = (
         PROJECT_ROOT,
-        PROJECT_ROOT / "upstreams" / "dspy",
-        PROJECT_ROOT / "upstreams" / "gepa" / "src",
-        PROJECT_ROOT / "upstreams" / "gepa-artifact",
+        dependency_root / "upstreams" / "dspy",
+        dependency_root / "upstreams" / "gepa" / "src",
+        dependency_root / "upstreams" / "gepa-artifact",
     )
     if record["task_id"] == "chartqa":
-        python_executable = DEFAULT_CHARTQA_PYTHON
+        python_executable = chartqa_python
         pythonpath = (
             *common_pythonpath,
-            PROJECT_ROOT
+            dependency_root
             / "upstreams"
             / "skill-factory"
             / "upstream"
@@ -480,6 +482,8 @@ def write_matrix(
     visual_api_key_env: str = DEFAULT_API_KEY_ENV,
     clutrr_api_key_env: str = DEFAULT_CLUTRR_API_KEY_ENV,
     clutrr_model: str = DEFAULT_CLUTRR_MODEL,
+    dependency_root: Path = PROJECT_ROOT,
+    chartqa_python: Path = DEFAULT_CHARTQA_PYTHON,
 ) -> Path:
     """Create a content-addressed matrix directory and refuse overwrites."""
 
@@ -511,6 +515,8 @@ def write_matrix(
             record,
             config_path=config_path,
             runtime_root=runtime_root,
+            dependency_root=dependency_root.resolve(),
+            chartqa_python=chartqa_python.resolve(),
         )
         queue_entry["config_file"] = relative_config.as_posix()
         queue_entry["config_sha256"] = _sha256_file(config_path)
@@ -638,6 +644,18 @@ def main() -> int:
         default=DEFAULT_CLUTRR_API_KEY_ENV,
     )
     parser.add_argument("--clutrr-model", default=DEFAULT_CLUTRR_MODEL)
+    parser.add_argument(
+        "--dependency-root",
+        type=Path,
+        default=PROJECT_ROOT,
+        help="checkout providing the pinned upstream dependency worktrees",
+    )
+    parser.add_argument(
+        "--chartqa-python",
+        type=Path,
+        default=DEFAULT_CHARTQA_PYTHON,
+        help="Python runtime containing the pinned ChartQA owner dependencies",
+    )
     args = parser.parse_args()
     manifest = write_matrix(
         args.output_dir,
@@ -650,6 +668,8 @@ def main() -> int:
         visual_api_key_env=args.visual_api_key_env,
         clutrr_api_key_env=args.clutrr_api_key_env,
         clutrr_model=args.clutrr_model,
+        dependency_root=args.dependency_root,
+        chartqa_python=args.chartqa_python,
     )
     print(
         json.dumps(

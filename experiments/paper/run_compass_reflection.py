@@ -910,6 +910,11 @@ def main(*, benchmark_family: str = "official") -> int:
                 validation_set=list(splits.validation),
                 reflection_lm=lm,
                 config=engine_config,
+                custom_instruction_proposer=getattr(
+                    spec,
+                    "custom_instruction_proposer",
+                    None,
+                ),
             )
 
             state = GEPAState.load(str(run_dir))
