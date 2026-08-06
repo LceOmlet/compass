@@ -13,3 +13,10 @@
 [submodule "upstreams/dspy-gepa"]
 	path = upstreams/dspy-gepa
 	url = https://github.com/gepa-ai/dspy.git
+[submodule "upstreams/dci-agent-lite"]
+	path = upstreams/dci-agent-lite
+	url = https://github.com/DCI-Agent/DCI-Agent-Lite.git
+[submodule "upstreams/pi-mono"]
+	path = upstreams/pi-mono
+	url = https://github.com/jdf-prog/pi-mono.git
+	branch = codex/context-management-ablation
