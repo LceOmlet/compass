@@ -1,0 +1,1173 @@
+{
+  "artifact_policy": "create_only_no_overwrite",
+  "credential_policy": "api_key_environment_names_only",
+  "launch_queues": {
+    "all": {
+      "count": 44,
+      "file": "launch_queue_all.jsonl",
+      "sha256": "a2b65cfab0299c36994ad4037ae2ec50a02723dc116739e013fbfa672e386af8"
+    },
+    "text": {
+      "count": 40,
+      "file": "launch_queue_text.jsonl",
+      "sha256": "79a8fa6d2d0cfebc8a9d2926f49746e2a1d5fdef1de2dae0774fe78de7c11915"
+    },
+    "visual": {
+      "count": 4,
+      "file": "launch_queue_visual.jsonl",
+      "sha256": "f185088f2b5fb72e680bd8e0e55478322a02316c906e8cefd4812267c3911802"
+    }
+  },
+  "matrix_id": "hitab_chartqa_clutrr_mechanism_v1",
+  "protocol": {
+    "admission_minibatch_size": 3,
+    "candidate_budget_owner": "gepa.utils.MaxCandidateProposalsStopper",
+    "dci": false,
+    "epoch_parallel_enabled": false,
+    "failure_score": 0,
+    "final_evaluation_scope": "outside_optimizer_cap",
+    "flashtrace": false,
+    "max_candidate_proposals": 128,
+    "max_candidate_workers": 1,
+    "max_reflection_workers": 1,
+    "method_cells": [
+      {
+        "acceptance_mode": "strict_improvement",
+        "cell": "raw_strict",
+        "parent_selection_score_mode": "raw_frontier_rate"
+      },
+      {
+        "acceptance_mode": "always_accept",
+        "cell": "raw_always",
+        "parent_selection_score_mode": "raw_frontier_rate"
+      },
+      {
+        "acceptance_mode": "strict_improvement",
+        "cell": "highres_strict",
+        "parent_selection_score_mode": "high_resolution"
+      },
+      {
+        "acceptance_mode": "always_accept",
+        "cell": "highres_always",
+        "parent_selection_score_mode": "high_resolution"
+      }
+    ],
+    "optimization_cap_accounting": "128 * (3 propose + up to 3 admit-reference + 3 admit) = 1152",
+    "optimization_metric_call_cap": 1152,
+    "parent_top_n": 5,
+    "perfect_score": 1,
+    "proposal_minibatch_size": 3,
+    "proposal_timeout_seconds": 1200,
+    "raise_on_exception": true,
+    "reflection_minibatch_size": null,
+    "rollout_timeout_seconds": 1200,
+    "skip_perfect_score": true,
+    "teacher_forcing": false
+  },
+  "resource_counts": {
+    "text": 40,
+    "visual": 4
+  },
+  "run_count": 44,
+  "runs": [
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_hitab_seed0_raw_strict.json",
+      "config_sha256": "84a5212ca80921df2d30bcf862ce517e9f0cec65aa375788147bc1b72567ac50",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 1584,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3036,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_hitab_seed0_raw_strict",
+      "task_id": "hitab"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_hitab_seed0_raw_always.json",
+      "config_sha256": "3e94580dcc3ad7edb0e85d589607ce5525545b3049629cd6d54e3b1e080b3f60",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 1584,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3036,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_hitab_seed0_raw_always",
+      "task_id": "hitab"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_hitab_seed0_highres_strict.json",
+      "config_sha256": "9b4f704e5b93f43ee86d317c7e7e0b99a37f0b0ccd6611db75a50d9d23d52deb",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 1584,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3036,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_hitab_seed0_highres_strict",
+      "task_id": "hitab"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_hitab_seed0_highres_always.json",
+      "config_sha256": "d43964ff5362c12062d1d0afa37d53f286a0945169fb3584c5b6be4dfbf4c7fc",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 1584,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3036,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_hitab_seed0_highres_always",
+      "task_id": "hitab"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_chartqa_seed0_raw_strict.json",
+      "config_sha256": "69432b5aec1566b7fcbf96288728aa4cc1b9ca32d79ae092634aa3d8e4ed3ef8",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 2500,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3952,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "visual",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_chartqa_seed0_raw_strict",
+      "task_id": "chartqa"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_chartqa_seed0_raw_always.json",
+      "config_sha256": "ddcc843ac1f2403e5d112b713d01888c0c6650f2fa3e02d1b1ec689ecd42720a",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 2500,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3952,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "visual",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_chartqa_seed0_raw_always",
+      "task_id": "chartqa"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_chartqa_seed0_highres_strict.json",
+      "config_sha256": "a344c7f5a5c61ad70d320b14bffe19c569968be8744fb326f1b55a6fa69512bd",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 2500,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3952,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "visual",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_chartqa_seed0_highres_strict",
+      "task_id": "chartqa"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_chartqa_seed0_highres_always.json",
+      "config_sha256": "74b40a66d6e0ead64f85568f629e6131955a05ba99b60dab8e41986c9563b8ba",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 2500,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3952,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "visual",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_chartqa_seed0_highres_always",
+      "task_id": "chartqa"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_raw_strict.json",
+      "config_sha256": "1f82e326bde5fea6dc331c308449114e4196ced90593de1d0729fa9dccb6433a",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_raw_strict",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_raw_always.json",
+      "config_sha256": "efc665a8d9041cf4fa2caadc3e0e2eb8bb85660106772649bce0f702c8849331",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_raw_always",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_highres_strict.json",
+      "config_sha256": "045046554cec304ba5f495bd935692e0527b0a67923437990733a0d818845e89",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_highres_strict",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_highres_always.json",
+      "config_sha256": "04bc49c07ecf9b16b064537a56baa24528077b42e222ad0bbc2bbd58370200e6",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_highres_always",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed1_raw_strict.json",
+      "config_sha256": "b9313772567445fe4732d85ab36137a1123d090576cc9757f7cc912a04941185",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed1_raw_strict",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed1_raw_always.json",
+      "config_sha256": "f3ffa0d05088f73f222f349929b7a32a644a57a9cc4d9ad9fc19728cdf15d095",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed1_raw_always",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed1_highres_strict.json",
+      "config_sha256": "636449f08598d82897ce94efc6b1931e2bffef62d1fe3bc96cac1770a40fd1b0",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed1_highres_strict",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed1_highres_always.json",
+      "config_sha256": "bd5fdf33a6548f1f49b4bd7cb613570e0aba59ec96e40b869e9abe0a081fc387",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed1_highres_always",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed2_raw_strict.json",
+      "config_sha256": "3df539831f43b12c1a3f489173d24be3a6e8fdc9a47fc63aee97a0f766e4d5e4",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed2_raw_strict",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed2_raw_always.json",
+      "config_sha256": "7d2053f3ade16d1e9037dce1f12729618cc0c81a888ba9bb17b1def32e3b8f6c",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed2_raw_always",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed2_highres_strict.json",
+      "config_sha256": "e77731c461d38e12911c1fdd3515d71ff23cce92fbe8e246158c9dd6e99e3399",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed2_highres_strict",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed2_highres_always.json",
+      "config_sha256": "8ce1548b239478dba159b35df386c6e862e785ca063d5c3c8c82c56a1806f178",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed2_highres_always",
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed0_raw_strict.json",
+      "config_sha256": "f1d9f1e123e8a2efb26a1635920dc3c0fea11cd02401c78a42e7c1f9261d61e4",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed0_raw_strict",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed0_raw_always.json",
+      "config_sha256": "86e5330f7fcd91fb8cc727be1ea6b1847491e419cac15790d73617b8900d4e42",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed0_raw_always",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed0_highres_strict.json",
+      "config_sha256": "424012934ba5414e211f9d1660bd30e7700480b318dc4cab37d0d46d618acb42",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed0_highres_strict",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed0_highres_always.json",
+      "config_sha256": "23b25ca59e8f452129374d9a096a3222bb0c769b625abd08e8242d50a42e1d21",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed0_highres_always",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed1_raw_strict.json",
+      "config_sha256": "cf8a5b94b08a492e2279fdf96b0a5f059ab5432507e67330cd9154e094b11008",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed1_raw_strict",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed1_raw_always.json",
+      "config_sha256": "7f350d1321d45901bdb794aa0f5e03b64574296d2bbc796f4224051469fb4fb7",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed1_raw_always",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed1_highres_strict.json",
+      "config_sha256": "51358f23ab07e00888ebd76e47669d7b54c44e7562bad5fbfcab74ae0638fdf4",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed1_highres_strict",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed1_highres_always.json",
+      "config_sha256": "72371e1ac2deec6e740547f1e6489349ebe8e0f79e332b202c8df9b8fda36523",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed1_highres_always",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed2_raw_strict.json",
+      "config_sha256": "1781aa20fecdcafae5bc9014abafb3a9c4ec2760d444160e76dc01f5f992d6bc",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed2_raw_strict",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed2_raw_always.json",
+      "config_sha256": "8e5e0f9bbfbc722b9873886b0187c34f2f8544826cc1f194c95e1bf2fa899bfc",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed2_raw_always",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed2_highres_strict.json",
+      "config_sha256": "8e21f73869717eaee6f56f2c191e0df83bb70122769bc4bd277f9f0c4b43426c",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed2_highres_strict",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed2_highres_always.json",
+      "config_sha256": "4f709f3c6f637a36f3aa582b3b2fd95220d828bdf4f07061e35eb7964680c94f",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_irrelevant_seed2_highres_always",
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed0_raw_strict.json",
+      "config_sha256": "ce747591130444988be966a01e80ad700b09cd364c5b2259dda198ca4b5266bc",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed0_raw_strict",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed0_raw_always.json",
+      "config_sha256": "2cad5f76f3ab78b77a8902b64947e965f82415f63c188ccfa7674f603c074a98",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed0_raw_always",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed0_highres_strict.json",
+      "config_sha256": "296bbdae20b7f1b8728eec79cc07fada54ff2066d4cdf816dfce4b734c8b16e5",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed0_highres_strict",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed0_highres_always.json",
+      "config_sha256": "bb7403c00fa1219781794627b36b4e6e4c6a14320839e9e48b81187bcabd0072",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 0,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed0_highres_always",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed1_raw_strict.json",
+      "config_sha256": "4b8318c2be9a3862ba9ca8ed973920c38bc8cccb323c6fdfa583a0094c19935e",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed1_raw_strict",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed1_raw_always.json",
+      "config_sha256": "fb4a8d3d6bfe96d315b4dfbc4c387e6f1166c88c23bde52290fa18ae140a8d7a",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed1_raw_always",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed1_highres_strict.json",
+      "config_sha256": "944ae20f9e1fbb84093246643cf7e73b57c093585651149a9fdf130b7843feea",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed1_highres_strict",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed1_highres_always.json",
+      "config_sha256": "914e2e3835dd65265f966b1cf71974a5ffe54a7730b35b36a42b9296d2e929a7",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 1,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed1_highres_always",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "raw_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed2_raw_strict.json",
+      "config_sha256": "39854ab1e609066485455c2ec5d0566173eba6101d6a07eeb50a8a08399223ec",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed2_raw_strict",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "raw_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed2_raw_always.json",
+      "config_sha256": "c264e89dd6b9b5ea8450ac78414b13a582664111fe29d8ec7de4b7e5c4886870",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "raw_frontier_rate",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed2_raw_always",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "strict_improvement",
+      "cell": "highres_strict",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed2_highres_strict.json",
+      "config_sha256": "f6b8c0b6f7c285832623bdbe02d037e5857a8d4b0703712b6b4e7a9cd3d23c6f",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed2_highres_strict",
+      "task_id": "clutrr_disconnected"
+    },
+    {
+      "acceptance_mode": "always_accept",
+      "cell": "highres_always",
+      "config_file": "configs/hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed2_highres_always.json",
+      "config_sha256": "bd528274571400e17fa19f43dc46e82eadc00bfdda214f18842776929374e51b",
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seed": 2,
+      "selection_mode": "high_resolution",
+      "slug": "hitab_chartqa_clutrr_mechanism_v1_clutrr_disconnected_seed2_highres_always",
+      "task_id": "clutrr_disconnected"
+    }
+  ],
+  "schema_version": 1,
+  "source_snapshot": {
+    "file_sha256": {
+      "bridge/b19_reversible_parent_selection.py": "9fb44a0aec6823a5adf0357b87867b34b6596991b85f1712b456d99d0fedfa3a",
+      "bridge/b20_compass_reflection.py": "1f7dde51dd83ac3a0f7e8a2d9bac332b501cfa5d5d1792a13cf8d001facefadc",
+      "bridge/mechanism_benchmark_registry.py": "5cd06c051c3b52fc2b52b6559db81cc05c5dd23e847ef4f0ea9f1f016240116a",
+      "bridge/mechanism_chartqa.py": "e57710dd5d4f0a20457b7334c1afa82977ffa6d344eac641eb7be406bd485da3",
+      "bridge/mechanism_clutrr.py": "9c5a34b4a470a144e56521f42f09994a219e09f6fe973e75c4fa795e5bb53292",
+      "bridge/mechanism_hitab.py": "721bd9e72da0e254128abd44bcca58a27475b8ab97f1c56fe99a30e1ff6e7f7b",
+      "bridge/minibatch_config.py": "daad2a16c7d2be824533e14c201c8869bd1c4de6f6be8341ac4f1bf7e1a65899",
+      "bridge/paper_benchmark_registry.py": "876a712784a112a72459fb282e7cc3c3ce8d1e709aa89bb3909058be99030b5a",
+      "bridge/request_deadline.py": "e9326355415fff0f18dc3fce03a4b58290ef3b90c35a452bc409b7f40784c4ee",
+      "experiments/mechanism/generate_mechanism_matrix.py": "e96640f1183f0c6127cd4cc8e73bfe7a8f71ebe47b7c793de358d1b42836eccc",
+      "experiments/mechanism/run_compass_reflection.py": "1c3b858a3f651c241d9db11e8fc032951da248f99243f93246f8d8f186b3e6f2",
+      "experiments/paper/run_compass_reflection.py": "eaaf25956cbf074a23e86d53f1947d149d2a0caac473661703ec86d5b6bfaf2c",
+      "patches/dspy-working-tree.patch": "7175fd8dd538f6854fa0232b79ad6078622a0a750c3b65a51b6953a9f6419341",
+      "patches/gepa-artifact-working-tree.patch": "2717b29839dc108e3c3630aa46cafbb0671ed5b4d1550306cc47a23f62bd4adf",
+      "patches/gepa-working-tree.patch": "883c1b449dbd03086c56a6dfcd665c8279d1322186526c6e6e0068c85b94ffa9",
+      "scripts/run-mechanism-matrix.sh": "1d6b2af58e3957ff9b81f4e3a34635686958d295f4721340aabeb06930cb8f35",
+      "upstreams.lock.json": "b554561ec0797098420c11726dfb8f247e72839e2de8c284177798f79fb3976b"
+    },
+    "root_head": "ee04edcaa844b71c0fd8679f60fc9749cf135230"
+  },
+  "tasks": [
+    {
+      "final_test_size": 1584,
+      "final_validation_size": 300,
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 1584,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3036,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seeds": [
+        0
+      ],
+      "task_id": "hitab"
+    },
+    {
+      "final_test_size": 2500,
+      "final_validation_size": 300,
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 2500,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 3952,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "visual",
+      "seeds": [
+        0
+      ],
+      "task_id": "chartqa"
+    },
+    {
+      "final_test_size": 447,
+      "final_validation_size": 300,
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 447,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1899,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "task_id": "clutrr_supporting"
+    },
+    {
+      "final_test_size": 444,
+      "final_validation_size": 300,
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 444,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1896,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "task_id": "clutrr_irrelevant"
+    },
+    {
+      "final_test_size": 445,
+      "final_validation_size": 300,
+      "metric_calls": {
+        "admission_calls_per_candidate": 3,
+        "admission_reference_calls_per_candidate": 3,
+        "candidate_proposals": 128,
+        "final_test_calls_outside_optimizer_cap": 445,
+        "final_validation_calls_outside_optimizer_cap": 300,
+        "optimization_metric_call_cap": 1152,
+        "planned_total_calls_ceiling": 1897,
+        "proposal_calls_per_candidate": 3,
+        "sparse_seed_evaluation_calls": 0
+      },
+      "resource_class": "text",
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "task_id": "clutrr_disconnected"
+    }
+  ]
+}
