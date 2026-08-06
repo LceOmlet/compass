@@ -1,0 +1,12 @@
+**
+!.dockerignore
+!docker/
+!docker/dci-sandbox/
+!docker/dci-sandbox/**
+!upstreams/
+!upstreams/dci-agent-lite/
+!upstreams/dci-agent-lite/**
+!upstreams/pi-mono/
+!upstreams/pi-mono/**
+upstreams/dci-agent-lite/.git
+upstreams/pi-mono/.git

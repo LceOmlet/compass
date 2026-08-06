@@ -10,8 +10,10 @@ from dataclasses import dataclass
 from fractions import Fraction
 from numbers import Real
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from types import MappingProxyType, MethodType
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
+import dspy
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter
 from gepa import optimize
 from gepa.core.adapter import EvaluationBatch
@@ -21,6 +23,7 @@ from gepa.logging.logger import Logger, LoggerProtocol
 from gepa.proposer.reflective_mutation.admission import (
     AdmissionPlan,
     commit_adapter_observations,
+    record_adapter_rollouts,
 )
 from gepa.strategies.acceptance import AcceptanceCriterion, StrictImprovementAcceptance
 from gepa.strategies.batch_sampler import EpochShuffledBatchSampler
@@ -30,6 +33,7 @@ from gepa.strategies.proposal_sampling import (
     SingleMutationSampling,
 )
 from gepa.strategies.proposal_selection import AllImprovements
+from gepa.utils import MaxCandidateProposalsStopper
 
 from bridge.b19_reversible_parent_selection import (
     ReversibleMaskedExposureCorrectedCandidateSelector,
@@ -39,6 +43,10 @@ from bridge.b19_reversible_parent_selection import (
     frontier_rate,
 )
 from bridge.minibatch_config import minibatch_config_kwargs
+from bridge.request_deadline import remaining_request_seconds, request_deadline
+
+if TYPE_CHECKING:
+    from bridge.dci_compass import DciCompassConfig
 
 DataId = Hashable
 BatchItemT = TypeVar("BatchItemT")
@@ -79,6 +87,55 @@ class SparseObservation:
     trajectory: Mapping[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class AdmissionReferenceSnapshot:
+    """Immutable inputs and facts for one history-fixed reference window."""
+
+    owners_by_instance: Mapping[DataId, tuple[int, ...]]
+    frontier_counts: Mapping[int, int]
+    evaluation_counts: Mapping[int, int]
+    facts: Mapping[tuple[int, DataId], SparseObservation]
+
+
+def _capture_admission_reference_snapshot(
+    state: GEPAState,
+    adapter: "SparseObservationDspyAdapter",
+) -> AdmissionReferenceSnapshot:
+    owners_by_instance = {
+        instance_id: tuple(sorted(owners))
+        for instance_id, owners in state.program_at_pareto_front_valset.items()
+    }
+    frontier_counts = {
+        candidate_idx: frontier_count(state, candidate_idx)
+        for candidate_idx in range(len(state.program_candidates))
+    }
+    evaluation_counts = {
+        candidate_idx: evaluation_count(state, candidate_idx)
+        for candidate_idx in range(len(state.program_candidates))
+    }
+    facts: dict[tuple[int, DataId], SparseObservation] = {}
+    for instance_id, owners in owners_by_instance.items():
+        for candidate_idx in owners:
+            score = state.prog_candidate_val_subscores[candidate_idx].get(instance_id)
+            if score is None:
+                raise RuntimeError("an admission frontier owner has no scalar score")
+            fact = adapter.get_program_observation(candidate_idx, instance_id)
+            if fact is None:
+                continue
+            if fact.score != score:
+                raise RuntimeError(
+                    "persisted reference observation is not bound to the "
+                    "official maximum reward"
+                )
+            facts[(candidate_idx, instance_id)] = fact
+    return AdmissionReferenceSnapshot(
+        owners_by_instance=MappingProxyType(owners_by_instance),
+        frontier_counts=MappingProxyType(frontier_counts),
+        evaluation_counts=MappingProxyType(evaluation_counts),
+        facts=MappingProxyType(facts),
+    )
+
+
 class SparseObservationDspyAdapter(DspyAdapter):
     """Add sparse observation persistence and ordered whole-epoch concurrency."""
 
@@ -90,6 +147,8 @@ class SparseObservationDspyAdapter(DspyAdapter):
         *args: Any,
         max_candidate_workers: int = 1,
         max_reflection_workers: int = 1,
+        rollout_timeout_seconds: float | None = None,
+        proposal_timeout_seconds: float | None = None,
         **kwargs: Any,
     ):
         for name, value in (
@@ -98,10 +157,52 @@ class SparseObservationDspyAdapter(DspyAdapter):
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise TypeError(f"{name} must be a positive integer")
+        for name, value in (
+            ("rollout_timeout_seconds", rollout_timeout_seconds),
+            ("proposal_timeout_seconds", proposal_timeout_seconds),
+        ):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, Real)
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise TypeError(f"{name} must be a positive finite number or None")
         super().__init__(*args, **kwargs)
         self.max_candidate_workers = max_candidate_workers
         self.max_reflection_workers = max_reflection_workers
+        self.rollout_timeout_seconds = (
+            None
+            if rollout_timeout_seconds is None
+            else float(rollout_timeout_seconds)
+        )
+        self.proposal_timeout_seconds = (
+            None
+            if proposal_timeout_seconds is None
+            else float(proposal_timeout_seconds)
+        )
         self._observation_facts: dict[tuple[int, Hashable], SparseObservation] = {}
+
+    def build_program(self, candidate: dict[str, str]) -> dspy.Module:
+        program = super().build_program(candidate)
+        rollout_timeout_seconds = getattr(self, "rollout_timeout_seconds", None)
+        if rollout_timeout_seconds is None:
+            return program
+        original_forward = program.forward
+
+        def forward_with_deadline(
+            _program: dspy.Module,
+            *args: Any,
+            **kwargs: Any,
+        ) -> Any:
+            del _program
+            with request_deadline(rollout_timeout_seconds):
+                result = original_forward(*args, **kwargs)
+                remaining_request_seconds()
+                return result
+
+        program.forward = MethodType(forward_with_deadline, program)
+        return program
 
     def evaluate(
         self,
@@ -185,13 +286,29 @@ class SparseObservationDspyAdapter(DspyAdapter):
             ],
         ) -> dict[str, str]:
             candidate, reflective_dataset, components = job
-            return dict(
-                self.propose_new_texts(
-                    candidate,
-                    dict(reflective_dataset),
-                    components,
-                )
+            proposal_timeout_seconds = getattr(
+                self,
+                "proposal_timeout_seconds",
+                None,
             )
+            if proposal_timeout_seconds is None:
+                return dict(
+                    self.propose_new_texts(
+                        candidate,
+                        reflective_dataset,
+                        components,
+                    )
+                )
+            with request_deadline(proposal_timeout_seconds):
+                result = dict(
+                    self.propose_new_texts(
+                        candidate,
+                        reflective_dataset,
+                        components,
+                    )
+                )
+                remaining_request_seconds()
+                return result
 
         if len(jobs) == 1 or self.max_reflection_workers == 1:
             return [
@@ -323,6 +440,45 @@ def _finite_score(score: Real) -> float:
     return value
 
 
+def _select_reference_program_idx_from_counts(
+    *,
+    owners: Sequence[int],
+    frontier_counts: Mapping[int, int],
+    evaluation_counts: Mapping[int, int],
+    sampled_parent_idx: int,
+    rng: random.Random,
+) -> int:
+    ordered_owners = tuple(sorted(owners))
+    if not ordered_owners:
+        return sampled_parent_idx
+
+    rates = {
+        candidate_idx: Fraction(
+            frontier_counts[candidate_idx],
+            evaluation_counts[candidate_idx],
+        )
+        for candidate_idx in ordered_owners
+        if evaluation_counts.get(candidate_idx, 0) > 0
+    }
+    if not rates:
+        raise RuntimeError(
+            "an admission frontier owner has no evaluated instance exposure"
+        )
+    best_rate = max(rates.values())
+    rate_tied = tuple(
+        idx for idx in ordered_owners if rates.get(idx) == best_rate
+    )
+    best_exposure = max(evaluation_counts[idx] for idx in rate_tied)
+    exact_tied = tuple(
+        idx for idx in rate_tied if evaluation_counts[idx] == best_exposure
+    )
+    return (
+        exact_tied[0]
+        if len(exact_tied) == 1
+        else rng.choice(tuple(sorted(exact_tied)))
+    )
+
+
 def select_reference_program_idx(
     state: GEPAState,
     *,
@@ -333,29 +489,34 @@ def select_reference_program_idx(
     """Select one history-fixed instance-frontier reference."""
 
     owners = tuple(sorted(state.program_at_pareto_front_valset.get(instance_id, ())))
-    if not owners:
-        return sampled_parent_idx
-
-    rates = {
-        candidate_idx: Fraction(
-            frontier_count(state, candidate_idx),
-            evaluation_count(state, candidate_idx),
-        )
-        for candidate_idx in owners
-        if evaluation_count(state, candidate_idx) > 0
-    }
-    if not rates:
-        raise RuntimeError(
-            "an admission frontier owner has no evaluated instance exposure"
-        )
-    best_rate = max(rates.values())
-    rate_tied = tuple(idx for idx in owners if rates.get(idx) == best_rate)
-    best_exposure = max(evaluation_count(state, idx) for idx in rate_tied)
-    exact_tied = tuple(
-        idx for idx in rate_tied if evaluation_count(state, idx) == best_exposure
+    return _select_reference_program_idx_from_counts(
+        owners=owners,
+        frontier_counts={
+            candidate_idx: frontier_count(state, candidate_idx)
+            for candidate_idx in owners
+        },
+        evaluation_counts={
+            candidate_idx: evaluation_count(state, candidate_idx)
+            for candidate_idx in owners
+        },
+        sampled_parent_idx=sampled_parent_idx,
+        rng=rng,
     )
-    return (
-        exact_tied[0] if len(exact_tied) == 1 else rng.choice(tuple(sorted(exact_tied)))
+
+
+def _select_snapshot_reference_program_idx(
+    snapshot: AdmissionReferenceSnapshot,
+    *,
+    instance_id: DataId,
+    sampled_parent_idx: int,
+    rng: random.Random,
+) -> int:
+    return _select_reference_program_idx_from_counts(
+        owners=snapshot.owners_by_instance.get(instance_id, ()),
+        frontier_counts=snapshot.frontier_counts,
+        evaluation_counts=snapshot.evaluation_counts,
+        sampled_parent_idx=sampled_parent_idx,
+        rng=rng,
     )
 
 
@@ -374,6 +535,33 @@ class MiniAdmissionHook:
         self.rng = rng
         self.run_dir = run_dir
         self.logger = logger
+
+    def capture_reference_snapshot(
+        self,
+        state: GEPAState,
+    ) -> AdmissionReferenceSnapshot:
+        """Capture the reference owner's exact read view without changing state."""
+
+        return _capture_admission_reference_snapshot(state, self.adapter)
+
+    def bind_snapshot_reference_program_indices(
+        self,
+        *,
+        snapshot: AdmissionReferenceSnapshot,
+        instance_ids: Sequence[DataId],
+        sampled_parent_idx: int,
+    ) -> tuple[int, ...]:
+        """Use the existing reference ranking on one immutable batch view."""
+
+        return tuple(
+            _select_snapshot_reference_program_idx(
+                snapshot,
+                instance_id=instance_id,
+                sampled_parent_idx=sampled_parent_idx,
+                rng=self.rng,
+            )
+            for instance_id in instance_ids
+        )
 
     @staticmethod
     def _validate_disjoint_instances(
@@ -463,6 +651,15 @@ class MiniAdmissionHook:
                 raise RuntimeError(
                     "sparse instance admission does not support objective scores"
                 )
+            record_adapter_rollouts(
+                self.adapter,
+                phase="admit_reference",
+                iteration=state.i + 1,
+                parent_program_idx=program_idx,
+                candidate=state.program_candidates[program_idx],
+                evaluation_ids=group_ids,
+                evaluation=evaluation,
+            )
             metric_calls = (
                 evaluation.num_metric_calls
                 if evaluation.num_metric_calls is not None
@@ -530,56 +727,27 @@ class MiniAdmissionHook:
                         "maximum-bound observation fact"
                     )
 
-    def prepare(
+    def _build_plan_from_reference_facts(
         self,
         *,
         state: GEPAState,
         parent_program_idx: int,
-        parent_candidate: Mapping[str, str],
-        components_to_update: Sequence[str],
-        reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
-        propose_evaluation: EvaluationBatch,
-        admission_ids: Sequence[DataId],
-        admission_batch: Sequence[Any],
-    ) -> AdmissionPlan | None:
-        del parent_candidate, components_to_update, reflective_dataset
-        ids = tuple(admission_ids)
-        batch = tuple(admission_batch)
-        if len(ids) != len(batch):
-            raise RuntimeError("official admit IDs and instances are misaligned")
-        self._validate_disjoint_instances(propose_evaluation, batch)
-
-        reference_program_indices = tuple(
-            select_reference_program_idx(
-                state,
-                instance_id=instance_id,
-                sampled_parent_idx=parent_program_idx,
-                rng=self.rng,
-            )
-            for instance_id in ids
-        )
-        self._evaluate_missing_reference_groups(
-            state=state,
-            ids=ids,
-            batch=batch,
-            reference_program_indices=reference_program_indices,
-        )
-
-        facts = tuple(
-            self.adapter.get_program_observation(program_idx, instance_id)
-            for program_idx, instance_id in zip(
-                reference_program_indices,
-                ids,
-                strict=True,
-            )
-        )
-        if any(fact is None for fact in facts):
-            raise RuntimeError("admission reference fact is unavailable")
-        concrete_facts = tuple(fact for fact in facts if fact is not None)
+        ids: tuple[DataId, ...],
+        batch: tuple[Any, ...],
+        reference_program_indices: tuple[int, ...],
+        facts: tuple[SparseObservation, ...],
+    ) -> AdmissionPlan:
+        if not (
+            len(ids)
+            == len(batch)
+            == len(reference_program_indices)
+            == len(facts)
+        ):
+            raise RuntimeError("admission reference vectors are not instance-aligned")
         eval_before = EvaluationBatch(
-            outputs=[fact.output for fact in concrete_facts],
-            scores=[fact.score for fact in concrete_facts],
-            trajectories=[dict(fact.trajectory) for fact in concrete_facts],
+            outputs=[fact.output for fact in facts],
+            scores=[fact.score for fact in facts],
+            trajectories=[dict(fact.trajectory) for fact in facts],
             objective_scores=None,
             num_metric_calls=0,
         )
@@ -606,6 +774,91 @@ class MiniAdmissionHook:
             evaluation_ids=ids,
             evaluation_batch=batch,
             eval_before=eval_before,
+        )
+
+    def prepare_with_bound_references(
+        self,
+        *,
+        state: GEPAState,
+        parent_program_idx: int,
+        parent_candidate: Mapping[str, str],
+        components_to_update: Sequence[str],
+        reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
+        propose_evaluation: EvaluationBatch,
+        admission_ids: Sequence[DataId],
+        admission_batch: Sequence[Any],
+        reference_program_indices: Sequence[int],
+        reference_facts: Sequence[SparseObservation],
+    ) -> AdmissionPlan:
+        """Build a plan from references already bound by this owner."""
+
+        del parent_candidate, components_to_update, reflective_dataset
+        ids = tuple(admission_ids)
+        batch = tuple(admission_batch)
+        if len(ids) != len(batch):
+            raise RuntimeError("official admit IDs and instances are misaligned")
+        self._validate_disjoint_instances(propose_evaluation, batch)
+        return self._build_plan_from_reference_facts(
+            state=state,
+            parent_program_idx=parent_program_idx,
+            ids=ids,
+            batch=batch,
+            reference_program_indices=tuple(reference_program_indices),
+            facts=tuple(reference_facts),
+        )
+
+    def prepare(
+        self,
+        *,
+        state: GEPAState,
+        parent_program_idx: int,
+        parent_candidate: Mapping[str, str],
+        components_to_update: Sequence[str],
+        reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
+        propose_evaluation: EvaluationBatch,
+        admission_ids: Sequence[DataId],
+        admission_batch: Sequence[Any],
+    ) -> AdmissionPlan | None:
+        ids = tuple(admission_ids)
+        batch = tuple(admission_batch)
+        if len(ids) != len(batch):
+            raise RuntimeError("official admit IDs and instances are misaligned")
+        self._validate_disjoint_instances(propose_evaluation, batch)
+
+        reference_program_indices = tuple(
+            select_reference_program_idx(
+                state,
+                instance_id=instance_id,
+                sampled_parent_idx=parent_program_idx,
+                rng=self.rng,
+            )
+            for instance_id in ids
+        )
+        self._evaluate_missing_reference_groups(
+            state=state,
+            ids=ids,
+            batch=batch,
+            reference_program_indices=reference_program_indices,
+        )
+
+        raw_facts = tuple(
+            self.adapter.get_program_observation(program_idx, instance_id)
+            for program_idx, instance_id in zip(
+                reference_program_indices,
+                ids,
+                strict=True,
+            )
+        )
+        if any(fact is None for fact in raw_facts):
+            raise RuntimeError("admission reference fact is unavailable")
+        facts = tuple(fact for fact in raw_facts if fact is not None)
+        return self._build_plan_from_reference_facts(
+            state=state,
+            parent_program_idx=parent_program_idx,
+            ids=ids,
+            batch=batch,
+            reference_program_indices=reference_program_indices,
+            facts=facts,
         )
 
 
@@ -723,10 +976,15 @@ class CompassReflectionEngineConfig:
     epoch_parallel_enabled: bool = False
     proposal_tasks_per_iteration: int | None = None
     max_reflection_workers: int = 1
+    rollout_timeout_seconds: float | None = None
+    proposal_timeout_seconds: float | None = None
+    evaluation_straggler_timeout: int = 120
     acceptance_mode: AcceptanceMode = "strict_improvement"
     reflection_minibatch_size: int | None = None
     proposal_minibatch_size: int | None = None
     admission_minibatch_size: int | None = None
+    dci_config: DciCompassConfig | None = None
+    max_candidate_proposals: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -816,6 +1074,18 @@ def run_compass_reflection_engine(
         "compass_reflection",
     ):
         raise ValueError(f"unsupported reflection condition: {config.condition!r}")
+    if config.max_candidate_proposals is not None:
+        if (
+            isinstance(config.max_candidate_proposals, bool)
+            or not isinstance(config.max_candidate_proposals, int)
+            or config.max_candidate_proposals <= 0
+        ):
+            raise TypeError("max_candidate_proposals must be a positive integer")
+        if config.epoch_parallel_enabled:
+            raise ValueError(
+                "max_candidate_proposals requires epoch_parallel_enabled=false "
+                "because the official stopper counts optimizer iterations"
+            )
     seed_candidate = {
         name: predictor.signature.instructions
         for name, predictor in program.named_predictors()
@@ -836,6 +1106,11 @@ def run_compass_reflection_engine(
             "condition='compass_reflection', which owns recursive "
             "proposal-lineage exclusion"
         )
+    if config.dci_config is not None:
+        if config.condition != "compass_reflection":
+            raise ValueError("DCI requires condition='compass_reflection'")
+        if proposal_minibatch_size != 1:
+            raise ValueError("DCI requires proposal_minibatch_size=1")
     adapter_rng = random.Random(config.seed)
     strategy_rng = random.Random(config.seed)
     sampling_strategy = proposal_sampling_strategy(
@@ -906,7 +1181,7 @@ def run_compass_reflection_engine(
             f"max_candidate_workers={config.max_candidate_workers}, "
             f"max_reflection_workers={config.max_reflection_workers}"
         )
-    adapter = SparseObservationDspyAdapter(
+    adapter_kwargs = dict(
         student_module=program,
         metric_fn=metric_fn,
         feedback_map=feedback_map,
@@ -918,20 +1193,54 @@ def run_compass_reflection_engine(
         warn_on_score_mismatch=True,
         reflection_minibatch_size=proposal_minibatch_size,
         raise_on_error=config.raise_on_exception,
+        evaluation_timeout=config.evaluation_straggler_timeout,
+        nonfatal_evaluation_exceptions=(dspy.LMTimeoutError,),
         max_candidate_workers=config.max_candidate_workers,
         max_reflection_workers=config.max_reflection_workers,
+        rollout_timeout_seconds=config.rollout_timeout_seconds,
+        proposal_timeout_seconds=config.proposal_timeout_seconds,
     )
-    hook_class = (
-        MiniAdmissionHook
-        if config.condition == "mini_admission_reflection"
-        else CleanMiniAdmissionHook
-    )
-    admission_hook = hook_class(
-        adapter=adapter,
-        rng=admission_reference_rng,
-        run_dir=config.run_dir,
-        logger=logger,
-    )
+    if config.dci_config is None:
+        adapter = SparseObservationDspyAdapter(**adapter_kwargs)
+        hook_class = (
+            MiniAdmissionHook
+            if config.condition == "mini_admission_reflection"
+            else CleanMiniAdmissionHook
+        )
+    else:
+        from bridge.dci_compass import (
+            DciAdmissionHook,
+            DciSparseObservationDspyAdapter,
+        )
+
+        if not isinstance(optimization_trainset, DataLoader):
+            optimization_trainset = ListDataLoader(optimization_trainset)
+        dci_admission_loader = (
+            admission_set
+            if admission_set is not None
+            else optimization_trainset
+        )
+        optimization_valset = dci_admission_loader
+        adapter = DciSparseObservationDspyAdapter(
+            **adapter_kwargs,
+            proposal_loader=optimization_trainset,
+            admission_loader=dci_admission_loader,
+            proposal_batch_sampler=sampler,
+            dci_config=config.dci_config,
+            dci_root=config.run_dir / "dci",
+            dci_seed=config.seed,
+            perfect_score=config.perfect_score,
+        )
+        hook_class = DciAdmissionHook
+    hook_kwargs = {
+        "adapter": adapter,
+        "rng": admission_reference_rng,
+        "run_dir": config.run_dir,
+        "logger": logger,
+    }
+    if config.dci_config is not None:
+        hook_kwargs["admission_size"] = admission_minibatch_size
+    admission_hook = hook_class(**hook_kwargs)
     if config.condition == "mini_admission_reflection":
         selector = SeedFallbackParetoCandidateSelector(strategy_rng)
     else:
@@ -943,6 +1252,11 @@ def run_compass_reflection_engine(
             score_mode=config.parent_selection_score_mode,
         )
     evaluation_policy = SparseMinibatchEvaluationPolicy()
+    proposal_stopper = (
+        None
+        if config.max_candidate_proposals is None
+        else MaxCandidateProposalsStopper(config.max_candidate_proposals)
+    )
 
     result = optimize(
         seed_candidate=seed_candidate,
@@ -963,6 +1277,7 @@ def run_compass_reflection_engine(
         module_selector="round_robin",
         use_merge=False,
         max_metric_calls=config.max_metric_calls,
+        stop_callbacks=proposal_stopper,
         logger=logger,
         run_dir=str(config.run_dir),
         callbacks=None,
@@ -991,6 +1306,7 @@ def run_compass_reflection_engine(
 
 
 __all__ = [
+    "AdmissionReferenceSnapshot",
     "AlwaysAcceptAcceptance",
     "CleanMiniAdmissionHook",
     "CompassReflectionEngineConfig",

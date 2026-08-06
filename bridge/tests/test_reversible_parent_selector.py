@@ -8,6 +8,7 @@ import pytest
 
 from bridge.b19_reversible_parent_selection import (
     ReversibleMaskedExposureCorrectedCandidateSelector,
+    common_clean_high_resolution_rates,
     evaluation_count,
     frontier_count,
     frontier_rate,
@@ -242,6 +243,114 @@ def test_both_masks_recompute_from_current_official_state() -> None:
         4,
         6,
     }
+
+
+def test_common_exposure_mask_removes_seed_structural_optimism() -> None:
+    fronts = [{0} for _ in range(150)]
+    fronts[147] = {1}
+    fronts[148] = {1}
+    state = _state_with_fronts(
+        fronts,
+        candidate_count=2,
+        parents=[[None], [0]],
+    )
+    state.prog_candidate_val_subscores[1] = {
+        data_id: 0.0
+        for data_id in (147, 148, 149)
+    }
+    assert state.is_consistent()
+
+    snapshot = parent_selection_snapshot(state, top_n=5)
+
+    assert snapshot.rates == {
+        0: Fraction(74, 75),
+        1: Fraction(2, 3),
+    }
+    assert common_clean_high_resolution_rates(state, 0, 1) == (
+        Fraction(1, 3),
+        Fraction(2, 3),
+    )
+    assert snapshot.lineage_active == (1,)
+
+
+def test_no_common_clean_exposure_supplies_no_masking_relation() -> None:
+    state = _state_with_fronts(
+        [{0}, {0}, {0}, {1}, {1}, {1}],
+        candidate_count=2,
+        parents=[[None], [0]],
+    )
+    state.prog_candidate_val_subscores[0] = {
+        data_id: 0.0
+        for data_id in (0, 1, 2)
+    }
+    state.prog_candidate_val_subscores[1] = {
+        data_id: 0.0
+        for data_id in (3, 4, 5)
+    }
+    assert state.is_consistent()
+
+    assert common_clean_high_resolution_rates(state, 0, 1) is None
+    assert parent_selection_snapshot(state, top_n=5).lineage_active == (0, 1)
+
+
+def test_common_exposure_excludes_recursive_proposal_lineage_scores() -> None:
+    state = _state_with_fronts(
+        [{0}, {0}, {1}],
+        candidate_count=2,
+        parents=[[None], [0]],
+    )
+    state.prog_candidate_val_subscores[0] = {0: 0.0, 1: 0.0}
+    state.prog_candidate_val_subscores[1] = {0: 0.0, 2: 0.0}
+    state.program_birth_propose_ids = [(), (0,)]
+    assert state.is_consistent()
+
+    assert common_clean_high_resolution_rates(state, 0, 1) is None
+    assert parent_selection_snapshot(state, top_n=5).lineage_active == (0, 1)
+
+
+def test_common_exposure_uses_full_official_high_resolution_front() -> None:
+    state = _state_with_fronts(
+        [{0, 2, 3, 4}, {0, 2, 3, 4}, {1}],
+        candidate_count=5,
+        parents=[[None], [0], [0], [0], [0]],
+    )
+    for candidate_idx in (2, 3, 4):
+        state.parent_program_for_candidate[candidate_idx] = [None]
+        state.program_birth_propose_ids[candidate_idx] = None
+    assert state.is_consistent()
+
+    assert common_clean_high_resolution_rates(state, 0, 1) == (
+        Fraction(1, 6),
+        Fraction(1, 3),
+    )
+    assert parent_selection_snapshot(
+        state,
+        top_n=5,
+        score_mode="raw_frontier_rate",
+    ).lineage_active == (0, 1, 2, 3, 4)
+    assert parent_selection_snapshot(state, top_n=5).lineage_active == (
+        1,
+        2,
+        3,
+        4,
+    )
+
+
+def test_common_exposure_ancestor_mask_is_reversible() -> None:
+    state = _state_with_fronts(
+        [{1}, {1}, {0}],
+        candidate_count=2,
+        parents=[[None], [0]],
+    )
+    assert parent_selection_snapshot(state, top_n=5).lineage_active == (1,)
+
+    state.program_at_pareto_front_valset[0] = {0}
+    state.program_at_pareto_front_valset[1] = {1}
+    state.program_at_pareto_front_valset[2] = {0}
+    assert parent_selection_snapshot(state, top_n=5).lineage_active == (0, 1)
+
+    state.program_at_pareto_front_valset[0] = {1}
+    assert parent_selection_snapshot(state, top_n=5).lineage_active == (1,)
 
 
 class _RecordingRandom:

@@ -1,0 +1,32 @@
+model_list:
+  - model_name: compass-qwen3-vl-8b-thinking
+    litellm_params:
+      model: openai/Qwen/Qwen3-VL-8B-Thinking
+      api_base: https://api.siliconflow.cn/v1
+      api_key: os.environ/SILICONFLOW_API_KEY_PRIMARY
+    model_info:
+      id: siliconflow-primary
+  - model_name: compass-qwen3-vl-8b-thinking
+    litellm_params:
+      model: openai/Qwen/Qwen3-VL-8B-Thinking
+      api_base: https://api.siliconflow.cn/v1
+      api_key: os.environ/SILICONFLOW_API_KEY_SECONDARY
+    model_info:
+      id: siliconflow-secondary
+  - model_name: compass-qwen3-vl-8b-thinking
+    litellm_params:
+      model: openai/Qwen/Qwen3-VL-8B-Thinking
+      api_base: https://api.siliconflow.cn/v1
+      api_key: os.environ/SILICONFLOW_API_KEY_TERTIARY
+    model_info:
+      id: siliconflow-tertiary
+
+router_settings:
+  routing_strategy: least-busy
+  timeout: 1200
+  num_retries: 0
+  max_fallbacks: 0
+
+litellm_settings:
+  num_retries: 0
+  telemetry: false

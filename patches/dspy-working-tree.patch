@@ -1,17 +1,105 @@
+diff --git a/dspy/evaluate/evaluate.py b/dspy/evaluate/evaluate.py
+index e42b98e..bdaeded 100644
+--- a/dspy/evaluate/evaluate.py
++++ b/dspy/evaluate/evaluate.py
+@@ -79,6 +79,9 @@ class Evaluate:
+         max_errors: int | None = None,
+         provide_traceback: bool | None = None,
+         failure_score: float = 0.0,
++        timeout: int = 120,
++        straggler_limit: int = 3,
++        nonfatal_exceptions: tuple[type[Exception], ...] = (),
+         save_as_csv: str | None = None,
+         save_as_json: str | None = None,
+         **kwargs,
+@@ -95,6 +98,10 @@ class Evaluate:
+                 stopping evaluation. If ``None``, inherits from ``dspy.settings.max_errors``.
+             provide_traceback (Optional[bool]): Whether to provide traceback information during evaluation.
+             failure_score (float): The default score to use if evaluation fails due to an exception.
++            timeout (int): Seconds before a straggler task is resubmitted. Set to 0 to disable.
++            straggler_limit (int): Only check for stragglers when this many or fewer tasks remain.
++            nonfatal_exceptions: Exception types recorded at ``failure_score``
++                without cancelling sibling evaluations.
+             save_as_csv (Optional[str]): The file name where the csv will be saved.
+             save_as_json (Optional[str]): The file name where the json will be saved.
+ 
+@@ -107,6 +114,9 @@ class Evaluate:
+         self.max_errors = max_errors
+         self.provide_traceback = provide_traceback
+         self.failure_score = failure_score
++        self.timeout = timeout
++        self.straggler_limit = straggler_limit
++        self.nonfatal_exceptions = tuple(nonfatal_exceptions)
+         self.save_as_csv = save_as_csv
+         self.save_as_json = save_as_json
+ 
+@@ -122,6 +132,8 @@ class Evaluate:
+         num_threads: int | None = None,
+         display_progress: bool | None = None,
+         display_table: bool | int | None = None,
++        timeout: int | None = None,
++        straggler_limit: int | None = None,
+         callback_metadata: dict[str, Any] | None = None,
+         save_as_csv: str | None = None,
+         save_as_json: str | None = None,
+@@ -137,6 +149,10 @@ class Evaluate:
+                 `self.display_progress`.
+             display_table (Union[bool, int]): Whether to display the evaluation results in a table. if not provided, use
+                 `self.display_table`. If a number is passed, the evaluation results will be truncated to that number before displayed.
++            timeout (Optional[int]): Seconds before a straggler task is resubmitted. Set to 0 to disable. If not
++                provided, use `self.timeout`.
++            straggler_limit (Optional[int]): Only check for stragglers when this many or fewer tasks remain. If not
++                provided, use `self.straggler_limit`.
+             callback_metadata (dict): Metadata to be used for evaluate callback handlers.
+ 
+         Returns:
+@@ -151,6 +167,8 @@ class Evaluate:
+         num_threads = num_threads if num_threads is not None else self.num_threads
+         display_progress = display_progress if display_progress is not None else self.display_progress
+         display_table = display_table if display_table is not None else self.display_table
++        timeout = timeout if timeout is not None else self.timeout
++        straggler_limit = straggler_limit if straggler_limit is not None else self.straggler_limit
+         save_as_csv = save_as_csv if save_as_csv is not None else self.save_as_csv
+         save_as_json = save_as_json if save_as_json is not None else self.save_as_json
+ 
+@@ -165,6 +183,9 @@ class Evaluate:
+             max_errors=(self.max_errors if self.max_errors is not None else dspy.settings.max_errors),
+             provide_traceback=self.provide_traceback,
+             compare_results=True,
++            timeout=timeout,
++            straggler_limit=straggler_limit,
++            nonfatal_exceptions=self.nonfatal_exceptions,
+         )
+ 
+         def process_item(example):
 diff --git a/dspy/teleprompt/bootstrap_trace.py b/dspy/teleprompt/bootstrap_trace.py
-index 2f0cc60..4feb830 100644
+index 2f0cc60..94eb29f 100644
 --- a/dspy/teleprompt/bootstrap_trace.py
 +++ b/dspy/teleprompt/bootstrap_trace.py
-@@ -46,7 +46,7 @@ def bootstrap_trace_data(
+@@ -38,6 +38,9 @@ def bootstrap_trace_data(
+     format_failure_score: float = -1,
+     log_format_failures: bool = False,
+     callback_metadata: dict[str, Any] | None = None,
++    timeout: int = 120,
++    straggler_limit: int = 3,
++    nonfatal_exceptions: tuple[type[Exception], ...] = (),
+ ) -> list[TraceData]:
+     # Return a list of dicts with the following keys: example_ind, example, prediction, trace, and score
+     # (if metric != None)
+@@ -46,8 +49,11 @@ def bootstrap_trace_data(
          num_threads=num_threads,
          display_progress=True,
          provide_traceback=False,  # TODO(check with team)
 -        max_errors=len(dataset) * 10,  # TODO(check with team)
 +        max_errors=1 if raise_on_error else len(dataset) * 10,
          failure_score=failure_score,
++        timeout=timeout,
++        straggler_limit=straggler_limit,
++        nonfatal_exceptions=nonfatal_exceptions,
      )
  
-@@ -87,7 +87,7 @@ def bootstrap_trace_data(
+     def wrapped_metric(example, prediction, trace=None):
+@@ -87,7 +93,7 @@ def bootstrap_trace_data(
                      failed_pred = FailedPrediction(
                          completion_text=completion_str,
                          format_reward=format_failure_score
@@ -20,27 +108,46 @@ index 2f0cc60..4feb830 100644
                      )
                  else:
                      failed_pred = FailedPrediction(completion_text=completion_str, format_reward=format_failure_score)
+@@ -124,6 +130,10 @@ def bootstrap_trace_data(
+         try:
+             prediction, trace = prediction
+         except ValueError as ve:
++            if nonfatal_exceptions and isinstance(prediction, Prediction):
++                # Evaluate uses its standard empty Prediction for an allowed
++                # per-item exception. The GEPA adapter restores alignment.
++                continue
+             # TODO(GRPO Team): Often during GRPO bootstrapping, the LLM response does not follow dspy formatting. This
+             # leads to a value error. To reproduce this issue, try Qwen/Qwen2.5-Coder-0.5B-Instruct with MATH dataset.
+             # Proposal(Lakshya): We should capture the incorrectly-formatted LLM response, and store it in the trace,
 diff --git a/dspy/teleprompt/gepa/gepa_utils.py b/dspy/teleprompt/gepa/gepa_utils.py
-index dae7157..d00e1ca 100644
+index dae7157..bf5a370 100644
 --- a/dspy/teleprompt/gepa/gepa_utils.py
 +++ b/dspy/teleprompt/gepa/gepa_utils.py
-@@ -88,6 +88,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -88,6 +88,10 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
          custom_instruction_proposer: "ProposalFn | None" = None,
          warn_on_score_mismatch: bool = True,
          reflection_minibatch_size: int | None = None,
 +        raise_on_error: bool = False,
++        evaluation_timeout: int = 120,
++        evaluation_straggler_limit: int = 3,
++        nonfatal_evaluation_exceptions: tuple[type[Exception], ...] = (),
      ):
          self.student = student_module
          self.metric_fn = metric_fn
-@@ -100,6 +101,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -100,6 +104,12 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
          self.custom_instruction_proposer = custom_instruction_proposer
          self.warn_on_score_mismatch = warn_on_score_mismatch
          self.reflection_minibatch_size = reflection_minibatch_size
 +        self.raise_on_error = raise_on_error
++        self.evaluation_timeout = evaluation_timeout
++        self.evaluation_straggler_limit = evaluation_straggler_limit
++        self.nonfatal_evaluation_exceptions = tuple(
++            nonfatal_evaluation_exceptions
++        )
  
      def propose_new_texts(
          self,
-@@ -159,15 +161,44 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -159,15 +169,47 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
                  dataset=batch,
                  metric=self.metric_fn,
                  num_threads=self.num_threads,
@@ -50,6 +157,9 @@ index dae7157..d00e1ca 100644
                  failure_score=self.failure_score,
                  format_failure_score=self.failure_score,
                  callback_metadata=callback_metadata,
++                timeout=self.evaluation_timeout,
++                straggler_limit=self.evaluation_straggler_limit,
++                nonfatal_exceptions=self.nonfatal_evaluation_exceptions,
              )
 +            aligned_trajs = [None] * len(batch)
 +            for trace_data in trajs:
@@ -86,16 +196,20 @@ index dae7157..d00e1ca 100644
                  outputs.append(t["prediction"])
                  if hasattr(t["prediction"], "__class__") and t.get("score") is None:
                      scores.append(self.failure_score)
-@@ -186,7 +217,7 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+@@ -186,8 +228,11 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
                  return_all_scores=True,
                  failure_score=self.failure_score,
                  provide_traceback=True,
 -                max_errors=len(batch) * 100,
 +                max_errors=1 if self.raise_on_error else len(batch) * 100,
                  callback_metadata=callback_metadata,
++                timeout=self.evaluation_timeout,
++                straggler_limit=self.evaluation_straggler_limit,
++                nonfatal_exceptions=self.nonfatal_evaluation_exceptions,
              )
              res = evaluator(program)
-@@ -334,4 +365,3 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+             outputs = [r[1] for r in res.results]
+@@ -334,4 +379,3 @@ class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
                  raise TypeError("Unexpected output type from the base LM! Expected str or dict")
  
          return outputs
@@ -137,10 +251,42 @@ index f088dbc..994bdad 100644
          self.signature = signature
          self.lm_response = lm_response
 diff --git a/dspy/utils/parallelizer.py b/dspy/utils/parallelizer.py
-index b94c18c..95c4e62 100644
+index b94c18c..c4509a7 100644
 --- a/dspy/utils/parallelizer.py
 +++ b/dspy/utils/parallelizer.py
-@@ -110,7 +110,7 @@ class ParallelExecutor:
+@@ -26,6 +26,7 @@ class ParallelExecutor:
+         compare_results=False,
+         timeout=120,
+         straggler_limit=3,
++        nonfatal_exceptions=(),
+     ):
+         """
+         Propagates DSPy settings and callback ancestry into each task while isolating task-local changes,
+@@ -38,6 +39,7 @@ class ParallelExecutor:
+         self.compare_results = compare_results
+         self.timeout = timeout
+         self.straggler_limit = straggler_limit
++        self.nonfatal_exceptions = tuple(nonfatal_exceptions)
+ 
+         self.error_count = 0
+         self.error_lock = threading.Lock()
+@@ -59,10 +61,11 @@ class ParallelExecutor:
+             try:
+                 return user_function(item)
+             except Exception as e:
+-                with self.error_lock:
+-                    self.error_count += 1
+-                    if self.error_count >= self.max_errors:
+-                        self.cancel_jobs.set()
++                if not isinstance(e, self.nonfatal_exceptions):
++                    with self.error_lock:
++                        self.error_count += 1
++                        if self.error_count >= self.max_errors:
++                            self.cancel_jobs.set()
+                 if self.provide_traceback:
+                     logger.error(f"Error for {item}: {e}\n{traceback.format_exc()}")
+                 else:
+@@ -110,7 +113,7 @@ class ParallelExecutor:
          # We resubmit at most once per item.
          start_time_map = {}
          start_time_lock = threading.Lock()
@@ -149,7 +295,7 @@ index b94c18c..95c4e62 100644
  
          # This is the worker function each thread will run.
          def worker(parent_overrides, submission_id, index, item):
-@@ -200,12 +200,12 @@ class ParallelExecutor:
+@@ -200,12 +203,12 @@ class ParallelExecutor:
                      if 0 < self.timeout and len(not_done) <= self.straggler_limit:
                          now = time.time()
                          for f in list(not_done):
@@ -165,6 +311,40 @@ index b94c18c..95c4e62 100644
                                      nf = executor.submit(
                                          worker,
                                          parent_overrides,
+diff --git a/tests/evaluate/test_evaluate.py b/tests/evaluate/test_evaluate.py
+index 4f35c65..d756a77 100644
+--- a/tests/evaluate/test_evaluate.py
++++ b/tests/evaluate/test_evaluate.py
+@@ -35,6 +35,29 @@ def test_evaluate_initialization():
+     assert not ev.display_progress
+ 
+ 
++def test_evaluate_forwards_straggler_controls():
++    dspy.configure(lm=DummyLM({"What is 1+1?": {"answer": "2"}}))
++    devset = [new_example("What is 1+1?", "2")]
++    program = Predict("question -> answer")
++    ev = Evaluate(
++        devset=devset,
++        metric=answer_exact_match,
++        display_progress=False,
++        timeout=0,
++        straggler_limit=0,
++    )
++
++    with patch("dspy.evaluate.evaluate.ParallelExecutor") as executor_cls:
++        executor_cls.return_value.execute.side_effect = (
++            lambda function, data: [function(item) for item in data]
++        )
++        result = ev(program)
++
++    assert result.score == 100.0
++    assert executor_cls.call_args.kwargs["timeout"] == 0
++    assert executor_cls.call_args.kwargs["straggler_limit"] == 0
++
++
+ def test_evaluate_call():
+     dspy.configure(
+         lm=DummyLM(
 diff --git a/tests/utils/test_exceptions.py b/tests/utils/test_exceptions.py
 index 707ddea..ad22cb1 100644
 --- a/tests/utils/test_exceptions.py

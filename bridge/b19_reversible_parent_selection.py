@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Literal, Protocol
@@ -22,6 +22,15 @@ SelectionScoreMode = Literal[
     "raw_frontier_rate",
     "high_resolution",
 ]
+
+
+def _high_resolution_frontier_credit(
+    front: Collection[int],
+    candidate_idx: int,
+) -> Fraction:
+    if candidate_idx not in front:
+        return Fraction(0)
+    return Fraction(1, len(front))
 
 
 def frontier_count(state: GEPAState, candidate_idx: int) -> int:
@@ -54,9 +63,11 @@ def high_resolution_frontier_credits(
     for front in state.program_at_pareto_front_valset.values():
         if not front:
             continue
-        share = Fraction(1, len(front))
         for candidate_idx in front:
-            credits[candidate_idx] += share
+            credits[candidate_idx] += _high_resolution_frontier_credit(
+                front,
+                candidate_idx,
+            )
     return credits
 
 
@@ -70,6 +81,99 @@ def high_resolution_selection_rate(
     if exposure == 0:
         return Fraction(0)
     return high_resolution_frontier_credits(state)[candidate_idx] / exposure
+
+
+def candidate_selection_rate(
+    state: GEPAState,
+    candidate_idx: int,
+    *,
+    score_mode: SelectionScoreMode,
+) -> Fraction:
+    """Return the configured exact selection score on unchanged clean evidence."""
+
+    exposure = evaluation_count(state, candidate_idx)
+    if exposure == 0:
+        return Fraction(0)
+    if score_mode == "raw_frontier_rate":
+        return Fraction(frontier_count(state, candidate_idx), exposure)
+    if score_mode == "high_resolution":
+        return high_resolution_selection_rate(state, candidate_idx)
+    raise ValueError(f"unsupported selection score mode: {score_mode!r}")
+
+
+def select_top_candidate_idx(
+    state: GEPAState,
+    *,
+    score_mode: SelectionScoreMode,
+) -> int:
+    """Select Top-1 by configured score, clean exposure, then earliest index."""
+
+    eligible = tuple(
+        candidate_idx
+        for candidate_idx in range(len(state.program_candidates))
+        if evaluation_count(state, candidate_idx) > 0
+    )
+    if not eligible:
+        return 0
+    return max(
+        eligible,
+        key=lambda candidate_idx: (
+            candidate_selection_rate(
+                state,
+                candidate_idx,
+                score_mode=score_mode,
+            ),
+            evaluation_count(state, candidate_idx),
+            -candidate_idx,
+        ),
+    )
+
+
+def common_clean_high_resolution_rates(
+    state: GEPAState,
+    ancestor_idx: int,
+    descendant_idx: int,
+) -> tuple[Fraction, Fraction] | None:
+    """Compare a lineage pair only on their common clean exposure domain.
+
+    The returned tuple is ``(ancestor_rate, descendant_rate)``. Frontier
+    ownership and high-resolution sharing remain the official global values
+    for each common instance; the pair is not treated as a new frontier.
+    ``None`` means that the pair has no jointly clean observation and therefore
+    supplies no masking relation.
+    """
+
+    clean_ancestor_ids = {
+        data_id
+        for data_id in state.prog_candidate_val_subscores[ancestor_idx]
+        if state.is_program_frontier_eligible(ancestor_idx, data_id)
+    }
+    clean_descendant_ids = {
+        data_id
+        for data_id in state.prog_candidate_val_subscores[descendant_idx]
+        if state.is_program_frontier_eligible(descendant_idx, data_id)
+    }
+    common_ids = clean_ancestor_ids.intersection(clean_descendant_ids)
+    if not common_ids:
+        return None
+
+    ancestor_credit = Fraction(0)
+    descendant_credit = Fraction(0)
+    for data_id in common_ids:
+        front = state.program_at_pareto_front_valset.get(data_id, set())
+        ancestor_credit += _high_resolution_frontier_credit(
+            front,
+            ancestor_idx,
+        )
+        descendant_credit += _high_resolution_frontier_credit(
+            front,
+            descendant_idx,
+        )
+    common_exposure = len(common_ids)
+    return (
+        ancestor_credit / common_exposure,
+        descendant_credit / common_exposure,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,11 +234,21 @@ def parent_selection_snapshot(
             if ancestor_idx in seen:
                 continue
             seen.add(ancestor_idx)
-            if (
-                ancestor_idx in rates
-                and descendant_rate >= rates[ancestor_idx]
-            ):
-                lineage_active.discard(ancestor_idx)
+            if ancestor_idx in rates:
+                if score_mode == "high_resolution":
+                    common_rates = common_clean_high_resolution_rates(
+                        state,
+                        ancestor_idx,
+                        descendant_idx,
+                    )
+                    masks_ancestor = (
+                        common_rates is not None
+                        and common_rates[1] >= common_rates[0]
+                    )
+                else:
+                    masks_ancestor = descendant_rate >= rates[ancestor_idx]
+                if masks_ancestor:
+                    lineage_active.discard(ancestor_idx)
             pending.extend(
                 parent_idx
                 for parent_idx in state.parent_program_for_candidate[ancestor_idx]

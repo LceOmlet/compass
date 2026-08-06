@@ -20,3 +20,21 @@
 	path = upstreams/pi-mono
 	url = https://github.com/jdf-prog/pi-mono.git
 	branch = codex/context-management-ablation
+[submodule "upstreams/hitab"]
+	path = upstreams/hitab
+	url = https://github.com/microsoft/HiTab.git
+[submodule "upstreams/chartqa"]
+	path = upstreams/chartqa
+	url = https://github.com/vis-nlp/ChartQA.git
+[submodule "upstreams/clutrr"]
+	path = upstreams/clutrr
+	url = https://github.com/facebookresearch/clutrr.git
+[submodule "upstreams/clutrr-hf-data"]
+	path = upstreams/clutrr-hf-data
+	url = https://github.com/kliang5/CLUTRR_huggingface_dataset.git
+[submodule "upstreams/clutrr-baselines"]
+	path = upstreams/clutrr-baselines
+	url = https://github.com/koustuvsinha/clutrr-baselines.git
+[submodule "upstreams/skill-factory"]
+	path = upstreams/skill-factory
+	url = https://github.com/LceOmlet/skill-factory.git

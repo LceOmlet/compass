@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import dspy
 import pytest
+from dspy.utils.dummies import DummyLM
 from gepa.core.adapter import EvaluationBatch
 from gepa.core.engine import GEPAEngine
 from gepa.core.state import GEPAState, ValsetEvaluation
@@ -21,11 +22,15 @@ from gepa.proposer.reflective_mutation.admission import AdmissionPlan
 from gepa.strategies.acceptance import AcceptanceCriterion
 from gepa.strategies.batch_sampler import EpochShuffledBatchSampler
 from gepa.strategies.proposal_selection import AllImprovements
+from gepa.utils import MaxCandidateProposalsStopper
 
 import bridge.b20_compass_reflection as compass_reflection
+import bridge.dci_compass as dci_compass
+import bridge.request_deadline as request_deadline_module
 from bridge.b19_reversible_parent_selection import (
     frontier_rate,
     high_resolution_selection_rate,
+    select_top_candidate_idx,
 )
 from bridge.b20_compass_reflection import (
     AlwaysAcceptAcceptance,
@@ -37,6 +42,12 @@ from bridge.b20_compass_reflection import (
     resolve_minibatch_sizes,
     run_compass_reflection_engine,
     select_reference_program_idx,
+)
+from bridge.dci_agent_lite import DciAgentLiteConfig
+from bridge.dci_compass import DciCompassConfig
+from bridge.request_deadline import remaining_request_seconds
+from gepa_artifact.benchmarks.IFBench.ifbench_program import (
+    IFBenchCoT2StageProgram,
 )
 
 
@@ -228,6 +239,7 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
     train = [object(), object(), object()]
     validation = [object(), object()]
     adapter = object()
+    adapter_kwargs: dict[str, Any] = {}
     captured: dict[str, Any] = {}
     program = SimpleNamespace(
         named_predictors=lambda: [
@@ -240,10 +252,14 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
         ]
     )
 
+    def make_adapter(**kwargs: Any) -> object:
+        adapter_kwargs.update(kwargs)
+        return adapter
+
     monkeypatch.setattr(
         compass_reflection,
         "SparseObservationDspyAdapter",
-        lambda **_kwargs: adapter,
+        make_adapter,
     )
 
     def optimize_stub(**kwargs: Any) -> object:
@@ -259,16 +275,20 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
         trainset=train,
         validation_set=validation,
         reflection_lm=object(),
-        config=_engine_config(
-            tmp_path,
-            proposal_minibatch_size=2,
-            admission_minibatch_size=4,
+        config=replace(
+            _engine_config(
+                tmp_path,
+                proposal_minibatch_size=2,
+                admission_minibatch_size=4,
+            ),
+            evaluation_straggler_timeout=0,
         ),
     )
 
     proposal_loader = captured["trainset"]
     admission_loader = captured["admission_set"]
     assert run.adapter is adapter
+    assert adapter_kwargs["evaluation_timeout"] == 0
     assert captured["valset"] is admission_loader
     assert proposal_loader.all_ids() == [0, 1, 2]
     assert admission_loader.all_ids() == [0, 1, 2, 3, 4]
@@ -286,6 +306,94 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
         is not captured["admission_batch_sampler"].rng
     )
     assert captured["admission_hook"].rng is not captured["batch_sampler"].rng
+    assert captured["stop_callbacks"] is None
+
+
+def test_candidate_proposal_budget_uses_official_stopper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    program = SimpleNamespace(
+        named_predictors=lambda: [
+            (
+                "prompt",
+                SimpleNamespace(
+                    signature=SimpleNamespace(instructions="seed")
+                ),
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        compass_reflection,
+        "SparseObservationDspyAdapter",
+        lambda **_kwargs: object(),
+    )
+
+    def optimize_stub(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(compass_reflection, "optimize", optimize_stub)
+
+    run_compass_reflection_engine(
+        program=program,
+        metric_fn=lambda *_args, **_kwargs: 0.0,
+        feedback_map={},
+        trainset=[object(), object(), object()],
+        reflection_lm=object(),
+        config=replace(
+            _engine_config(tmp_path, reflection_minibatch_size=1),
+            max_candidate_proposals=128,
+        ),
+    )
+
+    stopper = captured["stop_callbacks"]
+    assert isinstance(stopper, MaxCandidateProposalsStopper)
+    assert stopper.max_proposals == 128
+    assert isinstance(
+        captured["sampling_strategy"],
+        compass_reflection.SingleMutationSampling,
+    )
+
+
+def test_candidate_proposal_budget_is_default_inert_and_rejects_epoch_parallel(
+    tmp_path: Path,
+) -> None:
+    assert (
+        CompassReflectionEngineConfig.__dataclass_fields__[
+            "max_candidate_proposals"
+        ].default
+        is None
+    )
+    config = replace(
+        _engine_config(tmp_path, reflection_minibatch_size=1),
+        max_candidate_proposals=128,
+        epoch_parallel_enabled=True,
+    )
+    program = SimpleNamespace(
+        named_predictors=lambda: [
+            (
+                "prompt",
+                SimpleNamespace(
+                    signature=SimpleNamespace(instructions="seed")
+                ),
+            )
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="official stopper counts optimizer iterations",
+    ):
+        run_compass_reflection_engine(
+            program=program,
+            metric_fn=lambda *_args, **_kwargs: 0.0,
+            feedback_map={},
+            trainset=[object()],
+            reflection_lm=object(),
+            config=config,
+        )
 
 
 def test_split_engine_uses_five_minibatch_windows(
@@ -343,6 +451,91 @@ def test_split_engine_uses_five_minibatch_windows(
     assert proposal_sampler.iteration_is_epoch is False
     assert proposal_sampler.minibatches_per_iteration == 5
     assert admission_sampler.iteration_is_epoch is True
+
+
+def test_dci_engine_wires_official_windowed_epoch_source_and_admission_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    train = [object() for _ in range(30)]
+    validation = [object() for _ in range(10)]
+    adapter = object()
+    admission_hook = object()
+    adapter_kwargs: dict[str, Any] = {}
+    hook_kwargs: dict[str, Any] = {}
+    captured: dict[str, Any] = {}
+    program = SimpleNamespace(
+        named_predictors=lambda: [
+            (
+                "prompt",
+                SimpleNamespace(
+                    signature=SimpleNamespace(instructions="seed")
+                ),
+            )
+        ]
+    )
+
+    def make_adapter(**kwargs: Any) -> object:
+        adapter_kwargs.update(kwargs)
+        return adapter
+
+    def make_admission_hook(**kwargs: Any) -> object:
+        hook_kwargs.update(kwargs)
+        return admission_hook
+
+    monkeypatch.setattr(
+        dci_compass,
+        "DciSparseObservationDspyAdapter",
+        make_adapter,
+    )
+    monkeypatch.setattr(
+        dci_compass,
+        "DciAdmissionHook",
+        make_admission_hook,
+    )
+
+    def optimize_stub(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(compass_reflection, "optimize", optimize_stub)
+
+    run_compass_reflection_engine(
+        program=program,
+        metric_fn=lambda *_args, **_kwargs: 0.0,
+        feedback_map={},
+        trainset=train,
+        validation_set=validation,
+        reflection_lm=object(),
+        config=replace(
+            _engine_config(
+                tmp_path,
+                proposal_minibatch_size=1,
+                admission_minibatch_size=3,
+            ),
+            epoch_parallel_enabled=True,
+            proposal_tasks_per_iteration=5,
+            dci_config=DciCompassConfig(
+                agent=DciAgentLiteConfig(
+                    runner_command=("dci-agent-lite",),
+                    package_dir=tmp_path / "package",
+                    agent_dir=tmp_path / "agent",
+                    provider="openai",
+                    model="model",
+                    system_prompt_file=tmp_path / "system.txt",
+                ),
+            ),
+        ),
+    )
+
+    proposal_sampler = captured["batch_sampler"]
+    assert isinstance(proposal_sampler, EpochShuffledBatchSampler)
+    assert adapter_kwargs["proposal_batch_sampler"] is proposal_sampler
+    assert proposal_sampler.minibatch_size == 1
+    assert proposal_sampler.iteration_is_epoch is False
+    assert proposal_sampler.minibatches_per_iteration == 5
+    assert hook_kwargs["admission_size"] == 3
+    assert captured["admission_hook"] is admission_hook
 
 
 def test_legacy_engine_keeps_train_only_shared_sampler_path(
@@ -747,6 +940,166 @@ def test_raw_feedback_reflection_preserves_failed_slot_without_resubmission() ->
     assert sorted(calls) == ["0", "1", "2"]
 
 
+def test_built_program_preserves_official_predictors_and_shares_one_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = {"value": 100.0}
+    observed: list[float | None] = []
+
+    monkeypatch.setattr(
+        request_deadline_module,
+        "monotonic",
+        lambda: now["value"],
+    )
+
+    class DeadlineProbeLM(DummyLM):
+        def forward(
+            self,
+            prompt: str | None = None,
+            messages: list[dict[str, Any]] | None = None,
+            **kwargs: Any,
+        ) -> Any:
+            observed.append(remaining_request_seconds())
+            now["value"] += 7.0
+            return super().forward(prompt=prompt, messages=messages, **kwargs)
+
+    student = IFBenchCoT2StageProgram()
+    candidate = {
+        name: predictor.signature.instructions
+        for name, predictor in student.named_predictors()
+    }
+
+    def feedback(**_kwargs: Any) -> dict[str, Any]:
+        return {"score": 0.0, "feedback": "revise"}
+
+    adapter = SparseObservationDspyAdapter(
+        student_module=student,
+        metric_fn=lambda _example, _prediction, _trace=None: 0.0,
+        feedback_map={name: feedback for name in candidate},
+        num_threads=1,
+        rollout_timeout_seconds=600,
+    )
+
+    program = adapter.build_program(candidate)
+    assert [name for name, _ in program.named_predictors()] == list(candidate)
+
+    lm = DeadlineProbeLM(
+        [
+            {"reasoning": "draft reasoning", "response": "draft"},
+            {"reasoning": "final reasoning", "final_response": "final"},
+        ]
+    )
+    batch = [dspy.Example(prompt="follow the constraints").with_inputs("prompt")]
+    with dspy.context(lm=lm):
+        evaluation = adapter.evaluate(batch, candidate, capture_traces=True)
+
+    assert observed == pytest.approx([600.0, 593.0])
+    assert remaining_request_seconds() is None
+    reflective_dataset = adapter.make_reflective_dataset(
+        candidate,
+        evaluation,
+        list(candidate),
+    )
+    assert list(reflective_dataset) == list(candidate)
+
+
+def test_built_program_without_rollout_deadline_uses_official_program_unchanged() -> None:
+    student = IFBenchCoT2StageProgram()
+    candidate = {
+        name: predictor.signature.instructions
+        for name, predictor in student.named_predictors()
+    }
+    adapter = object.__new__(SparseObservationDspyAdapter)
+    adapter.student = student
+    adapter.rollout_timeout_seconds = None
+
+    program = adapter.build_program(candidate)
+
+    assert "forward" not in program.__dict__
+    assert [name for name, _ in program.named_predictors()] == list(candidate)
+
+
+def test_proposal_deadline_discards_only_the_expired_parallel_job() -> None:
+    adapter = object.__new__(SparseObservationDspyAdapter)
+    adapter.max_reflection_workers = 2
+    adapter.proposal_timeout_seconds = 0.02
+
+    def propose_new_texts(
+        candidate: dict[str, str],
+        reflective_dataset: dict[str, list[dict[str, Any]]],
+        components_to_update: list[str],
+    ) -> dict[str, str]:
+        assert reflective_dataset["prompt"]
+        assert components_to_update == ["prompt"]
+        if candidate["prompt"] == "slow":
+            time.sleep(0.03)
+        assert remaining_request_seconds() is not None
+        return {"prompt": f"new-{candidate['prompt']}"}
+
+    adapter.propose_new_texts = propose_new_texts  # type: ignore[method-assign]
+    results = adapter.propose_new_texts_batch(
+        [
+            (
+                {"prompt": name},
+                {"prompt": [{"feedback": "revise"}]},
+                ["prompt"],
+            )
+            for name in ("slow", "fast")
+        ]
+    )
+
+    assert results == [None, {"prompt": "new-fast"}]
+
+
+def test_expected_lm_timeout_uses_failure_score_without_cancelling_sibling() -> None:
+    class TimeoutProgram(dspy.Module):
+        def forward(self, value: str) -> dspy.Prediction:
+            if value == "timeout":
+                raise dspy.LMTimeoutError("expected deadline")
+            return dspy.Prediction(value=value)
+
+    adapter = SparseObservationDspyAdapter(
+        student_module=TimeoutProgram(),
+        metric_fn=lambda _example, _prediction, _trace=None: 1.0,
+        feedback_map={},
+        failure_score=0.0,
+        num_threads=2,
+        raise_on_error=True,
+        nonfatal_evaluation_exceptions=(dspy.LMTimeoutError,),
+    )
+    batch = [
+        dspy.Example(value=value).with_inputs("value")
+        for value in ("timeout", "success")
+    ]
+
+    evaluation = adapter.evaluate(batch, {}, capture_traces=True)
+
+    assert evaluation.scores == [0.0, 1.0]
+    assert len(evaluation.outputs) == 2
+    assert len(evaluation.trajectories or ()) == 2
+
+
+def test_non_timeout_evaluation_error_remains_fail_fast() -> None:
+    class BrokenProgram(dspy.Module):
+        def forward(self, value: str) -> dspy.Prediction:
+            del value
+            raise ValueError("implementation bug")
+
+    adapter = SparseObservationDspyAdapter(
+        student_module=BrokenProgram(),
+        metric_fn=lambda _example, _prediction, _trace=None: 1.0,
+        feedback_map={},
+        failure_score=0.0,
+        num_threads=1,
+        raise_on_error=True,
+        nonfatal_evaluation_exceptions=(dspy.LMTimeoutError,),
+    )
+    batch = [dspy.Example(value="broken").with_inputs("value")]
+
+    with pytest.raises(Exception, match="cancelled"):
+        adapter.evaluate(batch, {}, capture_traces=True)
+
+
 def test_raw_feedback_batch_uses_official_dspy_proposer_for_one_child() -> None:
     prompts: list[str] = []
 
@@ -862,7 +1215,7 @@ def test_sparse_final_selection_uses_rate_exposure_then_earliest() -> None:
     assert policy.get_best_program(state) == 1
 
 
-def test_admission_reference_and_final_selection_remain_on_raw_frontier_rate() -> None:
+def test_admission_reference_and_sparse_policy_remain_on_raw_frontier_rate() -> None:
     state = _raw_and_high_resolution_ranking_diverge_state()
 
     assert frontier_rate(state, 0) == pytest.approx(3 / 4)
@@ -881,6 +1234,14 @@ def test_admission_reference_and_final_selection_remain_on_raw_frontier_rate() -
         rng=random.Random(0),
     ) == 0
     assert SparseMinibatchEvaluationPolicy().get_best_program(state) == 0
+    assert select_top_candidate_idx(
+        state,
+        score_mode="raw_frontier_rate",
+    ) == 0
+    assert select_top_candidate_idx(
+        state,
+        score_mode="high_resolution",
+    ) == 1
 
 
 def test_official_pareto_selector_falls_back_only_for_empty_seed_frontier() -> None:

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-07-31T13:21:09+08:00",
+  "captured_at": "2026-08-06T14:46:38+08:00",
   "source_root": "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill",
   "policy": {
     "official_sources_are_semantic_owners": true,
@@ -13,15 +13,15 @@
       "origin": "https://github.com/gepa-ai/gepa.git",
       "commit": "665cbc368313b7223f2b0638d2ef47da7a130dad",
       "patch": "patches/gepa-working-tree.patch",
-      "patch_sha256": "5cf954dbbdcb6bc81d05343dad3d398511c00895105807de35895fe29f543610",
-      "status": "patched owner for recursive proposal-lineage state, independent admission data and sampling, whole-epoch batches, per-item proposal failures, and fatal-memory semantics"
+      "patch_sha256": "883c1b449dbd03086c56a6dfcd665c8279d1322186526c6e6e0068c85b94ffa9",
+      "status": "patched owner for recursive proposal-lineage state, independent admission data and sampling, whole-epoch batches, per-item proposal failures, fatal-memory semantics, dynamic post-proposal admission scope, and append-only rollout sink seam"
     },
     "dspy": {
       "path": "upstreams/dspy",
       "origin": "https://github.com/stanfordnlp/dspy.git",
       "commit": "96bae53d458d300b2cab49a5ddf30087498df952",
       "patch": "patches/dspy-working-tree.patch",
-      "patch_sha256": "dc7ffc0bebf4322b6f29eb93606c64142b5591b7ba63d087c725590604ef667d",
+      "patch_sha256": "7175fd8dd538f6854fa0232b79ad6078622a0a750c3b65a51b6953a9f6419341",
       "status": "patched owner for result alignment, bounded resubmission, fail-fast propagation, and exception checkpoint compatibility"
     },
     "gepa_artifact": {
@@ -47,6 +47,79 @@
       "patch": null,
       "patch_sha256": null,
       "status": "unchanged legacy source retained for historical experiment imports"
+    },
+    "dci_agent_lite": {
+      "path": "upstreams/dci-agent-lite",
+      "origin": "https://github.com/DCI-Agent/DCI-Agent-Lite.git",
+      "commit": "271f37e71f053bf0c99c05ce6d2fb53b841d922e",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged official DCI runtime and trajectory owner"
+    },
+    "pi_mono_dci": {
+      "path": "upstreams/pi-mono",
+      "origin": "https://github.com/jdf-prog/pi-mono.git",
+      "commit": "a6be5eb4cce278de31ac05792af3dfc0883215dc",
+      "branch": "codex/context-management-ablation",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged official Pi tool and RPC owner used by DCI-Agent-Lite"
+    },
+    "hitab": {
+      "path": "upstreams/hitab",
+      "origin": "https://github.com/microsoft/HiTab.git",
+      "commit": "d179602662b490249baf068a76fbe4137029126e",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged official HiTab data and metric owner"
+    },
+    "chartqa": {
+      "path": "upstreams/chartqa",
+      "origin": "https://github.com/vis-nlp/ChartQA.git",
+      "commit": "044eabfc306abfe9340c5741f0093aefc5973d06",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged official ChartQA optimization-data owner"
+    },
+    "clutrr": {
+      "path": "upstreams/clutrr",
+      "origin": "https://github.com/facebookresearch/clutrr.git",
+      "commit": "d045fae289d3746503677ceed7631c999202501e",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged official CLUTRR generator and task-definition owner"
+    },
+    "clutrr_hf_data": {
+      "path": "upstreams/clutrr-hf-data",
+      "origin": "https://github.com/kliang5/CLUTRR_huggingface_dataset.git",
+      "commit": "e5b496941e91abb7c319d2618a3ce96752bc4ab7",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged fixed CLUTRR robustness split owner"
+    },
+    "clutrr_baselines": {
+      "path": "upstreams/clutrr-baselines",
+      "origin": "https://github.com/koustuvsinha/clutrr-baselines.git",
+      "commit": "303ed9a48f82a59b4eb34ac5bd5866f0d82c5552",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged official CLUTRR relation-overlap metric owner"
+    },
+    "skill_factory": {
+      "path": "upstreams/skill-factory",
+      "origin": "https://github.com/LceOmlet/skill-factory.git",
+      "commit": "e23f82f9c7ed2eacfb9124b92143358a9953263c",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged ChartQA DSPy program owner"
+    },
+    "lmms_eval_chartqa": {
+      "path": "upstreams/skill-factory/upstream/lmms-eval",
+      "origin": "https://github.com/EvolvingLMMs-Lab/lmms-eval.git",
+      "commit": "cb45ac4d4a667ea5ef89c7a148bff69b3489b981",
+      "patch": null,
+      "patch_sha256": null,
+      "status": "unchanged LMMS-Eval v0.7.2 ChartQA prompt, visual, and metric owner"
     }
   }
 }
