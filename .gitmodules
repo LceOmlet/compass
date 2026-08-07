@@ -38,3 +38,6 @@
 [submodule "upstreams/skill-factory"]
 	path = upstreams/skill-factory
 	url = https://github.com/LceOmlet/skill-factory.git
+[submodule "upstreams/tau2-bench"]
+	path = upstreams/tau2-bench
+	url = https://github.com/sierra-research/tau2-bench.git
