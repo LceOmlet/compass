@@ -54,7 +54,7 @@ index 7a2fa55..a4fc85b 100644
      train_loader = ensure_loader(trainset)
      val_loader = ensure_loader(valset) if valset is not None else train_loader
 +    admission_loader = ensure_loader(admission_set) if admission_set is not None else None
-
+ 
      # Validate that only one custom proposal method is provided
      adapter_has_propose = hasattr(active_adapter, "propose_new_texts") and active_adapter.propose_new_texts is not None
 @@ -413,6 +421,11 @@ def optimize(
@@ -67,7 +67,7 @@ index 7a2fa55..a4fc85b 100644
 +        run_dir=run_dir,
 +        raise_on_exception=raise_on_exception,
      )
-
+ 
      def evaluator_fn(
 diff --git a/src/gepa/core/adapter.py b/src/gepa/core/adapter.py
 index e5103bf..e345326 100644
@@ -93,8 +93,8 @@ index e5103bf..e345326 100644
 +    #         ]
 +    #     ],
 +    # ) -> list[dict[str, str]]: ...
-
-
+ 
+ 
  def default_batch_evaluate(
 diff --git a/src/gepa/core/engine.py b/src/gepa/core/engine.py
 index e29f612..610b146 100644
@@ -115,7 +115,7 @@ index e29f612..610b146 100644
 +        birth_propose_ids: Sequence[DataId] | None = None,
      ) -> tuple[int, int]:
          """Add an already-evaluated candidate to the pool. Must run sequentially.
-
+ 
 @@ -278,6 +280,15 @@ class GEPAEngine(Generic[DataId, DataInst, Trajectory, RolloutOutput]):
          processed in order, record the same ``num_metric_calls_by_discovery``
          as the serial path.
@@ -138,12 +138,12 @@ index e29f612..610b146 100644
              num_metric_calls_by_discovery_of_new_program=num_metric_calls_by_discovery,
 +            birth_propose_ids=birth_propose_ids,
          )
-
+ 
          # Compute best program immediately after state update (before callbacks)
 @@ -513,24 +525,82 @@ class GEPAEngine(Generic[DataId, DataInst, Trajectory, RolloutOutput]):
          if not selected:
              return False
-
+ 
 -        # 3) Full-valset eval of the selected candidates (one batched, read-only call).
 -        valset_evals = self._evaluate_programs_on_valset([p.candidate for p in selected], state)
 +        # 3) Default proposals keep the official val-policy evaluation exactly
@@ -156,7 +156,7 @@ index e29f612..610b146 100644
 +            if default_selected
 +            else []
 +        )
-
+ 
          # 4) Add each selected candidate to the pool, in order.
          any_accepted = False
 -        for proposal, (valset_evaluation, num_actual_evals) in zip(selected, valset_evals, strict=True):
@@ -235,7 +235,7 @@ index 19ead87..5df5b41 100644
 --- a/src/gepa/core/state.py
 +++ b/src/gepa/core/state.py
 @@ -3,7 +3,9 @@
-
+ 
  import hashlib
  import json
 +import math
@@ -247,28 +247,28 @@ index 19ead87..5df5b41 100644
 @@ -150,12 +152,13 @@ class GEPAState(Generic[RolloutOutput, DataId]):
      returned by :func:`~gepa.optimize_anything.optimize_anything`.
      """
-
+ 
 -    _VALIDATION_SCHEMA_VERSION: ClassVar[int] = 5
 +    _VALIDATION_SCHEMA_VERSION: ClassVar[int] = 7
      # Attributes that are runtime-only and should not be serialized (e.g., callback hooks, caches)
      _EXCLUDED_FROM_SERIALIZATION: ClassVar[frozenset[str]] = frozenset({"_budget_hooks"})
-
+ 
      program_candidates: list[dict[str, str]]
      parent_program_for_candidate: list[list[ProgramIdx | None]]
 +    program_birth_propose_ids: list[tuple[DataId, ...] | None]
      prog_candidate_val_subscores: list[dict[DataId, float]]
      prog_candidate_objective_scores: list[ObjectiveScores]
-
+ 
 @@ -197,6 +200,7 @@ class GEPAState(Generic[RolloutOutput, DataId]):
          evaluation_cache: "EvaluationCache[RolloutOutput, DataId] | None" = None,
      ):
          self.program_candidates = [dict(seed_candidate)]
 +        self.program_birth_propose_ids = [()]
          self.prog_candidate_val_subscores = [dict(base_evaluation.scores_by_val_id)]
-
+ 
          base_objective_aggregates = self._aggregate_objective_scores(base_evaluation.objective_scores_by_val_id)
 @@ -255,6 +259,7 @@ class GEPAState(Generic[RolloutOutput, DataId]):
-
+ 
      def is_consistent(self) -> bool:
          assert len(self.program_candidates) == len(self.parent_program_for_candidate)
 +        assert len(self.program_candidates) == len(self.program_birth_propose_ids)
@@ -284,13 +284,13 @@ index 19ead87..5df5b41 100644
 +                assert self.is_program_frontier_eligible(prog_idx, val_id), (
 +                    "Ineligible program-instance pair appears on the instance frontier"
 +                )
-
+ 
          return True
-
+ 
 @@ -296,12 +306,30 @@ class GEPAState(Generic[RolloutOutput, DataId]):
              for hook in hooks:
                  hook(self.total_num_evals, count)
-
+ 
 +    @staticmethod
 +    def _atomic_replace(tmp_path: str, target_path: str) -> None:
 +        """Replace a checkpoint artifact despite a brief reader-held file lock.
@@ -316,7 +316,7 @@ index 19ead87..5df5b41 100644
              json.dump(data, f, indent=2, default=json_default)
 -        os.replace(tmp_path, target_path)
 +        self._atomic_replace(tmp_path, target_path)
-
+ 
      def save(self, run_dir: str | None, *, use_cloudpickle: bool = False) -> None:
          if run_dir is None:
 @@ -337,7 +365,7 @@ class GEPAState(Generic[RolloutOutput, DataId]):
@@ -325,11 +325,11 @@ index 19ead87..5df5b41 100644
              raise
 -        os.replace(tmp_path, target_path)
 +        self._atomic_replace(tmp_path, target_path)
-
+ 
          # Save run log and candidates as human-readable JSON
          if self.full_program_trace:
 @@ -365,6 +393,7 @@ class GEPAState(Generic[RolloutOutput, DataId]):
-
+ 
          state.validation_schema_version = GEPAState._VALIDATION_SCHEMA_VERSION
          assert len(state.program_candidates) == len(state.prog_candidate_val_subscores)
 +        assert len(state.program_candidates) == len(state.program_birth_propose_ids)
@@ -337,7 +337,7 @@ index 19ead87..5df5b41 100644
          assert len(state.program_candidates) == len(state.num_metric_calls_by_discovery)
          assert len(state.program_candidates) == len(state.parent_program_for_candidate)
 @@ -400,6 +429,15 @@ class GEPAState(Generic[RolloutOutput, DataId]):
-
+ 
      @staticmethod
      def _upgrade_state_dict(d: dict[str, Any]) -> None:
 +        version = d.get("validation_schema_version")
@@ -359,12 +359,12 @@ index 19ead87..5df5b41 100644
 +        if "program_birth_propose_ids" not in d:
 +            d["program_birth_propose_ids"] = [()] + [None] * max(num_candidates - 1, 0)
          d["validation_schema_version"] = GEPAState._VALIDATION_SCHEMA_VERSION
-
+ 
      @staticmethod
 @@ -435,13 +475,81 @@ class GEPAState(Generic[RolloutOutput, DataId]):
              objective: totals[objective] / counts[objective] for objective in totals.keys() if counts[objective] > 0
          }
-
+ 
 +    def get_program_frontier_ineligible_ids(self, program_idx: ProgramIdx) -> frozenset[DataId]:
 +        """Return all ``B_propose`` IDs on a program's single-parent lineage.
 +
@@ -444,7 +444,7 @@ index 19ead87..5df5b41 100644
 +        num_samples = len(eligible_scores)
 +        avg = sum(eligible_scores) / num_samples
          return avg, num_samples
-
+ 
      @property
 @@ -492,6 +600,8 @@ class GEPAState(Generic[RolloutOutput, DataId]):
          run_dir: str | None,
@@ -458,7 +458,7 @@ index 19ead87..5df5b41 100644
 @@ -524,6 +634,59 @@ class GEPAState(Generic[RolloutOutput, DataId]):
              front = self.program_at_pareto_front_cartesian.setdefault((val_id, objective), set())
              front.add(program_idx)
-
+ 
 +    def commit_existing_program_evaluation(
 +        self,
 +        program_idx: ProgramIdx,
@@ -541,7 +541,7 @@ index 19ead87..5df5b41 100644
          self.named_predictor_id_to_update_next_for_program_candidate.append(max_predictor_id)
          self.parent_program_for_candidate.append(list(parent_program_idx))
 +        self.program_birth_propose_ids.append(normalized_birth_ids)
-
+ 
          valset_scores = dict(valset_evaluation.scores_by_val_id)
          self.prog_candidate_val_subscores.append(valset_scores)
 diff --git a/src/gepa/proposer/base.py b/src/gepa/proposer/base.py
@@ -549,12 +549,12 @@ index 6650ba6..9cce786 100644
 --- a/src/gepa/proposer/base.py
 +++ b/src/gepa/proposer/base.py
 @@ -6,6 +6,7 @@ from typing import Any, Generic, Protocol
-
+ 
  from gepa.core.data_loader import DataId
  from gepa.core.state import GEPAState
 +from gepa.proposer.reflective_mutation.admission import AdmissionPlan
-
-
+ 
+ 
  @dataclass
 @@ -41,6 +42,10 @@ class CandidateProposal(Generic[DataId]):
      # Free-form metadata for logging/trace
@@ -564,8 +564,8 @@ index 6650ba6..9cce786 100644
 +    # positional constructor used by existing proposal implementations.
 +    # ``None`` preserves the standard GEPA acceptance and validation flow.
 +    admission_plan: AdmissionPlan[DataId, Any, Any, Any] | None = None
-
-
+ 
+ 
  class ProposeNewCandidate(Protocol[DataId]):
 diff --git a/src/gepa/proposer/reflective_mutation/__init__.py b/src/gepa/proposer/reflective_mutation/__init__.py
 index e69de29..5d89af5 100644
@@ -731,13 +731,13 @@ index dc4f385..ab46963 100644
 --- a/src/gepa/proposer/reflective_mutation/reflective_mutation.py
 +++ b/src/gepa/proposer/reflective_mutation/reflective_mutation.py
 @@ -3,6 +3,8 @@
-
+ 
  import traceback
  from collections.abc import Mapping, Sequence
 +from dataclasses import replace
 +from inspect import getattr_static
  from typing import Any
-
+ 
  from gepa.core.adapter import (
 @@ -27,8 +29,15 @@ from gepa.core.callbacks import (
      notify_callbacks,
@@ -779,11 +779,11 @@ index dc4f385..ab46963 100644
 +        self.admission_hook = admission_hook
 +        self.run_dir = run_dir
 +        self.raise_on_exception = raise_on_exception
-
+ 
          self.reflection_prompt_template = reflection_prompt_template
-
+ 
 @@ -162,7 +183,15 @@ class ReflectiveMutationProposer:
-
+ 
      def _propose_texts_batch(
          self, jobs: list[tuple[dict[str, str], Mapping[str, Sequence[Mapping[str, Any]]], list[str]]]
 -    ) -> list[tuple[dict[str, str], dict[str, str | list[dict[str, Any]]], dict[str, str], dict[str, Any]]]:
@@ -797,7 +797,7 @@ index dc4f385..ab46963 100644
 +        | None
 +    ]:
          """Propose new texts for many tasks, batching the reflection LM calls.
-
+ 
          ReflectionLM implementations that provide ``reflect_many`` (e.g. the
 @@ -172,11 +201,22 @@ class ReflectiveMutationProposer:
          proposer or custom proposer owns the call, fall back to one invocation
@@ -825,11 +825,11 @@ index dc4f385..ab46963 100644
 +
 +        if self.custom_candidate_proposer is not None or self._reflection_lm is None:
              return [self.propose_new_texts(cand, refds, comps) for cand, refds, comps in jobs]
-
+ 
          reflect_many = getattr(self._reflection_lm, "reflect_many", None)
 @@ -206,19 +246,26 @@ class ReflectiveMutationProposer:
          """Like :meth:`_propose_texts_batch`, but isolates per-task failures.
-
+ 
          Returns ``None`` in the slot of any task whose reflection raised, so one
 -        bad task (or a failed batch) does not sink the whole iteration.
 +        bad task (or a failed batch) does not sink the whole iteration. Memory
@@ -858,7 +858,7 @@ index dc4f385..ab46963 100644
 @@ -228,13 +275,63 @@ class ReflectiveMutationProposer:
      # Batch evaluate helper
      # ------------------------------------------------------------------
-
+ 
 -    def _batch_evaluate(self, items: list[tuple[dict[str, str], list]]) -> list[EvaluationBatch]:
 -        """Evaluate (candidate, batch) pairs via the adapter's batch_evaluate or fallback."""
 +    def _batch_evaluate(
@@ -870,7 +870,7 @@ index dc4f385..ab46963 100644
          if batch_fn is not None:
              return batch_fn(items)
          return default_batch_evaluate(self.adapter, items)
-
+ 
 +    def _validate_post_proposal_admission_plan(
 +        self,
 +        *,
@@ -924,7 +924,7 @@ index dc4f385..ab46963 100644
 @@ -254,6 +351,47 @@ class ReflectiveMutationProposer:
          if not tasks:
              return []
-
+ 
 +        if (
 +            getattr_static(
 +                self.adapter,
@@ -971,7 +971,7 @@ index dc4f385..ab46963 100644
              notify_callbacks(
 @@ -304,11 +442,21 @@ class ReflectiveMutationProposer:
              )
-
+ 
          parent_evals = self._batch_evaluate(items)
 -        key_to_eval: dict[tuple[str, tuple], EvaluationBatch] = dict(zip(key_list, parent_evals, strict=True))
 +        key_to_eval: dict[tuple[str, tuple], EvaluationBatch | None] = dict(
@@ -983,7 +983,7 @@ index dc4f385..ab46963 100644
 +                    f"Iteration {i}: Parent evaluation failed for minibatch "
 +                    f"{list(key[1])}; skipping only the affected proposal task(s)."
 +                )
-
+ 
          # Fire evaluation end callbacks for each task
          for task, key in zip(tasks, task_to_key, strict=True):
              eval_curr = key_to_eval[key]
@@ -999,7 +999,7 @@ index dc4f385..ab46963 100644
 +            if e is not None
          )
          state.increment_evals(total_parent_evals)
-
+ 
 @@ -335,6 +484,8 @@ class ReflectiveMutationProposer:
          if state.evaluation_cache is not None:
              for task, key in zip(tasks, task_to_key, strict=True):
@@ -1012,7 +1012,7 @@ index dc4f385..ab46963 100644
 @@ -344,6 +495,70 @@ class ReflectiveMutationProposer:
                      objective_scores_list,
                  )
-
+ 
 +        # Admission mode treats every actually executed parent rollout as an
 +        # observation of that existing program. Commit it before any
 +        # no-trajectory/perfect-score early return. The default path remains
@@ -1102,7 +1102,7 @@ index dc4f385..ab46963 100644
 +            if eval_curr is None:
 +                prepared.append(None)
 +                continue
-
+ 
              if not eval_curr.trajectories:
                  self.logger.log(f"Iteration {i}: No trajectories for parent {task.parent_idx}. Skipping.")
 @@ -433,6 +662,79 @@ class ReflectiveMutationProposer:
@@ -1188,15 +1188,15 @@ index dc4f385..ab46963 100644
 @@ -449,7 +751,7 @@ class ReflectiveMutationProposer:
                  prepared.append(None)
                  continue
-
+ 
 -            prepared.append((task, eval_curr, predictor_names, reflective_dataset))
 +            prepared.append((task, eval_curr, predictor_names, reflective_dataset, admission_plan))
-
+ 
          # Stage 3b: Reflect across all prepared tasks — one batched LM call when the
          # reflection LM supports it (litellm.batch_completion), else per task.
 @@ -457,14 +759,23 @@ class ReflectiveMutationProposer:
          batch_texts = iter(self._propose_texts_batch_safe(jobs))
-
+ 
          # Stage 3c: Build each child candidate from its proposed texts.
 -        children: list[tuple[ProposalTask, dict[str, str], EvaluationBatch, dict[str, Any]] | None] = []
 +        children: list[
@@ -1223,7 +1223,7 @@ index dc4f385..ab46963 100644
 @@ -519,38 +830,119 @@ class ReflectiveMutationProposer:
                  assert name in new_candidate, f"{name} missing in candidate"
                  new_candidate[name] = text
-
+ 
 -            children.append((task, new_candidate, eval_curr, _lm_metadata))
 +            if post_proposal_admission_enabled:
 +                post_admission_requests.append(
@@ -1287,18 +1287,18 @@ index dc4f385..ab46963 100644
 +                    child[3],
 +                    validated_plan,
 +                )
-
+ 
          # Stage 4: Batch evaluate children
          valid_children = [(idx, c) for idx, c in enumerate(children) if c is not None]
          if not valid_children:
              return []
-
+ 
 -        child_items = [(c[1], c[0].minibatch) for _, c in valid_children]
 +        child_items = [
 +            (c[1], list(c[4].evaluation_batch) if c[4] is not None else c[0].minibatch)
 +            for _, c in valid_children
 +        ]
-
+ 
          # Fire evaluation start callbacks for each child candidate (parity with
          # the pre-batch sequential path, which emitted these around the new
          # candidate's minibatch evaluation; candidate_idx is None because the
@@ -1323,7 +1323,7 @@ index dc4f385..ab46963 100644
                      is_seed_candidate=False,
                  ),
              )
-
+ 
          child_evals = self._batch_evaluate(child_items)
 +        completed_children = []
 +        for item_index, (valid_child, child_eval) in enumerate(
@@ -1337,7 +1337,7 @@ index dc4f385..ab46963 100644
 +                )
 +                continue
 +            completed_children.append((item_index, valid_child, child_eval))
-
+ 
          # Fire evaluation end callbacks for each child candidate
 -        for (_, (task, _new_candidate, _eval_curr, _meta)), child_eval in zip(valid_children, child_evals, strict=True):
 +        for _, (_, (task, _new_candidate, _eval_curr, _meta, _admission_plan)), child_eval in (
@@ -1348,7 +1348,7 @@ index dc4f385..ab46963 100644
                  "on_evaluation_end",
 @@ -568,64 +960,117 @@ class ReflectiveMutationProposer:
              )
-
+ 
          total_child_evals = sum(
 -            e.num_metric_calls if e.num_metric_calls is not None else len(child_items[idx][1])
 -            for idx, e in enumerate(child_evals)
@@ -1358,7 +1358,7 @@ index dc4f385..ab46963 100644
 +            for item_index, _, child_eval in completed_children
          )
          state.increment_evals(total_child_evals)
-
+ 
 +        for _, (_, (task, new_candidate, _, metadata, admission_plan)), child_eval in (
 +            completed_children
 +        ):
@@ -1396,7 +1396,7 @@ index dc4f385..ab46963 100644
 -                    new_candidate, task.minibatch_ids, child_eval.outputs, child_eval.scores, new_obj_scores
 +                    new_candidate, evaluation_ids, child_eval.outputs, child_eval.scores, new_obj_scores
                  )
-
+ 
          # Trace: per-task before/after scores (children is index-aligned with tasks)
          trace_tasks = state.full_program_trace[-1].get("tasks")
          if trace_tasks is not None:
@@ -1410,7 +1410,7 @@ index dc4f385..ab46963 100644
                  trace_tasks[child_idx]["new_subsample_scores"] = list(child_eval.scores)
 +                if admission_plan is not None:
 +                    trace_tasks[child_idx]["admission_ids"] = list(admission_plan.evaluation_ids)
-
+ 
          # Log subsample scores for first task (trace compatibility)
 -        if valid_children:
 -            first_child_idx = valid_children[0][0]
@@ -1447,7 +1447,7 @@ index dc4f385..ab46963 100644
 +                state.full_program_trace[-1]["admission_ids"] = list(
 +                    first_admission_plan.evaluation_ids
                  )
-
+ 
 +            subsample_before = sum(first_eval_before.scores)
 +            subsample_after = sum(first_child_eval.scores)
 +            self.experiment_tracker.log_metrics(
@@ -1504,23 +1504,23 @@ index dc4f385..ab46963 100644
 +                admission_plan=admission_plan,
              )
              proposals.append(proposal)
-
+ 
 diff --git a/src/gepa/strategies/batch_sampler.py b/src/gepa/strategies/batch_sampler.py
 index c6e0dd2..91466cc 100644
 --- a/src/gepa/strategies/batch_sampler.py
 +++ b/src/gepa/strategies/batch_sampler.py
 @@ -3,6 +3,7 @@
-
+ 
  import random
  from collections import Counter
 +from collections.abc import Sequence
  from typing import Protocol
-
+ 
  from gepa.core.adapter import DataInst
 @@ -20,7 +21,12 @@ class BatchSampler(Protocol[DataId, DataInst]):
      minibatch.
      """
-
+ 
 -    def next_minibatch_ids(self, loader: DataLoader[DataId, DataInst], state: GEPAState) -> list[DataId]: ...
 +    def next_minibatch_ids(
 +        self,
@@ -1528,13 +1528,13 @@ index c6e0dd2..91466cc 100644
 +        state: GEPAState,
 +        excluded_ids: Sequence[DataId] = (),
 +    ) -> list[DataId]: ...
-
-
+ 
+ 
  class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
 @@ -31,14 +37,32 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
      - Deterministic via state.rng1
      """
-
+ 
 -    def __init__(self, minibatch_size: int, rng: random.Random | None = None):
 +    def __init__(
 +        self,
@@ -1568,7 +1568,7 @@ index c6e0dd2..91466cc 100644
 @@ -66,7 +90,12 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
                  self.shuffled_ids.append(selected_id)
                  self.id_freqs[selected_id] += 1
-
+ 
 -    def next_minibatch_ids(self, loader: DataLoader[DataId, DataInst], state: GEPAState) -> list[DataId]:
 +    def next_minibatch_ids(
 +        self,
@@ -1633,7 +1633,7 @@ index c6e0dd2..91466cc 100644
 +                self.epoch = curr_epoch
 +                self._update_shuffled(loader)
 +            base_idx += self._positions_consumed_in_iteration
-
+ 
          assert len(self.shuffled_ids) >= self.minibatch_size
          assert len(self.shuffled_ids) % self.minibatch_size == 0
 @@ -97,7 +154,24 @@ class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
@@ -1910,8 +1910,8 @@ index cc5b4a2..a3e8ff2 100644
 +++ b/tests/test_batch_sampler.py
 @@ -51,6 +51,83 @@ def test_repeated_calls_within_iteration_return_distinct_minibatches():
      assert tuple(sampler.next_minibatch_ids(loader, state)) == batches[0]
-
-
+ 
+ 
 +def test_resume_at_nonzero_iteration_does_not_reshuffle_within_first_wave():
 +    loader = ListDataLoader(list(range(150)))
 +    sampler = EpochShuffledBatchSampler(minibatch_size=3, rng=random.Random(0))
@@ -2051,12 +2051,12 @@ index 6375191..11a5dec 100644
 --- a/tests/test_candidate_selector.py
 +++ b/tests/test_candidate_selector.py
 @@ -39,6 +39,8 @@ def mock_state():
-
+ 
      state.parent_program_for_candidate.append([0])
      state.parent_program_for_candidate.append([1])
 +    state.program_birth_propose_ids.append(None)
 +    state.program_birth_propose_ids.append(None)
-
+ 
      state.named_predictor_id_to_update_next_for_program_candidate.append(0)
      state.named_predictor_id_to_update_next_for_program_candidate.append(0)
 diff --git a/tests/test_module_selector.py b/tests/test_module_selector.py
@@ -2065,8 +2065,8 @@ index f4f31cc..bd6947f 100644
 +++ b/tests/test_module_selector.py
 @@ -226,6 +226,40 @@ def test_batch_sampler_configuration(mock_proposer, mock_run, common_mocks, base
      assert mock_proposer.call_args.kwargs["batch_sampler"] is custom_batch_sampler
-
-
+ 
+ 
 +@patch("gepa.api.GEPAEngine.run")
 +@patch("gepa.api.ReflectiveMutationProposer")
 +def test_admission_sampling_configuration_is_forwarded(
@@ -2115,15 +2115,15 @@ index e4c3593..70ae306 100644
 +    state.program_birth_propose_ids.append(None)
      state.named_predictor_id_to_update_next_for_program_candidate.append(0)
      state.num_metric_calls_by_discovery.append(0)
-
+ 
 diff --git a/tests/test_reflection_lm.py b/tests/test_reflection_lm.py
 index 1bfb312..1781750 100644
 --- a/tests/test_reflection_lm.py
 +++ b/tests/test_reflection_lm.py
 @@ -3,6 +3,8 @@
-
+ 
  """Tests for the ReflectionLM protocol and StatelessReflectionLM (#329 Phase 1)."""
-
+ 
 +import pytest
 +
  from gepa.proposer.reflective_mutation.reflection_lm import (
@@ -2131,8 +2131,8 @@ index 1bfb312..1781750 100644
      ReflectionProposal,
 @@ -214,6 +216,108 @@ def test_reflect_only_strategy_used_per_task_in_batch_path():
      assert [r[0] for r in results] == [{"c": "new_c"}, {"c": "new_c"}]
-
-
+ 
+ 
 +def test_adapter_batch_proposal_seam_is_used_and_preserves_order():
 +    from unittest.mock import MagicMock
 +
@@ -2240,8 +2240,8 @@ index 1bfb312..1781750 100644
  # ---------------------------------------------------------------------------
 @@ -273,6 +377,70 @@ def _make_state():
      return state
-
-
+ 
+ 
 +def test_partial_parent_and_child_batches_keep_only_completed_proposals():
 +    from unittest.mock import MagicMock
 +
@@ -2708,16 +2708,16 @@ index 1bfb312..1781750 100644
 +
 +    assert proposer.propose(_make_state()) == []
 +    assert adapter.batch_evaluate.call_count == 1
-
-
+ 
+ 
  # ---------------------------------------------------------------------------
 diff --git a/tests/test_state.py b/tests/test_state.py
 index 7809d3c..0eb088d 100644
 --- a/tests/test_state.py
 +++ b/tests/test_state.py
 @@ -305,9 +305,9 @@ def test_adapter_state_save_and_load(run_dir):
-
-
+ 
+ 
  def test_upgrade_state_dict_adds_adapter_state():
 -    """Migration adds adapter_state={} when missing (v4 → v5)."""
 +    """Migration adds fields introduced after schema v4."""
@@ -2733,8 +2733,8 @@ index 7809d3c..0eb088d 100644
      assert d["adapter_state"] == {}
 +    assert d["program_birth_propose_ids"] == [(), None, None]
      assert d["validation_schema_version"] == state_mod.GEPAState._VALIDATION_SCHEMA_VERSION
-
-
+ 
+ 
 +def test_birth_proposal_eligibility_keeps_raw_observations_but_cleans_decisions():
 +    state = state_mod.GEPAState(
 +        {"prompt": "seed"},

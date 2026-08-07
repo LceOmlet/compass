@@ -1,0 +1,299 @@
+{
+  "schema_version": 1,
+  "matrix_id": "compass_paper_primary_ablation_v1",
+  "frozen_on": "2026-08-07",
+  "artifact_policy": "create_only_no_overwrite",
+  "credential_policy": "environment_variable_names_only",
+  "semantic_policy": {
+    "official_benchmark_program_metric_and_retry_owners_remain_unchanged": true,
+    "no_shadow_optimizer_or_metric": true,
+    "no_runtime_watchdog_or_proactive_interruption": true,
+    "no_dynamic_worker_change": true,
+    "no_new_optimizer_gate": true,
+    "preflight_and_formal_state_and_cache_are_disjoint": true,
+    "formal_release_requires_recorded_preflight_approval": true
+  },
+  "financial_envelopes_usd": {
+    "primary": 400,
+    "ablation": 110,
+    "failure_recovery_and_unplanned_metered_overhead": 70
+  },
+  "planning_cost_ranges_usd": {
+    "primary": [154, 304],
+    "ablation": [12, 30]
+  },
+  "runtime_roots": {
+    "primary": "F:/compass-paper-formal/primary",
+    "ablation": "F:/compass-paper-formal/ablation"
+  },
+  "model_panels": {
+    "gpt_4_1_mini_gpt_ge": {
+      "api_base": "https://api.gpt.ge/v1",
+      "api_key_env": "COMPASS_GPT_GE_API_KEY",
+      "task_model": "openai/gpt-4.1-mini-2025-04-14",
+      "reflection_model": "openai/gpt-4.1-mini-2025-04-14",
+      "reflection_decoding": {
+        "temperature": 1.0,
+        "max_tokens": 16384,
+        "num_retries": 0
+      }
+    }
+  },
+  "capacity_groups": {
+    "gpt_ge_account": {
+      "max_parallel_runs": 1,
+      "reason": "conservative preflight-first shared-account schedule; frozen before launch"
+    }
+  },
+  "resource_classes": {
+    "single_turn_text": {
+      "capacity_group": "gpt_ge_account",
+      "controller_threads": 32,
+      "max_candidate_workers": 1,
+      "max_reflection_workers": 1
+    },
+    "multimodal_chart": {
+      "capacity_group": "gpt_ge_account",
+      "controller_threads": null,
+      "controller_threads_status": "must_be_frozen_in_the_runner_config_after_read_only_resource_profile_and_preflight",
+      "max_candidate_workers": 1,
+      "max_reflection_workers": 1
+    },
+    "interactive_tool_episode": {
+      "capacity_group": "gpt_ge_account",
+      "controller_threads": 5,
+      "owner_max_concurrency": 5,
+      "max_candidate_workers": 1,
+      "max_reflection_workers": 1
+    }
+  },
+  "methods": {
+    "seed": {
+      "display_name": "Seed",
+      "optimization": false,
+      "owner_interface": "benchmark-owned program and metric evaluation"
+    },
+    "miprov2": {
+      "display_name": "DSPy MIPROv2",
+      "optimization": true,
+      "owner_interface": "dspy.teleprompt.MIPROv2"
+    },
+    "gepa": {
+      "display_name": "Native GEPA",
+      "optimization": true,
+      "owner_interface": "gepa.optimize"
+    },
+    "m0": {
+      "display_name": "Matched sparse-commit M0",
+      "optimization": true,
+      "owner_interface": "existing COMPASS engine mini_admission_reflection condition"
+    },
+    "compass": {
+      "display_name": "COMPASS",
+      "optimization": true,
+      "owner_interface": "existing COMPASS engine compass_reflection condition"
+    }
+  },
+  "task_protocols": {
+    "ifbench": {
+      "scope": "primary",
+      "display_name": "IFBench",
+      "resource_class": "single_turn_text",
+      "model_panel": "gpt_4_1_mini_gpt_ge",
+      "optimizer_seed": 0,
+      "optimization_rollout_budget": 3593,
+      "preflight_rollout_budget": 96,
+      "owner": {
+        "registry": "bridge.paper_benchmark_registry",
+        "benchmark_class": "IFBench",
+        "program_class": "IFBenchCoT2StageProgram",
+        "metric_owner": "gepa-artifact",
+        "commit": "cbefbc1aa0f43dd39874ec4bf42211365dbda42e"
+      },
+      "split_identity": {
+        "dataset_mode": "lite",
+        "sizes": {"train": 150, "validation": 300, "test": 294},
+        "fingerprints": {
+          "train": "bc59137a73a179214e8e1a2c97358a70bea53ecf28412ab0ca829d75e116adf1",
+          "validation": "e703d1f47f4b36b860bc603650443639d884b4faf88c9563d2bb688b5f0f1c50",
+          "test": "b07979368669f1f90f3f0c9661e998fa8a5b7e71c08b1a4774294551742bc4aa"
+        }
+      },
+      "task_decoding": {
+        "temperature": 1.0,
+        "max_tokens": 16384
+      }
+    },
+    "aime_2025": {
+      "scope": "primary",
+      "display_name": "AIME-2025",
+      "resource_class": "single_turn_text",
+      "model_panel": "gpt_4_1_mini_gpt_ge",
+      "optimizer_seed": 0,
+      "optimization_rollout_budget": 1839,
+      "preflight_rollout_budget": 60,
+      "owner": {
+        "registry": "bridge.paper_benchmark_registry",
+        "benchmark_class": "AIMEBench",
+        "program_class": "CoT",
+        "metric_owner": "gepa-artifact",
+        "commit": "cbefbc1aa0f43dd39874ec4bf42211365dbda42e"
+      },
+      "split_identity": {
+        "dataset_mode": "lite",
+        "sizes": {"train": 45, "validation": 45, "test": 150},
+        "fingerprints": {
+          "train": "29e4073bb38de46745c88cb794a848ce23acbe28a0d1d78937278f59e9dd16e8",
+          "validation": "b51787cb7bf4e9ea312f98e0aea077d4a6fed491836ddaa37db9c7c3d3820fe9",
+          "test": "37f7d18d0bb6c7295a61dad2b3350a82bbfa5204692797cecb25a83467428071"
+        }
+      },
+      "task_decoding": {
+        "temperature": 1.0,
+        "max_tokens": 16384
+      }
+    },
+    "chartqa": {
+      "scope": "primary",
+      "display_name": "ChartQA",
+      "resource_class": "multimodal_chart",
+      "model_panel": "gpt_4_1_mini_gpt_ge",
+      "optimizer_seed": 0,
+      "optimization_rollout_budget": 1152,
+      "preflight_rollout_budget": 60,
+      "owner": {
+        "registry": "bridge.mechanism_benchmark_registry",
+        "dataset_commit": "044eabfc306abfe9340c5741f0093aefc5973d06",
+        "program_commit": "e23f82f9c7ed2eacfb9124b92143358a9953263c",
+        "metric_commit": "cb45ac4d4a667ea5ef89c7a148bff69b3489b981",
+        "program_class": "ChartQASingleStepProgram",
+        "metric_owner": "lmms-eval/chartqa"
+      },
+      "split_identity": {
+        "protocol": "balanced-owner-view-v2",
+        "lock_file": "experiments/paper/chartqa_balanced_v2_data_lock.json",
+        "sizes": {"train": 150, "validation": 300, "test": 2500},
+        "fingerprints": {
+          "train": "410792d8bc493b0e4b97d55d6c2dffca34e33f647e2aeb587036bc30a06301de",
+          "validation": "3637d073a0fddd8e73d6d841dd6b9687baaef955ae694c939702bcf1f722d907",
+          "test": "341561aa8e7ad27c769599e007fdacf96505ad79ec4df9f6a5374ab77bdebbed"
+        }
+      },
+      "task_decoding": {
+        "temperature": 0.0,
+        "max_tokens": 16,
+        "owner_provenance_do_sample": false,
+        "structured_image_url": true
+      }
+    },
+    "tau2_airline": {
+      "scope": "primary",
+      "display_name": "tau2-bench Airline",
+      "resource_class": "interactive_tool_episode",
+      "model_panel": "gpt_4_1_mini_gpt_ge",
+      "optimizer_seed": 0,
+      "optimization_rollout_budget": 600,
+      "preflight_rollout_budget": 96,
+      "owner": {
+        "registry": "bridge.tau2_airline_protocol",
+        "version": "v1.0.1",
+        "commit": "fc0055dc4e0a316c3f83133267fbd6faaa770992",
+        "program": "official tau2 llm_agent/environment/user_simulator loop",
+        "metric_owner": "tau2.metrics.agent_metrics.compute_metrics"
+      },
+      "split_identity": {
+        "train_ids": ["0", "1", "3", "4", "5", "7", "9", "10", "11", "12", "14", "15", "17", "20", "21", "23", "27", "28", "33", "34", "36", "38", "39", "40", "41", "42", "43", "46", "47", "49"],
+        "proposal_ids": ["0", "1", "3", "4", "7", "9", "10", "11", "14", "15", "17", "20", "23", "27", "28", "33", "36", "38", "39", "40", "42", "43", "46", "47"],
+        "validation_ids": ["5", "12", "21", "34", "41", "49"],
+        "test_ids": ["2", "6", "8", "13", "16", "18", "19", "22", "24", "25", "26", "29", "30", "31", "32", "35", "37", "44", "45", "48"],
+        "partition_rule": "every_fifth_owner_order_train_task_is_validation"
+      },
+      "task_decoding": {
+        "agent_model": "openai/gpt-4.1-mini-2025-04-14",
+        "user_model": "openai/gpt-4.1-2025-04-14",
+        "temperature": 0.0,
+        "max_steps": 200,
+        "max_errors": 10,
+        "max_concurrency": 5
+      }
+    },
+    "clutrr_irrelevant": {
+      "scope": "ablation",
+      "display_name": "CLUTRR Irrelevant Noise",
+      "resource_class": "single_turn_text",
+      "model_panel": "gpt_4_1_mini_gpt_ge",
+      "optimizer_seeds": [0, 1, 2],
+      "owner": {
+        "registry": "bridge.mechanism_benchmark_registry",
+        "fixed_backing": "rob_train_irr_23_test_all_23",
+        "data_commit": "e5b496941e91abb7c319d2618a3ce96752bc4ab7",
+        "metric_commit": "303ed9a48f82a59b4eb34ac5bd5866f0d82c5552",
+        "metric_owner": "QualityMetric.relation_overlap"
+      },
+      "split_identity": {
+        "sizes": {"train": 150, "validation": 300, "test": 444},
+        "fingerprints": {
+          "train": "995cf8ac9682a471349c19705bdd9859810215a64477cb8e64d250a9eb3d48f3",
+          "validation": "3bcf6fb8c2bd134527a12610d00d60f3ba258817c6a91f266f632d37ec9281d2",
+          "test": "be195d30c2402ece75a1f24f6b26757cc373e96ad376db926b0bddee25f744a9"
+        }
+      },
+      "ablation_budget": {
+        "complete_train_passes": 5,
+        "proposal_minibatch_size": 3,
+        "serial_proposal_iterations": 250,
+        "proposal_instance_exposures": 750,
+        "max_candidate_proposals": 250,
+        "max_metric_calls": 2250,
+        "epoch_parallel_enabled": false,
+        "preflight_task_rollouts_seed0_per_cell": 60
+      }
+    }
+  },
+  "primary_cells": [
+    {"task": "ifbench", "method": "seed", "disposition": "reusable", "published_reference_percent": 47.79},
+    {"task": "ifbench", "method": "miprov2", "disposition": "required_new", "published_reference_percent": 49.15},
+    {"task": "ifbench", "method": "gepa", "disposition": "required_new", "published_reference_percent": 52.72},
+    {"task": "ifbench", "method": "m0", "disposition": "required_new"},
+    {"task": "ifbench", "method": "compass", "disposition": "required_new"},
+    {"task": "aime_2025", "method": "seed", "disposition": "reusable", "published_reference_percent": 49.33},
+    {"task": "aime_2025", "method": "miprov2", "disposition": "required_new", "published_reference_percent": 51.33},
+    {"task": "aime_2025", "method": "gepa", "disposition": "required_new", "published_reference_percent": 59.33},
+    {"task": "aime_2025", "method": "m0", "disposition": "required_new"},
+    {"task": "aime_2025", "method": "compass", "disposition": "required_new"},
+    {"task": "chartqa", "method": "seed", "disposition": "required_new"},
+    {"task": "chartqa", "method": "miprov2", "disposition": "required_new"},
+    {"task": "chartqa", "method": "gepa", "disposition": "required_new"},
+    {"task": "chartqa", "method": "m0", "disposition": "required_new"},
+    {"task": "chartqa", "method": "compass", "disposition": "required_new"},
+    {"task": "tau2_airline", "method": "seed", "disposition": "required_new"},
+    {"task": "tau2_airline", "method": "miprov2", "disposition": "not_applicable", "reason": "DSPy MIPROv2 has no generic GEPAAdapter seam"},
+    {"task": "tau2_airline", "method": "gepa", "disposition": "required_new"},
+    {"task": "tau2_airline", "method": "m0", "disposition": "required_new"},
+    {"task": "tau2_airline", "method": "compass", "disposition": "required_new"}
+  ],
+  "ablation_factorial": {
+    "task": "clutrr_irrelevant",
+    "method": "compass",
+    "seeds": [0, 1, 2],
+    "cells": [
+      {"name": "raw_strict", "parent_selection_score_mode": "raw_frontier_rate", "acceptance_mode": "strict_improvement"},
+      {"name": "raw_always", "parent_selection_score_mode": "raw_frontier_rate", "acceptance_mode": "always_accept"},
+      {"name": "highres_strict", "parent_selection_score_mode": "high_resolution", "acceptance_mode": "strict_improvement"},
+      {"name": "highres_always", "parent_selection_score_mode": "high_resolution", "acceptance_mode": "always_accept"}
+    ]
+  },
+  "published_reuse": {
+    "source_file": "experiments/paper/published_gepa_seed0.json",
+    "allowed_scope": "IFBench and AIME-2025 GPT-4.1 Mini seed-0 endpoint references only",
+    "not_a_substitute_for": ["matched_optimizer_trajectory", "resource_ledger", "skill_yield"]
+  },
+  "binding_policy": {
+    "binding_file_is_optional_and_create_only": true,
+    "missing_binding_blocks_launch": true,
+    "binding_must_name_existing_python_runner_and_hashed_config": true,
+    "shell_command_strings_are_forbidden": true,
+    "powershell_cmd_bat_and_ps1_are_forbidden": true,
+    "formal_optimizer_binding_requires_external_preflight_release_record": true
+  }
+}

@@ -13,6 +13,8 @@ from bridge import tau2_gepa_adapter as subject
 class FakeConfig:
     domain = "airline"
     max_concurrency = 3
+    max_retries = 3
+    retry_delay = 0.0
 
     def __init__(self, **values):
         self.values = dict(values)
@@ -176,6 +178,52 @@ def test_evaluate_uses_official_entry_and_preserves_input_order(monkeypatch):
     assert subject._candidate_binding.get() is None
 
 
+def test_evaluate_delegates_retry_limits_to_official_owner(monkeypatch):
+    captured = {}
+
+    def fake_retry(
+        function,
+        *,
+        task,
+        trial,
+        seed,
+        max_retries,
+        retry_delay,
+        console_display,
+    ):
+        del function
+        captured.update(
+            {
+                "task": task,
+                "trial": trial,
+                "seed": seed,
+                "max_retries": max_retries,
+                "retry_delay": retry_delay,
+                "console_display": console_display,
+            }
+        )
+        return fake_simulation(task.id, 1.0, "owner retry result")
+
+    monkeypatch.setattr(subject, "run_with_retry", fake_retry)
+    adapter = subject.Tau2GEPAAdapter(FakeConfig(), max_workers=1)
+    task = fake_task("task-retry")
+    result = adapter.evaluate(
+        [subject.Tau2Example(task, 19)],
+        {subject.TAU2_AGENT_INSTRUCTION_COMPONENT: "candidate"},
+        capture_traces=True,
+    )
+
+    assert result.scores == [1.0]
+    assert captured == {
+        "task": task,
+        "trial": 0,
+        "seed": 19,
+        "max_retries": 3,
+        "retry_delay": 0.0,
+        "console_display": False,
+    }
+
+
 def test_concurrent_adapters_do_not_cross_candidate_bindings(monkeypatch):
     barrier = threading.Barrier(2)
 
@@ -235,6 +283,63 @@ def test_one_execution_failure_does_not_discard_success(monkeypatch):
     assert result.num_metric_calls == 2
     assert isinstance(result.outputs[1], subject.Tau2ExecutionFailure)
     assert result.outputs[1].error_type == "TimeoutError"
+
+
+def test_resource_callback_summarizes_owner_fields_without_imputation(monkeypatch):
+    def fake_run(config, task, *, seed, evaluation_type):
+        del config, seed, evaluation_type
+        if task.id == "failed":
+            raise TimeoutError("owner timeout")
+        messages = [
+            SimpleNamespace(
+                role="assistant",
+                usage={"prompt_tokens": 11, "completion_tokens": 3},
+            ),
+            SimpleNamespace(
+                role="user",
+                usage={"prompt_tokens": 7, "completion_tokens": 2},
+            ),
+            SimpleNamespace(role="tool", usage=None),
+        ]
+        simulation = fake_simulation(task.id, 1.0, "owner")
+        simulation.agent_cost = 0.02
+        simulation.user_cost = None
+        simulation.get_messages = lambda: messages
+        return simulation
+
+    captured = []
+    monkeypatch.setattr(subject, "run_single_task", fake_run)
+    adapter = subject.Tau2GEPAAdapter(
+        FakeConfig(),
+        max_workers=2,
+        resource_usage_callback=lambda usage: captured.append(dict(usage)),
+    )
+    adapter.evaluate(
+        [
+            subject.Tau2Example(fake_task("ok"), 1),
+            subject.Tau2Example(fake_task("failed"), 2),
+        ],
+        {subject.TAU2_AGENT_INSTRUCTION_COMPONENT: "candidate"},
+    )
+    assert captured == [
+        {
+            "logical_episodes": 2,
+            "owner_episode_results": 1,
+            "execution_failures": 1,
+            "agent_llm_calls": 1,
+            "user_llm_calls": 1,
+            "agent_prompt_tokens": 11,
+            "agent_completion_tokens": 3,
+            "user_prompt_tokens": 7,
+            "user_completion_tokens": 2,
+            "agent_calls_missing_token_usage": 0,
+            "user_calls_missing_token_usage": 0,
+            "agent_cost_usd": 0.02,
+            "user_cost_usd": 0.0,
+            "episodes_missing_agent_cost": 0,
+            "episodes_missing_user_cost": 1,
+        }
+    ]
 
 
 def test_missing_owner_reward_is_an_execution_failure(monkeypatch):

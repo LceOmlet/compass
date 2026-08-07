@@ -17,10 +17,6 @@ import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 from gepa.core.state import GEPAState
 
-from bridge.b20_compass_reflection import (
-    CompassReflectionEngineConfig,
-    run_compass_reflection_engine,
-)
 from bridge.b19_reversible_parent_selection import (
     candidate_selection_rate,
     evaluation_count,
@@ -29,12 +25,17 @@ from bridge.b19_reversible_parent_selection import (
     high_resolution_selection_rate,
     select_top_candidate_idx,
 )
+from bridge.b20_compass_reflection import (
+    CompassReflectionEngineConfig,
+    run_compass_reflection_engine,
+)
 from bridge.minibatch_config import minibatch_config_kwargs
 from bridge.paper_benchmark_registry import (
     canonical_feedback_map,
     instantiate_official_splits,
     load_official_benchmark_specs,
 )
+from bridge.paper_source_snapshot import verify_project_source_snapshot
 from bridge.request_deadline import DeadlineAwareLM
 
 ROOT_KEYS = {
@@ -125,8 +126,7 @@ def _exact_mapping(
     extra = set(value).difference(keys)
     if missing or extra:
         raise ValueError(
-            f"{name} keys mismatch; missing={sorted(missing)}, "
-            f"extra={sorted(extra)}"
+            f"{name} keys mismatch; missing={sorted(missing)}, extra={sorted(extra)}"
         )
     return dict(value)
 
@@ -138,8 +138,7 @@ def _model_mapping(value: Any) -> dict[str, Any]:
     extra = set(value).difference(MODEL_REQUIRED_KEYS | MODEL_OPTIONAL_KEYS)
     if missing or extra:
         raise ValueError(
-            f"model keys mismatch; missing={sorted(missing)}, "
-            f"extra={sorted(extra)}"
+            f"model keys mismatch; missing={sorted(missing)}, extra={sorted(extra)}"
         )
     model = dict(value)
     max_tokens = model["max_tokens"]
@@ -175,14 +174,11 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
         raise TypeError("optimizer must be a JSON object")
     missing = OPTIMIZER_REQUIRED_KEYS.difference(value)
     extra = set(value).difference(
-        OPTIMIZER_REQUIRED_KEYS
-        | OPTIMIZER_BATCH_KEYS
-        | OPTIMIZER_METHOD_KEYS
+        OPTIMIZER_REQUIRED_KEYS | OPTIMIZER_BATCH_KEYS | OPTIMIZER_METHOD_KEYS
     )
     if missing or extra:
         raise ValueError(
-            f"optimizer keys mismatch; missing={sorted(missing)}, "
-            f"extra={sorted(extra)}"
+            f"optimizer keys mismatch; missing={sorted(missing)}, extra={sorted(extra)}"
         )
     optimizer = dict(value)
     minibatch_config_kwargs(optimizer, namespace="optimizer")
@@ -192,8 +188,7 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
     )
     if acceptance_mode not in {"strict_improvement", "always_accept"}:
         raise ValueError(
-            "optimizer.acceptance_mode must be 'strict_improvement' "
-            "or 'always_accept'"
+            "optimizer.acceptance_mode must be 'strict_improvement' or 'always_accept'"
         )
     score_mode = optimizer.get(
         "parent_selection_score_mode",
@@ -230,9 +225,7 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
         or not isinstance(max_candidate_proposals, int)
         or max_candidate_proposals <= 0
     ):
-        raise TypeError(
-            "optimizer.max_candidate_proposals must be a positive integer"
-        )
+        raise TypeError("optimizer.max_candidate_proposals must be a positive integer")
     if max_candidate_proposals is not None and epoch_parallel_enabled:
         raise ValueError(
             "optimizer.max_candidate_proposals requires "
@@ -244,9 +237,7 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
         or not isinstance(max_reflection_workers, int)
         or max_reflection_workers <= 0
     ):
-        raise TypeError(
-            "optimizer.max_reflection_workers must be a positive integer"
-        )
+        raise TypeError("optimizer.max_reflection_workers must be a positive integer")
     for name in ("rollout_timeout_seconds", "proposal_timeout_seconds"):
         timeout = optimizer.get(name)
         if timeout is not None and (
@@ -255,9 +246,7 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
             or not math.isfinite(timeout)
             or timeout <= 0
         ):
-            raise TypeError(
-                f"optimizer.{name} must be a positive finite number"
-            )
+            raise TypeError(f"optimizer.{name} must be a positive finite number")
     evaluation_straggler_timeout = optimizer.get(
         "evaluation_straggler_timeout",
         120,
@@ -300,9 +289,7 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
             or not isinstance(evidence_size, int)
             or evidence_size < 2
         ):
-            raise TypeError(
-                "optimizer.dci.proposal_evidence_size must be at least 2"
-            )
+            raise TypeError("optimizer.dci.proposal_evidence_size must be at least 2")
         optimizer["dci"] = dci
     return optimizer
 
@@ -337,17 +324,13 @@ def _method_config_kwargs(optimizer: Mapping[str, Any]) -> dict[str, Any]:
             "parent_selection_score_mode",
             "high_resolution",
         ),
-        "proposal_tasks_per_iteration": optimizer.get(
-            "proposal_tasks_per_iteration"
-        ),
+        "proposal_tasks_per_iteration": optimizer.get("proposal_tasks_per_iteration"),
     }
     for name in ("rollout_timeout_seconds", "proposal_timeout_seconds"):
         if optimizer.get(name) is not None:
             method[name] = optimizer[name]
     if optimizer.get("max_candidate_proposals") is not None:
-        method["max_candidate_proposals"] = optimizer[
-            "max_candidate_proposals"
-        ]
+        method["max_candidate_proposals"] = optimizer["max_candidate_proposals"]
     raw_dci = optimizer.get("dci")
     if raw_dci is not None:
         from bridge.dci_agent_lite import DciAgentLiteConfig
@@ -368,9 +351,7 @@ def _method_config_kwargs(optimizer: Mapping[str, Any]) -> dict[str, Any]:
                 ),
                 tools=raw_dci["tools"],
                 max_turns=raw_dci["max_turns"],
-                run_timeout_seconds=optimizer.get(
-                    "proposal_timeout_seconds"
-                ),
+                run_timeout_seconds=optimizer.get("proposal_timeout_seconds"),
             ),
             proposal_evidence_size=raw_dci["proposal_evidence_size"],
         )
@@ -394,8 +375,7 @@ def load_run_config(path: Path) -> dict[str, Any]:
         and config["condition"] != "compass_reflection"
     ):
         raise ValueError(
-            "split train/validation admission requires "
-            "condition='compass_reflection'"
+            "split train/validation admission requires condition='compass_reflection'"
         )
     if (
         isinstance(config["optimizer_seed"], bool)
@@ -430,8 +410,7 @@ def _require_frozen_protocol(
     for key, expected_value in expected.items():
         if optimizer[key] != expected_value:
             raise ValueError(
-                f"optimizer.{key} must equal the frozen value "
-                f"{expected_value!r}"
+                f"optimizer.{key} must equal the frozen value {expected_value!r}"
             )
     for key in ("num_threads", "max_candidate_workers"):
         value = optimizer[key]
@@ -453,9 +432,8 @@ def _require_frozen_protocol(
         raise TypeError("model.enable_thinking must be a JSON boolean")
     serving_max_model_len = model.get("serving_max_model_len")
     if serving_max_model_len is not None:
-        if (
-            isinstance(serving_max_model_len, bool)
-            or not isinstance(serving_max_model_len, int)
+        if isinstance(serving_max_model_len, bool) or not isinstance(
+            serving_max_model_len, int
         ):
             raise TypeError("model.serving_max_model_len must be an integer")
         if serving_max_model_len <= model["max_tokens"]:
@@ -475,21 +453,30 @@ def _require_aime_gepa_protocol(config: Mapping[str, Any]) -> None:
     for key, expected_value in expected_optimizer.items():
         if config["optimizer"][key] != expected_value:
             raise ValueError(
-                f"AIME GEPA parity requires optimizer.{key}="
-                f"{expected_value!r}"
+                f"AIME GEPA parity requires optimizer.{key}={expected_value!r}"
             )
     if config["optimizer_seed"] != 0:
         raise ValueError("AIME GEPA parity requires optimizer_seed=0")
 
-    expected_model = {
-        "enable_thinking": True,
-        "max_tokens": 16384,
-        "model_type": "chat",
-        "num_retries": 0,
-        "temperature": 0.6,
-        "top_k": 20,
-        "top_p": 0.95,
-    }
+    if config["model"].get("model") == "openai/gpt-4.1-mini-2025-04-14":
+        expected_model = {
+            "api_base": "https://api.gpt.ge/v1",
+            "enable_thinking": False,
+            "max_tokens": 16384,
+            "model_type": "chat",
+            "num_retries": 0,
+            "temperature": 1.0,
+        }
+    else:
+        expected_model = {
+            "enable_thinking": True,
+            "max_tokens": 16384,
+            "model_type": "chat",
+            "num_retries": 0,
+            "temperature": 0.6,
+            "top_k": 20,
+            "top_p": 0.95,
+        }
     for key, expected_value in expected_model.items():
         if config["model"].get(key) != expected_value:
             raise ValueError(
@@ -539,36 +526,7 @@ def _config_hash(config: Mapping[str, Any]) -> str:
 
 def _verify_local_source_snapshot(snapshot: Mapping[str, Any]) -> None:
     """Verify the local semantic files frozen by a mechanism matrix."""
-
-    file_hashes = snapshot.get("file_sha256")
-    if not isinstance(file_hashes, Mapping) or not file_hashes:
-        raise ValueError("mechanism source_snapshot.file_sha256 must be non-empty")
-    project_root = Path(__file__).resolve().parents[2]
-    for relative_text, expected_hash in file_hashes.items():
-        if not isinstance(relative_text, str) or not relative_text:
-            raise TypeError("source snapshot paths must be non-empty text")
-        if not isinstance(expected_hash, str) or len(expected_hash) != 64:
-            raise TypeError(
-                f"source snapshot hash must be SHA256 text: {relative_text!r}"
-            )
-        path = (project_root / relative_text).resolve()
-        try:
-            path.relative_to(project_root)
-        except ValueError as error:
-            raise ValueError(
-                f"source snapshot path escapes the project root: {relative_text!r}"
-            ) from error
-        if not path.is_file():
-            raise FileNotFoundError(
-                f"source snapshot file is missing: {relative_text}"
-            )
-        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual_hash != expected_hash:
-            raise RuntimeError(
-                "mechanism source differs from the frozen matrix: "
-                f"path={relative_text}, expected={expected_hash}, "
-                f"actual={actual_hash}"
-            )
+    verify_project_source_snapshot(Path(__file__).resolve().parents[2], snapshot)
 
 
 def _require_resume_identity(
@@ -732,8 +690,7 @@ def main(*, benchmark_family: str = "official") -> int:
         config,
         benchmark_family=benchmark_family,
     )
-    if benchmark_family == "mechanism":
-        _verify_local_source_snapshot(config["source_snapshot"])
+    _verify_local_source_snapshot(config["source_snapshot"])
     budget = (
         definition.max_metric_calls
         if benchmark_family == "official"
@@ -772,9 +729,7 @@ def main(*, benchmark_family: str = "official") -> int:
         stored_config = json.loads(stored_config_path.read_text(encoding="utf-8"))
         if _config_hash(stored_config) != _config_hash(config):
             raise RuntimeError("resume config differs from the persisted run config")
-        loaded_manifest = json.loads(
-            stored_manifest_path.read_text(encoding="utf-8")
-        )
+        loaded_manifest = json.loads(stored_manifest_path.read_text(encoding="utf-8"))
         if not isinstance(loaded_manifest, Mapping):
             raise TypeError("persisted run manifest must be a JSON object")
         if loaded_manifest.get("status") == "completed":
@@ -783,7 +738,7 @@ def main(*, benchmark_family: str = "official") -> int:
     elif run_dir.exists():
         raise FileExistsError(run_dir)
 
-    dspy_cache_dir = _configure_run_cache(cache_dir, config["model"])
+    _configure_run_cache(cache_dir, config["model"])
     start_wall = time.time()
     started_at = datetime.now(timezone.utc).isoformat()
     lm = _create_lm(config["model"], api_key=api_key)
@@ -857,9 +812,7 @@ def main(*, benchmark_family: str = "official") -> int:
             "owner_num_threads_cap": owner_thread_cap,
         },
         "model": {
-            key: value
-            for key, value in config["model"].items()
-            if key != "api_key_env"
+            key: value for key, value in config["model"].items() if key != "api_key_env"
         },
         "api_key_env_name": api_key_env,
         "cache_dir": str(cache_dir),
@@ -901,17 +854,13 @@ def main(*, benchmark_family: str = "official") -> int:
                 perfect_score=config["optimizer"]["perfect_score"],
                 failure_score=config["optimizer"]["failure_score"],
                 num_threads=effective_threads,
-                max_candidate_workers=config["optimizer"][
-                    "max_candidate_workers"
-                ],
+                max_candidate_workers=config["optimizer"]["max_candidate_workers"],
                 skip_perfect_score=config["optimizer"]["skip_perfect_score"],
                 add_format_failure_as_feedback=config["optimizer"][
                     "add_format_failure_as_feedback"
                 ],
                 track_best_outputs=config["optimizer"]["track_best_outputs"],
-                display_progress_bar=config["optimizer"][
-                    "display_progress_bar"
-                ],
+                display_progress_bar=config["optimizer"]["display_progress_bar"],
                 raise_on_exception=config["optimizer"]["raise_on_exception"],
                 use_cloudpickle=config["optimizer"]["use_cloudpickle"],
                 **_minibatch_config_kwargs(config["optimizer"]),
@@ -941,9 +890,9 @@ def main(*, benchmark_family: str = "official") -> int:
             selected_candidate = state.program_candidates[selected_idx]
             selected_frontiers = frontier_count(state, selected_idx)
             selected_exposure = evaluation_count(state, selected_idx)
-            selected_high_resolution_credit = high_resolution_frontier_credits(
-                state
-            )[selected_idx]
+            selected_high_resolution_credit = high_resolution_frontier_credits(state)[
+                selected_idx
+            ]
             selected_high_resolution_rate = high_resolution_selection_rate(
                 state,
                 selected_idx,
@@ -963,19 +912,13 @@ def main(*, benchmark_family: str = "official") -> int:
                 "frontier_count": selected_frontiers,
                 "clean_exposure": selected_exposure,
                 "raw_frontier_rate": (
-                    selected_frontiers / selected_exposure
-                    if selected_exposure
-                    else 0.0
+                    selected_frontiers / selected_exposure if selected_exposure else 0.0
                 ),
                 "high_resolution_credit": _fraction_record(
                     selected_high_resolution_credit
                 ),
-                "high_resolution_rate": _fraction_record(
-                    selected_high_resolution_rate
-                ),
-                "high_resolution_rate_float": float(
-                    selected_high_resolution_rate
-                ),
+                "high_resolution_rate": _fraction_record(selected_high_resolution_rate),
+                "high_resolution_rate_float": float(selected_high_resolution_rate),
                 "candidate": selected_candidate,
             }
             _atomic_write_json(run_dir / "selected_candidate.json", selection)

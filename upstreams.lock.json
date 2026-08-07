@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-08-06T14:46:38+08:00",
+  "captured_at": "2026-08-07T20:05:22+08:00",
   "source_root": "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill",
   "policy": {
     "official_sources_are_semantic_owners": true,
@@ -13,7 +13,7 @@
       "origin": "https://github.com/gepa-ai/gepa.git",
       "commit": "665cbc368313b7223f2b0638d2ef47da7a130dad",
       "patch": "patches/gepa-working-tree.patch",
-      "patch_sha256": "883c1b449dbd03086c56a6dfcd665c8279d1322186526c6e6e0068c85b94ffa9",
+      "patch_sha256": "a89ba6d62119d44fad7c97cb0859db5308bb4962513c72dce0aac94b42971632",
       "status": "patched owner for recursive proposal-lineage state, independent admission data and sampling, whole-epoch batches, per-item proposal failures, fatal-memory semantics, dynamic post-proposal admission scope, and append-only rollout sink seam"
     },
     "dspy": {
@@ -29,7 +29,7 @@
       "origin": "https://github.com/gepa-ai/gepa-artifact.git",
       "commit": "cbefbc1aa0f43dd39874ec4bf42211365dbda42e",
       "patch": "patches/gepa-artifact-working-tree.patch",
-      "patch_sha256": "2717b29839dc108e3c3630aa46cafbb0671ed5b4d1550306cc47a23f62bd4adf",
+      "patch_sha256": "c0b547203deb23a86d9fdaea3e42da7b7440268679420dad693de383af09e4d4",
       "status": "patched owner for IFBench program and installed-artifact handling"
     },
     "flashtrace": {

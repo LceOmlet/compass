@@ -1,10 +1,10 @@
 """Thin GEPA adapter for the pinned tau2-bench text-agent protocol.
 
 The adapter owns no task semantics.  Each example is executed by tau2's
-``run_single_task`` entry point, which in turn owns the environment, agent
-loop, user simulator, tools, and evaluator.  The only local extension is an
-agent factory whose system instruction is bound to one immutable GEPA
-candidate before the official agent is constructed.
+``run_with_retry(run_single_task)`` path, which in turn owns infrastructure
+retry, the environment, agent loop, user simulator, tools, and evaluator.  The
+only local extension is an agent factory whose system instruction is bound to
+one immutable GEPA candidate before the official agent is constructed.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass
@@ -20,11 +20,12 @@ from typing import Any, TypedDict
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 from tau2.agent.llm_agent import AGENT_INSTRUCTION, SYSTEM_PROMPT, LLMAgent
-from tau2.data_model.simulation import SimulationRun
+from tau2.data_model.simulation import SimulationRun, TerminationReason
 from tau2.data_model.tasks import Task
 from tau2.evaluator.evaluator import EvaluationType
 from tau2.registry import registry
 from tau2.runner.batch import run_single_task
+from tau2.runner.progress import run_with_retry
 
 TAU2_AGENT_INSTRUCTION_COMPONENT = "agent_instruction"
 TAU2_CANDIDATE_AGENT_NAME = "compass_candidate_llm_agent"
@@ -46,10 +47,10 @@ class Tau2ExecutionFailure:
     task_id: str
     seed: int
     error_type: str
-    error_message: str
 
 
 Tau2RolloutOutput = SimulationRun | Tau2ExecutionFailure
+Tau2ResourceUsageCallback = Callable[[Mapping[str, int | float]], None]
 
 
 class Tau2Trajectory(TypedDict):
@@ -74,6 +75,73 @@ _candidate_binding: ContextVar[_CandidateBinding | None] = ContextVar(
 )
 _fixed_candidate_factories: dict[str, Any] = {}
 _fixed_candidate_factories_lock = threading.Lock()
+
+
+def summarize_tau2_resource_usage(
+    outputs: Sequence[Tau2RolloutOutput],
+) -> dict[str, int | float]:
+    """Summarize only resource fields emitted by the official owner outputs.
+
+    Token fields come directly from participant-message ``usage`` records;
+    costs come from ``SimulationRun.agent_cost`` and ``user_cost``.  Missing
+    owner measurements remain explicit counts rather than being imputed.
+    """
+
+    usage: dict[str, int | float] = {
+        "logical_episodes": len(outputs),
+        "owner_episode_results": 0,
+        "execution_failures": 0,
+        "agent_llm_calls": 0,
+        "user_llm_calls": 0,
+        "agent_prompt_tokens": 0,
+        "agent_completion_tokens": 0,
+        "user_prompt_tokens": 0,
+        "user_completion_tokens": 0,
+        "agent_calls_missing_token_usage": 0,
+        "user_calls_missing_token_usage": 0,
+        "agent_cost_usd": 0.0,
+        "user_cost_usd": 0.0,
+        "episodes_missing_agent_cost": 0,
+        "episodes_missing_user_cost": 0,
+    }
+    for output in outputs:
+        if isinstance(output, Tau2ExecutionFailure):
+            usage["execution_failures"] += 1
+            continue
+        usage["owner_episode_results"] += 1
+        for owner in ("agent", "user"):
+            cost = getattr(output, f"{owner}_cost", None)
+            if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+                usage[f"{owner}_cost_usd"] += float(cost)
+            else:
+                usage[f"episodes_missing_{owner}_cost"] += 1
+        for message in output.get_messages():
+            role = getattr(message, "role", None)
+            owner = (
+                "agent" if role == "assistant" else "user" if role == "user" else None
+            )
+            if owner is None:
+                continue
+            usage[f"{owner}_llm_calls"] += 1
+            message_usage = getattr(message, "usage", None)
+            if not isinstance(message_usage, Mapping):
+                usage[f"{owner}_calls_missing_token_usage"] += 1
+                continue
+            prompt_tokens = message_usage.get("prompt_tokens")
+            completion_tokens = message_usage.get("completion_tokens")
+            if (
+                isinstance(prompt_tokens, int)
+                and not isinstance(prompt_tokens, bool)
+                and prompt_tokens >= 0
+                and isinstance(completion_tokens, int)
+                and not isinstance(completion_tokens, bool)
+                and completion_tokens >= 0
+            ):
+                usage[f"{owner}_prompt_tokens"] += prompt_tokens
+                usage[f"{owner}_completion_tokens"] += completion_tokens
+            else:
+                usage[f"{owner}_calls_missing_token_usage"] += 1
+    return usage
 
 
 def _validate_candidate(candidate: Mapping[str, str]) -> str:
@@ -219,7 +287,13 @@ def register_tau2_fixed_candidate_agent(candidate: Mapping[str, str]) -> str:
 class Tau2GEPAAdapter(GEPAAdapter[Tau2Example, Tau2Trajectory, Tau2RolloutOutput]):
     """Execute prompt candidates through tau2's official single-task runner."""
 
-    def __init__(self, run_config: Any, *, max_workers: int | None = None) -> None:
+    def __init__(
+        self,
+        run_config: Any,
+        *,
+        max_workers: int | None = None,
+        resource_usage_callback: Tau2ResourceUsageCallback | None = None,
+    ) -> None:
         if getattr(run_config, "domain", None) != "airline":
             raise ValueError("Tau2GEPAAdapter requires domain='airline'")
         configured_workers = getattr(run_config, "max_concurrency", None)
@@ -229,6 +303,7 @@ class Tau2GEPAAdapter(GEPAAdapter[Tau2Example, Tau2Trajectory, Tau2RolloutOutput
         self.run_config = run_config
         self.max_workers = workers
         self.agent_name = register_tau2_candidate_agent()
+        self._resource_usage_callback = resource_usage_callback
 
     def _run_one(
         self,
@@ -243,32 +318,34 @@ class Tau2GEPAAdapter(GEPAAdapter[Tau2Example, Tau2Trajectory, Tau2RolloutOutput
                     "task_ids": [example.task.id],
                 }
             )
-            simulation = run_single_task(
-                config,
-                example.task,
+            simulation = run_with_retry(
+                lambda: run_single_task(
+                    config,
+                    example.task,
+                    seed=example.seed,
+                    evaluation_type=EvaluationType.ALL,
+                ),
+                task=example.task,
+                trial=0,
                 seed=example.seed,
-                evaluation_type=EvaluationType.ALL,
+                max_retries=config.max_retries,
+                retry_delay=config.retry_delay,
+                console_display=False,
             )
+            if simulation.termination_reason == TerminationReason.INFRASTRUCTURE_ERROR:
+                info = simulation.info if isinstance(simulation.info, Mapping) else {}
+                return Tau2ExecutionFailure(
+                    task_id=str(example.task.id),
+                    seed=example.seed,
+                    error_type=str(info.get("error_type", "InfrastructureError")),
+                )
             if simulation.reward_info is None:
                 return Tau2ExecutionFailure(
                     task_id=str(example.task.id),
                     seed=example.seed,
                     error_type="MissingRewardInfo",
-                    error_message=(
-                        "tau2 run_single_task returned without official reward_info"
-                    ),
                 )
             return simulation
-        # The owner entry point can surface heterogeneous provider, runner, and
-        # environment exceptions.  They all have the same adapter-level meaning:
-        # this submitted episode failed, while sibling episodes remain valid.
-        except Exception as exc:  # noqa: BLE001
-            return Tau2ExecutionFailure(
-                task_id=str(example.task.id),
-                seed=example.seed,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-            )
         finally:
             _candidate_binding.reset(token)
 
@@ -316,6 +393,10 @@ class Tau2GEPAAdapter(GEPAAdapter[Tau2Example, Tau2Trajectory, Tau2RolloutOutput
         if len(aligned_outputs) != len(batch):
             raise RuntimeError("tau2 owner outputs are not instance-aligned")
         scores = [self._score(output) for output in aligned_outputs]
+        if self._resource_usage_callback is not None:
+            self._resource_usage_callback(
+                summarize_tau2_resource_usage(aligned_outputs)
+            )
         trajectories = None
         if capture_traces:
             trajectories = [
@@ -416,9 +497,11 @@ __all__ = [
     "Tau2Example",
     "Tau2ExecutionFailure",
     "Tau2GEPAAdapter",
+    "Tau2ResourceUsageCallback",
     "Tau2Trajectory",
     "candidate_sha256",
     "register_tau2_candidate_agent",
     "register_tau2_fixed_candidate_agent",
+    "summarize_tau2_resource_usage",
     "tau2_seed_candidate",
 ]

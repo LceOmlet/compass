@@ -64,6 +64,32 @@ def test_optimization_view_requires_explicit_complete_partition():
         )
 
 
+def test_paper_optimization_view_uses_every_fifth_owner_position():
+    train = fake_tasks(subject.TAU2_AIRLINE_TRAIN_IDS)
+    view = subject.frozen_tau2_airline_optimization_view(train)
+    assert subject.TAU2_AIRLINE_VALIDATION_IDS == (
+        "5",
+        "12",
+        "21",
+        "34",
+        "41",
+        "49",
+    )
+    assert tuple(str(task.id) for task in view.validation) == (
+        "5",
+        "12",
+        "21",
+        "34",
+        "41",
+        "49",
+    )
+    assert len(view.proposal) == 24
+    assert len(view.validation) == 6
+    assert {task.id for task in view.proposal}.isdisjoint(
+        task.id for task in view.validation
+    )
+
+
 def test_runtime_config_uses_official_text_protocol_and_models():
     config = subject.build_tau2_airline_text_config(
         api_base="https://example.test/v1",
@@ -138,6 +164,43 @@ def test_native_gepa_uses_generic_adapter_seam(monkeypatch, tmp_path):
     assert {example.seed for example in captured["trainset"]} == {626729}
     assert run.selected_candidate_idx == 1
     assert run.selected_candidate == {"agent_instruction": "best"}
+
+
+def test_preflight_uses_frozen_96_rollout_budget(monkeypatch, tmp_path):
+    view = subject.Tau2AirlineOptimizationView(
+        proposal=fake_tasks(subject.TAU2_AIRLINE_PROPOSAL_IDS),
+        validation=fake_tasks(subject.TAU2_AIRLINE_VALIDATION_IDS),
+    )
+    monkeypatch.setattr(subject, "Tau2GEPAAdapter", lambda *args, **kwargs: object())
+    captured = {}
+    result = SimpleNamespace(
+        best_idx=0,
+        candidates=[{"agent_instruction": "seed"}],
+    )
+
+    def fake_optimize(**kwargs):
+        captured.update(kwargs)
+        return result
+
+    monkeypatch.setattr(subject, "optimize", fake_optimize)
+    run_config = subject.build_tau2_airline_text_config(
+        api_base="https://example.test/v1",
+        task_split_name="train",
+        num_trials=1,
+    )
+    subject.run_tau2_airline_optimization(
+        method="gepa",
+        view=view,
+        run_config=run_config,
+        reflection_lm="reflection",
+        run_dir=tmp_path,
+        settings=subject.Tau2AirlineOptimizationSettings(
+            parent_selection_score_mode="raw_frontier_rate",
+            phase="preflight",
+            max_metric_calls=subject.TAU2_PREFLIGHT_ROLLOUT_BUDGET,
+        ),
+    )
+    assert captured["max_metric_calls"] == 96
 
 
 @pytest.mark.parametrize(

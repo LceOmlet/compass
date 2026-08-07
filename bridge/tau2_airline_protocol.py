@@ -37,11 +37,13 @@ from bridge.b20_compass_reflection import (
 from bridge.tau2_gepa_adapter import (
     Tau2Example,
     Tau2GEPAAdapter,
+    Tau2ResourceUsageCallback,
     register_tau2_fixed_candidate_agent,
     tau2_seed_candidate,
 )
 
 Tau2AdapterMethod = Literal["gepa", "m0", "compass"]
+Tau2ExperimentPhase = Literal["preflight", "formal"]
 
 TAU2_AIRLINE_VERSION = "v1.0.1"
 TAU2_AIRLINE_COMMIT = "fc0055dc4e0a316c3f83133267fbd6faaa770992"
@@ -99,6 +101,16 @@ TAU2_AIRLINE_TEST_IDS = (
     "45",
     "48",
 )
+TAU2_AIRLINE_VALIDATION_IDS = tuple(
+    task_id
+    for owner_position, task_id in enumerate(TAU2_AIRLINE_TRAIN_IDS, start=1)
+    if owner_position % 5 == 0
+)
+TAU2_AIRLINE_PROPOSAL_IDS = tuple(
+    task_id
+    for task_id in TAU2_AIRLINE_TRAIN_IDS
+    if task_id not in set(TAU2_AIRLINE_VALIDATION_IDS)
+)
 TAU2_AIRLINE_FILE_SHA256 = {
     "data/tau2/domains/airline/db.json": (
         "7184914bd3720d93f1160a09bb2724c3a5601d8ca39d02d371cbbfa62626f7e2"
@@ -118,6 +130,7 @@ TAU2_RUN_SEED = 300
 TAU2_OPTIMIZATION_TRIAL_SEED = 626729
 TAU2_TEST_TRIAL_SEEDS = (626729, 373753, 361454, 1567)
 TAU2_OPTIMIZATION_ROLLOUT_BUDGET = 600
+TAU2_PREFLIGHT_ROLLOUT_BUDGET = 96
 TAU2_MAX_CONCURRENCY = 5
 TAU2_AGENT_MODEL = "openai/gpt-4.1-mini-2025-04-14"
 TAU2_USER_MODEL = "openai/gpt-4.1-2025-04-14"
@@ -139,6 +152,7 @@ class Tau2AirlineOptimizationView:
 @dataclass(frozen=True, slots=True)
 class Tau2AirlineOptimizationSettings:
     parent_selection_score_mode: SelectionScoreMode
+    phase: Tau2ExperimentPhase = "formal"
     optimizer_seed: int = 0
     max_metric_calls: int = TAU2_OPTIMIZATION_ROLLOUT_BUDGET
     proposal_minibatch_size: int = 3
@@ -281,6 +295,24 @@ def freeze_optimization_view(
     return Tau2AirlineOptimizationView(
         proposal=tuple(by_id[task_id] for task_id in proposal_ids),
         validation=tuple(by_id[task_id] for task_id in validation_ids),
+    )
+
+
+def frozen_tau2_airline_optimization_view(
+    train_tasks: Sequence[Task],
+) -> Tau2AirlineOptimizationView:
+    """Return the paper's deterministic 24/6 owner-order train view.
+
+    Every fifth task in the official owner order is validation-only.  The
+    other 24 tasks are proposal-only.  Keeping this rule here makes preflight
+    and formal runs share one auditable partition without asking the model or
+    a launcher to infer one.
+    """
+
+    return freeze_optimization_view(
+        train_tasks,
+        proposal_task_ids=TAU2_AIRLINE_PROPOSAL_IDS,
+        validation_task_ids=TAU2_AIRLINE_VALIDATION_IDS,
     )
 
 
@@ -447,6 +479,7 @@ def run_tau2_airline_optimization(
     run_dir: Path,
     settings: Tau2AirlineOptimizationSettings,
     verified_resume: bool = False,
+    resource_usage_callback: Tau2ResourceUsageCallback | None = None,
 ) -> Tau2AirlineOptimizationRun:
     """Route each supported method through its official Adapter seam."""
 
@@ -459,8 +492,17 @@ def run_tau2_airline_optimization(
     proposal_ids = tuple(str(task.id) for task in view.proposal)
     validation_ids = tuple(str(task.id) for task in view.validation)
     _validate_optimization_partition_ids(proposal_ids, validation_ids)
-    if settings.max_metric_calls != TAU2_OPTIMIZATION_ROLLOUT_BUDGET:
-        raise ValueError("formal tau2 Airline optimization budget must be 600")
+    expected_budget = {
+        "preflight": TAU2_PREFLIGHT_ROLLOUT_BUDGET,
+        "formal": TAU2_OPTIMIZATION_ROLLOUT_BUDGET,
+    }.get(settings.phase)
+    if expected_budget is None:
+        raise ValueError("tau2 Airline phase must be 'preflight' or 'formal'")
+    if settings.max_metric_calls != expected_budget:
+        raise ValueError(
+            f"{settings.phase} tau2 Airline optimization budget must be "
+            f"{expected_budget}"
+        )
     if settings.max_concurrency != TAU2_MAX_CONCURRENCY:
         raise ValueError("formal tau2 Airline concurrency must be 5")
     if settings.proposal_minibatch_size != 3:
@@ -477,6 +519,7 @@ def run_tau2_airline_optimization(
     adapter = Tau2GEPAAdapter(
         run_config.model_copy(update={"num_trials": 1}),
         max_workers=settings.max_concurrency,
+        resource_usage_callback=resource_usage_callback,
     )
     proposal_examples = _optimization_examples(view.proposal)
     validation_examples = _optimization_examples(view.validation)
@@ -664,12 +707,15 @@ __all__ = [
     "TAU2_AGENT_MODEL",
     "TAU2_AIRLINE_COMMIT",
     "TAU2_AIRLINE_FILE_SHA256",
+    "TAU2_AIRLINE_PROPOSAL_IDS",
     "TAU2_AIRLINE_TEST_IDS",
     "TAU2_AIRLINE_TRAIN_IDS",
+    "TAU2_AIRLINE_VALIDATION_IDS",
     "TAU2_AIRLINE_VERSION",
     "TAU2_MAX_CONCURRENCY",
     "TAU2_OPTIMIZATION_ROLLOUT_BUDGET",
     "TAU2_OPTIMIZATION_TRIAL_SEED",
+    "TAU2_PREFLIGHT_ROLLOUT_BUDGET",
     "TAU2_REFLECTION_MODEL",
     "TAU2_RUN_SEED",
     "TAU2_TEST_TRIAL_SEEDS",
@@ -680,9 +726,11 @@ __all__ = [
     "Tau2AirlineOptimizationSettings",
     "Tau2AirlineOptimizationView",
     "Tau2AirlineTaskSplits",
+    "Tau2ExperimentPhase",
     "build_tau2_airline_text_config",
     "build_tau2_reflection_lm",
     "freeze_optimization_view",
+    "frozen_tau2_airline_optimization_view",
     "load_frozen_tau2_airline_splits",
     "run_tau2_airline_final_evaluation",
     "run_tau2_airline_optimization",

@@ -8,7 +8,6 @@ import dspy
 import pytest
 
 from bridge.request_deadline import DeadlineAwareLM
-
 from experiments.paper.run_compass_reflection import (
     _configure_run_cache,
     _create_lm,
@@ -190,12 +189,8 @@ def test_runner_forwards_whole_operation_timeouts(tmp_path: Path) -> None:
 
     loaded = load_run_config(path)
 
-    assert _method_config_kwargs(loaded["optimizer"])[
-        "rollout_timeout_seconds"
-    ] == 600
-    assert _method_config_kwargs(loaded["optimizer"])[
-        "proposal_timeout_seconds"
-    ] == 600
+    assert _method_config_kwargs(loaded["optimizer"])["rollout_timeout_seconds"] == 600
+    assert _method_config_kwargs(loaded["optimizer"])["proposal_timeout_seconds"] == 600
 
 
 @pytest.mark.parametrize("value", [0, -1, True, float("inf")])
@@ -335,9 +330,7 @@ def test_runner_forwards_optional_official_candidate_proposal_budget(
     loaded = load_run_config(path)
 
     assert loaded["optimizer"]["max_candidate_proposals"] == 128
-    assert _method_config_kwargs(loaded["optimizer"])[
-        "max_candidate_proposals"
-    ] == 128
+    assert _method_config_kwargs(loaded["optimizer"])["max_candidate_proposals"] == 128
 
 
 def test_runner_rejects_candidate_proposal_budget_with_epoch_parallel(
@@ -404,6 +397,30 @@ def test_aime_gepa_protocol_rejects_decoding_drift(tmp_path: Path) -> None:
 
     config["model"]["max_tokens"] = 32768
     with pytest.raises(ValueError, match="model.max_tokens"):
+        _require_aime_gepa_protocol(config)
+
+
+def test_aime_gepa_protocol_accepts_frozen_gpt41mini_panel(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config["task_id"] = "aime_2025"
+    config["optimizer"]["max_metric_calls"] = 1839
+    config["model"] = {
+        "api_base": "https://api.gpt.ge/v1",
+        "api_key_env": "COMPASS_GPT_GE_API_KEY",
+        "cache": True,
+        "cache_in_memory": True,
+        "enable_thinking": False,
+        "max_tokens": 16384,
+        "model": "openai/gpt-4.1-mini-2025-04-14",
+        "model_type": "chat",
+        "num_retries": 0,
+        "temperature": 1.0,
+    }
+
+    _require_aime_gepa_protocol(config)
+
+    config["model"]["temperature"] = 0.0
+    with pytest.raises(ValueError, match="model.temperature"):
         _require_aime_gepa_protocol(config)
 
 
