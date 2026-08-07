@@ -23,10 +23,13 @@ from gepa.strategies.acceptance import AcceptanceCriterion
 from gepa.strategies.batch_sampler import EpochShuffledBatchSampler
 from gepa.strategies.proposal_selection import AllImprovements
 from gepa.utils import MaxCandidateProposalsStopper
+from gepa_artifact.benchmarks.IFBench.ifbench_program import (
+    IFBenchCoT2StageProgram,
+)
 
 import bridge.b20_compass_reflection as compass_reflection
-import bridge.dci_compass as dci_compass
 import bridge.request_deadline as request_deadline_module
+from bridge import dci_compass
 from bridge.b19_reversible_parent_selection import (
     frontier_rate,
     high_resolution_selection_rate,
@@ -38,17 +41,16 @@ from bridge.b20_compass_reflection import (
     SeedFallbackParetoCandidateSelector,
     SparseMinibatchEvaluationPolicy,
     SparseObservationDspyAdapter,
+    SparseObservationTrackingAdapter,
     build_split_admission_loaders,
     resolve_minibatch_sizes,
+    run_compass_gepa_adapter_engine,
     run_compass_reflection_engine,
     select_reference_program_idx,
 )
 from bridge.dci_agent_lite import DciAgentLiteConfig
 from bridge.dci_compass import DciCompassConfig
 from bridge.request_deadline import remaining_request_seconds
-from gepa_artifact.benchmarks.IFBench.ifbench_program import (
-    IFBenchCoT2StageProgram,
-)
 
 
 def _state() -> GEPAState:
@@ -180,19 +182,55 @@ def test_split_admission_sampler_excludes_recursive_train_provenance() -> None:
         )
         for _ in range(3)
     ]
-    sampled_ids = {
-        data_id for batch_ids in sampled_batches for data_id in batch_ids
-    }
+    sampled_ids = {data_id for batch_ids in sampled_batches for data_id in batch_ids}
     admission_batch = admission_loader.fetch(sorted(sampled_ids))
 
     assert excluded == frozenset({0, 1, 2})
-    assert all(
-        excluded.isdisjoint(batch_ids)
-        for batch_ids in sampled_batches
-    )
+    assert all(excluded.isdisjoint(batch_ids) for batch_ids in sampled_batches)
     assert sampled_ids == {3, 4, 5, 6, 7}
     assert sum(item["origin"] == "train" for item in admission_batch) == 2
     assert sum(item["origin"] == "validation" for item in admission_batch) == 3
+
+
+def test_mini_admission_sampler_excludes_only_current_propose_ids() -> None:
+    train = [object() for _ in range(4)]
+    validation = [object() for _ in range(2)]
+    _, admission_loader = build_split_admission_loaders(train, validation)
+    state = GEPAState(
+        {"prompt": "seed"},
+        ValsetEvaluation(outputs_by_val_id={}, scores_by_val_id={}),
+        frontier_type="instance",
+    )
+    child = state.update_state_with_new_program(
+        parent_program_idx=[0],
+        new_program={"prompt": "child"},
+        valset_evaluation=ValsetEvaluation(
+            outputs_by_val_id={},
+            scores_by_val_id={},
+        ),
+        run_dir=None,
+        num_metric_calls_by_discovery_of_new_program=0,
+        birth_propose_ids=(0,),
+    )
+    hook = object.__new__(compass_reflection.MiniAdmissionHook)
+    excluded = hook.frontier_ineligible_ids(
+        state=state,
+        parent_program_idx=child,
+        propose_ids=(2,),
+    )
+    sampler = EpochShuffledBatchSampler(
+        minibatch_size=5,
+        rng=random.Random(13),
+    )
+
+    sampled = sampler.next_minibatch_ids(
+        admission_loader,
+        state,
+        excluded_ids=excluded,
+    )
+
+    assert excluded == (2,)
+    assert set(sampled) == {0, 1, 3, 4, 5}
 
 
 def test_minibatch_config_resolves_legacy_and_split_modes(
@@ -246,9 +284,7 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
         named_predictors=lambda: [
             (
                 "prompt",
-                SimpleNamespace(
-                    signature=SimpleNamespace(instructions="seed")
-                ),
+                SimpleNamespace(signature=SimpleNamespace(instructions="seed")),
             )
         ]
     )
@@ -300,14 +336,8 @@ def test_split_engine_uses_owner_admission_loader_sampler_and_rng(
     assert admission_loader.fetch([3])[0] is validation[0]
     assert captured["batch_sampler"].minibatch_size == 2
     assert captured["admission_batch_sampler"].minibatch_size == 4
-    assert (
-        captured["batch_sampler"].rng
-        is not captured["admission_batch_sampler"].rng
-    )
-    assert (
-        captured["admission_hook"].rng
-        is not captured["admission_batch_sampler"].rng
-    )
+    assert captured["batch_sampler"].rng is not captured["admission_batch_sampler"].rng
+    assert captured["admission_hook"].rng is not captured["admission_batch_sampler"].rng
     assert captured["admission_hook"].rng is not captured["batch_sampler"].rng
     assert captured["stop_callbacks"] is None
 
@@ -321,9 +351,7 @@ def test_candidate_proposal_budget_uses_official_stopper(
         named_predictors=lambda: [
             (
                 "prompt",
-                SimpleNamespace(
-                    signature=SimpleNamespace(instructions="seed")
-                ),
+                SimpleNamespace(signature=SimpleNamespace(instructions="seed")),
             )
         ]
     )
@@ -378,9 +406,7 @@ def test_candidate_proposal_budget_is_default_inert_and_rejects_epoch_parallel(
         named_predictors=lambda: [
             (
                 "prompt",
-                SimpleNamespace(
-                    signature=SimpleNamespace(instructions="seed")
-                ),
+                SimpleNamespace(signature=SimpleNamespace(instructions="seed")),
             )
         ]
     )
@@ -410,9 +436,7 @@ def test_split_engine_uses_five_minibatch_windows(
         named_predictors=lambda: [
             (
                 "prompt",
-                SimpleNamespace(
-                    signature=SimpleNamespace(instructions="seed")
-                ),
+                SimpleNamespace(signature=SimpleNamespace(instructions="seed")),
             )
         ]
     )
@@ -471,9 +495,7 @@ def test_dci_engine_wires_official_windowed_epoch_source_and_admission_size(
         named_predictors=lambda: [
             (
                 "prompt",
-                SimpleNamespace(
-                    signature=SimpleNamespace(instructions="seed")
-                ),
+                SimpleNamespace(signature=SimpleNamespace(instructions="seed")),
             )
         ]
     )
@@ -552,9 +574,7 @@ def test_legacy_engine_keeps_train_only_shared_sampler_path(
         named_predictors=lambda: [
             (
                 "prompt",
-                SimpleNamespace(
-                    signature=SimpleNamespace(instructions="seed")
-                ),
+                SimpleNamespace(signature=SimpleNamespace(instructions="seed")),
             )
         ]
     )
@@ -587,7 +607,11 @@ def test_legacy_engine_keeps_train_only_shared_sampler_path(
     assert captured["admission_hook"].rng is captured["batch_sampler"].rng
 
 
-def test_split_admission_rejects_non_compass_condition(tmp_path: Path) -> None:
+def test_split_mini_admission_uses_pareto_without_recursive_mask(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
     config = replace(
         _engine_config(
             tmp_path,
@@ -600,23 +624,40 @@ def test_split_admission_rejects_non_compass_condition(tmp_path: Path) -> None:
         named_predictors=lambda: [
             (
                 "prompt",
-                SimpleNamespace(
-                    signature=SimpleNamespace(instructions="seed")
-                ),
+                SimpleNamespace(signature=SimpleNamespace(instructions="seed")),
             )
         ]
     )
+    monkeypatch.setattr(
+        compass_reflection,
+        "SparseObservationDspyAdapter",
+        lambda **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        compass_reflection,
+        "optimize",
+        lambda **kwargs: captured.update(kwargs) or object(),
+    )
 
-    with pytest.raises(ValueError, match="recursive proposal-lineage exclusion"):
-        run_compass_reflection_engine(
-            program=program,
-            metric_fn=lambda *_args, **_kwargs: 0.0,
-            feedback_map={},
-            trainset=[object(), object()],
-            validation_set=[object()],
-            reflection_lm=object(),
-            config=config,
-        )
+    run_compass_reflection_engine(
+        program=program,
+        metric_fn=lambda *_args, **_kwargs: 0.0,
+        feedback_map={},
+        trainset=[object(), object()],
+        validation_set=[object()],
+        reflection_lm=object(),
+        config=config,
+    )
+
+    assert isinstance(captured["admission_hook"], compass_reflection.MiniAdmissionHook)
+    assert not isinstance(
+        captured["admission_hook"],
+        compass_reflection.CleanMiniAdmissionHook,
+    )
+    assert isinstance(
+        captured["candidate_selection_strategy"],
+        SeedFallbackParetoCandidateSelector,
+    )
 
 
 def _raw_and_high_resolution_ranking_diverge_state() -> GEPAState:
@@ -637,8 +678,7 @@ def _raw_and_high_resolution_ranking_diverge_state() -> GEPAState:
     )
     candidate_count = 14
     state.program_candidates = [
-        {"prompt": f"skill-{idx}"}
-        for idx in range(candidate_count)
+        {"prompt": f"skill-{idx}"} for idx in range(candidate_count)
     ]
     state.parent_program_for_candidate = [
         [None],
@@ -646,21 +686,16 @@ def _raw_and_high_resolution_ranking_diverge_state() -> GEPAState:
     ]
     state.program_birth_propose_ids = [() for _ in range(candidate_count)]
     state.prog_candidate_val_subscores = [
-        {data_id: 0.0 for data_id in range(len(fronts))}
-        for _ in range(candidate_count)
+        {data_id: 0.0 for data_id in range(len(fronts))} for _ in range(candidate_count)
     ]
     state.prog_candidate_objective_scores = [{} for _ in range(candidate_count)]
     state.named_predictor_id_to_update_next_for_program_candidate = [
         0 for _ in range(candidate_count)
     ]
     state.num_metric_calls_by_discovery = [0 for _ in range(candidate_count)]
-    state.pareto_front_valset = {
-        data_id: 0.0
-        for data_id in range(len(fronts))
-    }
+    state.pareto_front_valset = {data_id: 0.0 for data_id in range(len(fronts))}
     state.program_at_pareto_front_valset = {
-        data_id: set(front)
-        for data_id, front in enumerate(fronts)
+        data_id: set(front) for data_id, front in enumerate(fronts)
     }
     assert state.is_consistent()
     return state
@@ -804,6 +839,158 @@ def test_sparse_observation_state_round_trips_without_aliasing() -> None:
         adapter.get_program_observation(0, 4)
     )
     assert restored.get_adapter_state() is not persisted
+
+
+def test_generic_tracking_adapter_restores_opaque_owner_trace_once() -> None:
+    example = object()
+    owner_trace = object()
+    owner = SimpleNamespace(
+        evaluate=MagicMock(
+            return_value=EvaluationBatch(
+                outputs=[object()],
+                scores=[0.5],
+                trajectories=[owner_trace],
+                num_metric_calls=1,
+            )
+        ),
+        make_reflective_dataset=MagicMock(return_value={"prompt": []}),
+    )
+    adapter = SparseObservationTrackingAdapter(owner)
+
+    evaluation = adapter.evaluate(
+        [example],
+        {"prompt": "seed"},
+        capture_traces=True,
+    )
+    reflective = adapter.make_reflective_dataset(
+        {"prompt": "seed"},
+        evaluation,
+        ["prompt"],
+    )
+
+    owner.evaluate.assert_called_once()
+    owner.make_reflective_dataset.assert_called_once()
+    restored = owner.make_reflective_dataset.call_args.args[1]
+    assert restored.trajectories[0] is owner_trace
+    assert reflective == {"prompt": []}
+    with pytest.raises(RuntimeError, match="overlap"):
+        compass_reflection.MiniAdmissionHook._validate_disjoint_instances(
+            evaluation,
+            [example],
+        )
+
+
+def test_generic_tracking_adapter_uses_official_batch_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = SimpleNamespace(
+        evaluate=MagicMock(
+            side_effect=lambda batch, _candidate, capture_traces: EvaluationBatch(
+                outputs=list(batch),
+                scores=[1.0] * len(batch),
+                trajectories=[object() for _ in batch] if capture_traces else None,
+            )
+        ),
+        make_reflective_dataset=MagicMock(),
+    )
+    official_fallback = MagicMock(wraps=compass_reflection.default_batch_evaluate)
+    monkeypatch.setattr(
+        compass_reflection,
+        "default_batch_evaluate",
+        official_fallback,
+    )
+    adapter = SparseObservationTrackingAdapter(owner)
+
+    evaluations = adapter.batch_evaluate(
+        [({"prompt": "a"}, [1]), ({"prompt": "b"}, [2])]
+    )
+
+    official_fallback.assert_called_once()
+    assert owner.evaluate.call_count == 2
+    assert [evaluation.outputs for evaluation in evaluations] == [[1], [2]]
+
+
+def test_generic_tracking_adapter_calls_owner_batch_once() -> None:
+    owner_traces = [object(), object()]
+    items = [({"prompt": "a"}, [1]), ({"prompt": "b"}, [2])]
+    owner = SimpleNamespace(
+        evaluate=MagicMock(side_effect=AssertionError("must not call evaluate")),
+        batch_evaluate=MagicMock(
+            return_value=[
+                EvaluationBatch(
+                    outputs=[1],
+                    scores=[1.0],
+                    trajectories=[owner_traces[0]],
+                ),
+                EvaluationBatch(
+                    outputs=[2],
+                    scores=[0.0],
+                    trajectories=[owner_traces[1]],
+                ),
+            ]
+        ),
+        make_reflective_dataset=MagicMock(return_value={"prompt": []}),
+    )
+    adapter = SparseObservationTrackingAdapter(owner)
+
+    evaluations = adapter.batch_evaluate(items)
+    adapter.make_reflective_dataset(
+        items[0][0],
+        evaluations[0],
+        ["prompt"],
+    )
+
+    owner.batch_evaluate.assert_called_once_with(items)
+    owner.evaluate.assert_not_called()
+    restored = owner.make_reflective_dataset.call_args.args[1]
+    assert restored.trajectories[0] is owner_traces[0]
+
+
+def test_generic_tracking_adapter_namespaces_owner_state() -> None:
+    owner_state = {"nested": {"values": [1]}}
+    owner = SimpleNamespace(
+        get_adapter_state=MagicMock(return_value=owner_state),
+        set_adapter_state=MagicMock(),
+    )
+    adapter = SparseObservationTrackingAdapter(owner)
+
+    persisted = adapter.get_adapter_state()
+    owner_state["nested"]["values"].append(2)
+    adapter.set_adapter_state(deepcopy(persisted))
+
+    assert persisted["owner_adapter"] == {"nested": {"values": [1]}}
+    owner.set_adapter_state.assert_called_once_with({"nested": {"values": [1]}})
+
+
+def test_generic_engine_passes_owner_adapter_to_shared_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    owner = SimpleNamespace()
+    reflection_lm = object()
+    proposer = MagicMock()
+    monkeypatch.setattr(
+        compass_reflection,
+        "optimize",
+        lambda **kwargs: captured.update(kwargs) or object(),
+    )
+
+    run = run_compass_gepa_adapter_engine(
+        seed_candidate={"prompt": "seed"},
+        adapter=owner,
+        trainset=[object(), object()],
+        validation_set=None,
+        reflection_lm=reflection_lm,
+        custom_candidate_proposer=proposer,
+        config=_engine_config(tmp_path, reflection_minibatch_size=1),
+    )
+
+    assert isinstance(run.adapter, SparseObservationTrackingAdapter)
+    assert run.adapter.delegate is owner
+    assert captured["adapter"] is run.adapter
+    assert captured["reflection_lm"] is reflection_lm
+    assert captured["custom_candidate_proposer"] is proposer
 
 
 def test_candidate_batch_concurrency_restores_submission_order() -> None:
@@ -1006,7 +1193,9 @@ def test_built_program_preserves_official_predictors_and_shares_one_deadline(
     assert list(reflective_dataset) == list(candidate)
 
 
-def test_built_program_without_rollout_deadline_uses_official_program_unchanged() -> None:
+def test_built_program_without_rollout_deadline_uses_official_program_unchanged() -> (
+    None
+):
     student = IFBenchCoT2StageProgram()
     candidate = {
         name: predictor.signature.instructions
@@ -1230,21 +1419,30 @@ def test_admission_reference_and_sparse_policy_remain_on_raw_frontier_rate() -> 
         1,
     ) > high_resolution_selection_rate(state, 0)
 
-    assert select_reference_program_idx(
-        state,
-        instance_id=0,
-        sampled_parent_idx=1,
-        rng=random.Random(0),
-    ) == 0
+    assert (
+        select_reference_program_idx(
+            state,
+            instance_id=0,
+            sampled_parent_idx=1,
+            rng=random.Random(0),
+        )
+        == 0
+    )
     assert SparseMinibatchEvaluationPolicy().get_best_program(state) == 0
-    assert select_top_candidate_idx(
-        state,
-        score_mode="raw_frontier_rate",
-    ) == 0
-    assert select_top_candidate_idx(
-        state,
-        score_mode="high_resolution",
-    ) == 1
+    assert (
+        select_top_candidate_idx(
+            state,
+            score_mode="raw_frontier_rate",
+        )
+        == 0
+    )
+    assert (
+        select_top_candidate_idx(
+            state,
+            score_mode="high_resolution",
+        )
+        == 1
+    )
 
 
 def test_official_pareto_selector_falls_back_only_for_empty_seed_frontier() -> None:

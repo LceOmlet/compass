@@ -6,17 +6,23 @@ import random
 from collections import defaultdict
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from dataclasses import dataclass
 from fractions import Fraction
 from numbers import Real
 from pathlib import Path
 from types import MappingProxyType, MethodType
-from typing import TYPE_CHECKING, Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 import dspy
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter
 from gepa import optimize
-from gepa.core.adapter import EvaluationBatch, ProposalFn
+from gepa.core.adapter import (
+    EvaluationBatch,
+    GEPAAdapter,
+    ProposalFn,
+    default_batch_evaluate,
+)
 from gepa.core.data_loader import DataLoader, ListDataLoader
 from gepa.core.state import GEPAState, ValsetEvaluation
 from gepa.logging.logger import Logger, LoggerProtocol
@@ -80,11 +86,32 @@ def _run_batch_item(
 
 @dataclass(frozen=True, slots=True)
 class SparseObservation:
-    """One official DSPy execution bound to a program-instance maximum."""
+    """One owner execution bound to a program-instance maximum."""
 
     score: float
     output: Any
-    trajectory: Mapping[str, Any]
+    trajectory: Any
+
+
+@dataclass(frozen=True, slots=True)
+class _InstanceBoundTrajectory:
+    """Local identity envelope around an otherwise opaque owner trajectory."""
+
+    example: Any
+    owner_trajectory: Any
+
+
+class _SparseObservationStore(Protocol):
+    def batch_evaluate(
+        self,
+        items: list[tuple[dict[str, str], list[Any]]],
+    ) -> list[EvaluationBatch | None]: ...
+
+    def get_program_observation(
+        self,
+        program_idx: int,
+        instance_id: Hashable,
+    ) -> SparseObservation | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +126,7 @@ class AdmissionReferenceSnapshot:
 
 def _capture_admission_reference_snapshot(
     state: GEPAState,
-    adapter: "SparseObservationDspyAdapter",
+    adapter: _SparseObservationStore,
 ) -> AdmissionReferenceSnapshot:
     owners_by_instance = {
         instance_id: tuple(sorted(owners))
@@ -134,6 +161,103 @@ def _capture_admission_reference_snapshot(
         evaluation_counts=MappingProxyType(evaluation_counts),
         facts=MappingProxyType(facts),
     )
+
+
+def _commit_sparse_observations(
+    facts: dict[tuple[int, Hashable], SparseObservation],
+    *,
+    program_idx: int,
+    evaluation_ids: Sequence[Hashable],
+    evaluation: EvaluationBatch,
+    committed_ids: Sequence[Hashable],
+    trajectory_copy: Callable[[Any], Any],
+    owner_label: str,
+) -> None:
+    ids = tuple(evaluation_ids)
+    outputs = tuple(evaluation.outputs)
+    scores = tuple(evaluation.scores)
+    trajectories = tuple(evaluation.trajectories or ())
+    if not (len(ids) == len(outputs) == len(scores) == len(trajectories)):
+        raise RuntimeError(
+            f"{owner_label} observation vectors are not instance-aligned"
+        )
+    committed = set(committed_ids)
+    if committed.difference(ids):
+        raise RuntimeError("official state committed an ID outside the evaluated batch")
+    for instance_id, output, raw_score, trajectory in zip(
+        ids,
+        outputs,
+        scores,
+        trajectories,
+        strict=True,
+    ):
+        if instance_id not in committed:
+            continue
+        score = _finite_score(raw_score)
+        key = (int(program_idx), instance_id)
+        previous = facts.get(key)
+        if previous is None or score > previous.score:
+            facts[key] = SparseObservation(
+                score=score,
+                output=output,
+                trajectory=trajectory_copy(trajectory),
+            )
+
+
+def _sparse_observation_state(
+    facts: Mapping[tuple[int, Hashable], SparseObservation],
+    *,
+    state_key: str,
+    schema_version: int,
+) -> dict[str, Any]:
+    return {
+        state_key: {
+            "schema_version": schema_version,
+            "observation_facts": dict(facts),
+        }
+    }
+
+
+def _restore_sparse_observation_state(
+    state: Mapping[str, Any],
+    *,
+    state_key: str,
+    schema_version: int,
+    allowed_extra_keys: Sequence[str] = (),
+) -> dict[tuple[int, Hashable], SparseObservation]:
+    if not isinstance(state, Mapping):
+        raise TypeError("adapter state must be a mapping")
+    unexpected = set(state).difference({state_key, *allowed_extra_keys})
+    if unexpected:
+        raise RuntimeError(
+            "unrecognized adapter state outside the COMPASS namespaces: "
+            f"{sorted(unexpected)}"
+        )
+    payload = state.get(state_key)
+    if payload is None:
+        return {}
+    if (
+        not isinstance(payload, Mapping)
+        or payload.get("schema_version") != schema_version
+    ):
+        raise RuntimeError("unsupported COMPASS admission adapter-state schema")
+    raw_facts = payload.get("observation_facts")
+    if not isinstance(raw_facts, Mapping):
+        raise RuntimeError(  # noqa: TRY004 - preserves checkpoint error contract
+            "COMPASS admission facts are not a mapping"
+        )
+    facts: dict[tuple[int, Hashable], SparseObservation] = {}
+    for key, fact in raw_facts.items():
+        if (
+            not isinstance(key, tuple)
+            or len(key) != 2
+            or isinstance(key[0], bool)
+            or not isinstance(key[0], int)
+            or not isinstance(fact, SparseObservation)
+        ):
+            raise RuntimeError("COMPASS admission fact entry is malformed")
+        facts[(key[0], key[1])] = fact
+    return facts
 
 
 class SparseObservationDspyAdapter(DspyAdapter):
@@ -172,9 +296,7 @@ class SparseObservationDspyAdapter(DspyAdapter):
         self.max_candidate_workers = max_candidate_workers
         self.max_reflection_workers = max_reflection_workers
         self.rollout_timeout_seconds = (
-            None
-            if rollout_timeout_seconds is None
-            else float(rollout_timeout_seconds)
+            None if rollout_timeout_seconds is None else float(rollout_timeout_seconds)
         )
         self.proposal_timeout_seconds = (
             None
@@ -346,40 +468,22 @@ class SparseObservationDspyAdapter(DspyAdapter):
     ) -> None:
         """Persist only facts whose scalar maximum was committed by GEPA."""
 
-        ids = tuple(evaluation_ids)
-        outputs = tuple(evaluation.outputs)
-        scores = tuple(evaluation.scores)
-        trajectories = tuple(evaluation.trajectories or ())
-        if not (len(ids) == len(outputs) == len(scores) == len(trajectories)):
-            raise RuntimeError("official observation vectors are not instance-aligned")
-        committed = set(committed_ids)
-        unknown = committed.difference(ids)
-        if unknown:
-            raise RuntimeError(
-                "official state committed an ID outside the evaluated batch"
-            )
-
-        for instance_id, output, raw_score, trajectory in zip(
-            ids,
-            outputs,
-            scores,
-            trajectories,
-            strict=True,
-        ):
-            if instance_id not in committed:
-                continue
-            score = _finite_score(raw_score)
+        def copy_dspy_trajectory(trajectory: Any) -> dict[str, Any]:
             if not isinstance(trajectory, Mapping):
-                raise RuntimeError("official DSPy trajectory is not a mapping")
-            key = (int(program_idx), instance_id)
-            previous = self._observation_facts.get(key)
-            if previous is not None and score <= previous.score:
-                continue
-            self._observation_facts[key] = SparseObservation(
-                score=score,
-                output=output,
-                trajectory=dict(trajectory),
-            )
+                raise RuntimeError(  # noqa: TRY004 - preserves DSPy error contract
+                    "official DSPy trajectory is not a mapping"
+                )
+            return dict(trajectory)
+
+        _commit_sparse_observations(
+            self._observation_facts,
+            program_idx=program_idx,
+            evaluation_ids=evaluation_ids,
+            evaluation=evaluation,
+            committed_ids=committed_ids,
+            trajectory_copy=copy_dspy_trajectory,
+            owner_label="official DSPy",
+        )
 
     def get_program_observation(
         self,
@@ -389,46 +493,208 @@ class SparseObservationDspyAdapter(DspyAdapter):
         return self._observation_facts.get((int(program_idx), instance_id))
 
     def get_adapter_state(self) -> dict[str, Any]:
-        return {
-            self._STATE_KEY: {
-                "schema_version": self._SCHEMA_VERSION,
-                "observation_facts": dict(self._observation_facts),
-            }
-        }
+        return _sparse_observation_state(
+            self._observation_facts,
+            state_key=self._STATE_KEY,
+            schema_version=self._SCHEMA_VERSION,
+        )
 
     def set_adapter_state(self, state: Mapping[str, Any]) -> None:
-        if not isinstance(state, Mapping):
-            raise TypeError("adapter state must be a mapping")
-        unexpected = set(state).difference({self._STATE_KEY})
-        if unexpected:
-            raise RuntimeError(
-                "unrecognized adapter state outside the COMPASS namespace: "
-                f"{sorted(unexpected)}"
-            )
-        payload = state.get(self._STATE_KEY)
-        if payload is None:
-            self._observation_facts = {}
-            return
-        if (
-            not isinstance(payload, Mapping)
-            or payload.get("schema_version") != self._SCHEMA_VERSION
+        self._observation_facts = _restore_sparse_observation_state(
+            state,
+            state_key=self._STATE_KEY,
+            schema_version=self._SCHEMA_VERSION,
+        )
+
+
+class SparseObservationTrackingAdapter:
+    """Attach instance identity while delegating all GEPA adapter semantics."""
+
+    _STATE_KEY = "compass_sparse_admission"
+    _DELEGATE_STATE_KEY = "owner_adapter"
+    _SCHEMA_VERSION = 1
+
+    def __init__(self, delegate: GEPAAdapter[Any, Any, Any]) -> None:
+        self.delegate = delegate
+        self._observation_facts: dict[tuple[int, Hashable], SparseObservation] = {}
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.delegate, name)
+
+    @staticmethod
+    def _bind_trajectories(
+        batch: Sequence[Any],
+        evaluation: EvaluationBatch,
+        *,
+        capture_traces: bool,
+    ) -> EvaluationBatch:
+        if len(evaluation.outputs) != len(batch) or len(evaluation.scores) != len(
+            batch
         ):
-            raise RuntimeError("unsupported COMPASS admission adapter-state schema")
-        raw_facts = payload.get("observation_facts")
-        if not isinstance(raw_facts, Mapping):
-            raise RuntimeError("COMPASS admission facts are not a mapping")
-        facts: dict[tuple[int, Hashable], SparseObservation] = {}
-        for key, fact in raw_facts.items():
-            if (
-                not isinstance(key, tuple)
-                or len(key) != 2
-                or isinstance(key[0], bool)
-                or not isinstance(key[0], int)
-                or not isinstance(fact, SparseObservation)
-            ):
-                raise RuntimeError("COMPASS admission fact entry is malformed")
-            facts[(key[0], key[1])] = fact
-        self._observation_facts = facts
+            raise RuntimeError("owner evaluation is not instance-aligned")
+        if not capture_traces:
+            return evaluation
+        trajectories = evaluation.trajectories
+        if trajectories is None or len(trajectories) != len(batch):
+            raise RuntimeError("owner trace evaluation is not instance-aligned")
+        return EvaluationBatch(
+            outputs=evaluation.outputs,
+            scores=evaluation.scores,
+            trajectories=[
+                _InstanceBoundTrajectory(example, trajectory)
+                for example, trajectory in zip(batch, trajectories, strict=True)
+            ],
+            objective_scores=evaluation.objective_scores,
+            num_metric_calls=evaluation.num_metric_calls,
+        )
+
+    @staticmethod
+    def _restore_owner_trajectories(evaluation: EvaluationBatch) -> EvaluationBatch:
+        trajectories = evaluation.trajectories
+        if trajectories is None:
+            return evaluation
+        restored: list[Any] = []
+        for trajectory in trajectories:
+            if not isinstance(trajectory, _InstanceBoundTrajectory):
+                raise TypeError("COMPASS trajectory identity envelope is missing")
+            restored.append(trajectory.owner_trajectory)
+        return EvaluationBatch(
+            outputs=evaluation.outputs,
+            scores=evaluation.scores,
+            trajectories=restored,
+            objective_scores=evaluation.objective_scores,
+            num_metric_calls=evaluation.num_metric_calls,
+        )
+
+    def evaluate(
+        self,
+        batch: list[Any],
+        candidate: dict[str, str],
+        capture_traces: bool = False,
+    ) -> EvaluationBatch:
+        evaluation = self.delegate.evaluate(
+            batch,
+            candidate,
+            capture_traces=capture_traces,
+        )
+        return self._bind_trajectories(
+            batch,
+            evaluation,
+            capture_traces=capture_traces,
+        )
+
+    def batch_evaluate(
+        self,
+        items: list[tuple[dict[str, str], list[Any]]],
+    ) -> list[EvaluationBatch | None]:
+        batch_evaluate = getattr(self.delegate, "batch_evaluate", None)
+        evaluations = (
+            batch_evaluate(items)
+            if batch_evaluate is not None
+            else default_batch_evaluate(self.delegate, items)
+        )
+        if len(evaluations) != len(items):
+            raise RuntimeError("owner candidate batches are not aligned")
+        return [
+            None
+            if evaluation is None
+            else self._bind_trajectories(batch, evaluation, capture_traces=True)
+            for (_candidate, batch), evaluation in zip(
+                items,
+                evaluations,
+                strict=True,
+            )
+        ]
+
+    def make_reflective_dataset(
+        self,
+        candidate: dict[str, str],
+        eval_batch: EvaluationBatch,
+        components_to_update: list[str],
+    ) -> Mapping[str, Sequence[Mapping[str, Any]]]:
+        return self.delegate.make_reflective_dataset(
+            candidate,
+            self._restore_owner_trajectories(eval_batch),
+            components_to_update,
+        )
+
+    def commit_program_observations(
+        self,
+        *,
+        program_idx: int,
+        evaluation_ids: Sequence[Hashable],
+        evaluation: EvaluationBatch,
+        committed_ids: Sequence[Hashable],
+    ) -> None:
+        _commit_sparse_observations(
+            self._observation_facts,
+            program_idx=program_idx,
+            evaluation_ids=evaluation_ids,
+            evaluation=evaluation,
+            committed_ids=committed_ids,
+            trajectory_copy=lambda trajectory: trajectory,
+            owner_label="owner",
+        )
+        delegate_commit = getattr(
+            self.delegate,
+            "commit_program_observations",
+            None,
+        )
+        if delegate_commit is not None:
+            delegate_commit(
+                program_idx=program_idx,
+                evaluation_ids=evaluation_ids,
+                evaluation=self._restore_owner_trajectories(evaluation),
+                committed_ids=committed_ids,
+            )
+
+    def record_logical_rollouts(self, **kwargs: Any) -> None:
+        delegate_record = getattr(self.delegate, "record_logical_rollouts", None)
+        if delegate_record is None:
+            return
+        forwarded = dict(kwargs)
+        forwarded["evaluation"] = self._restore_owner_trajectories(
+            forwarded["evaluation"]
+        )
+        delegate_record(**forwarded)
+
+    def get_program_observation(
+        self,
+        program_idx: int,
+        instance_id: Hashable,
+    ) -> SparseObservation | None:
+        return self._observation_facts.get((int(program_idx), instance_id))
+
+    def get_adapter_state(self) -> dict[str, Any]:
+        state = _sparse_observation_state(
+            self._observation_facts,
+            state_key=self._STATE_KEY,
+            schema_version=self._SCHEMA_VERSION,
+        )
+        delegate_get_state = getattr(self.delegate, "get_adapter_state", None)
+        if delegate_get_state is not None:
+            delegate_state = delegate_get_state()
+            if not isinstance(delegate_state, Mapping):
+                raise TypeError("owner adapter state must be a mapping")
+            state[self._DELEGATE_STATE_KEY] = deepcopy(dict(delegate_state))
+        return state
+
+    def set_adapter_state(self, state: Mapping[str, Any]) -> None:
+        self._observation_facts = _restore_sparse_observation_state(
+            state,
+            state_key=self._STATE_KEY,
+            schema_version=self._SCHEMA_VERSION,
+            allowed_extra_keys=(self._DELEGATE_STATE_KEY,),
+        )
+
+        delegate_state = state.get(self._DELEGATE_STATE_KEY, {})
+        if not isinstance(delegate_state, Mapping):
+            raise TypeError("owner adapter state namespace is not a mapping")
+        delegate_set_state = getattr(self.delegate, "set_adapter_state", None)
+        if delegate_set_state is not None:
+            delegate_set_state(deepcopy(dict(delegate_state)))
+        elif delegate_state:
+            raise RuntimeError("owner adapter cannot restore persisted state")
 
 
 def _finite_score(score: Real) -> float:
@@ -465,17 +731,13 @@ def _select_reference_program_idx_from_counts(
             "an admission frontier owner has no evaluated instance exposure"
         )
     best_rate = max(rates.values())
-    rate_tied = tuple(
-        idx for idx in ordered_owners if rates.get(idx) == best_rate
-    )
+    rate_tied = tuple(idx for idx in ordered_owners if rates.get(idx) == best_rate)
     best_exposure = max(evaluation_counts[idx] for idx in rate_tied)
     exact_tied = tuple(
         idx for idx in rate_tied if evaluation_counts[idx] == best_exposure
     )
     return (
-        exact_tied[0]
-        if len(exact_tied) == 1
-        else rng.choice(tuple(sorted(exact_tied)))
+        exact_tied[0] if len(exact_tied) == 1 else rng.choice(tuple(sorted(exact_tied)))
     )
 
 
@@ -526,7 +788,7 @@ class MiniAdmissionHook:
     def __init__(
         self,
         *,
-        adapter: SparseObservationDspyAdapter,
+        adapter: _SparseObservationStore,
         rng: random.Random,
         run_dir: Path,
         logger: LoggerProtocol,
@@ -563,21 +825,34 @@ class MiniAdmissionHook:
             for instance_id in instance_ids
         )
 
+    def frontier_ineligible_ids(
+        self,
+        *,
+        state: GEPAState,
+        parent_program_idx: int,
+        propose_ids: Sequence[DataId],
+    ) -> Sequence[DataId]:
+        """Keep the official admit sampler disjoint from this proposal batch."""
+
+        del state, parent_program_idx
+        return tuple(propose_ids)
+
     @staticmethod
     def _validate_disjoint_instances(
         propose_evaluation: EvaluationBatch,
         admission_batch: Sequence[Any],
     ) -> None:
         trajectories = tuple(propose_evaluation.trajectories or ())
-        propose_examples = tuple(
-            trajectory.get("example")
-            for trajectory in trajectories
-            if isinstance(trajectory, Mapping) and "example" in trajectory
-        )
-        if len(propose_examples) != len(trajectories):
-            raise RuntimeError(
-                "official proposal trajectories do not identify every input instance"
-            )
+        propose_examples: list[Any] = []
+        for trajectory in trajectories:
+            if isinstance(trajectory, _InstanceBoundTrajectory):
+                propose_examples.append(trajectory.example)
+            elif isinstance(trajectory, Mapping) and "example" in trajectory:
+                propose_examples.append(trajectory["example"])
+            else:
+                raise RuntimeError(
+                    "official proposal trajectories do not identify every input instance"
+                )
         if any(
             proposed is admitted
             for proposed in propose_examples
@@ -737,17 +1012,17 @@ class MiniAdmissionHook:
         reference_program_indices: tuple[int, ...],
         facts: tuple[SparseObservation, ...],
     ) -> AdmissionPlan:
-        if not (
-            len(ids)
-            == len(batch)
-            == len(reference_program_indices)
-            == len(facts)
-        ):
+        if not (len(ids) == len(batch) == len(reference_program_indices) == len(facts)):
             raise RuntimeError("admission reference vectors are not instance-aligned")
         eval_before = EvaluationBatch(
             outputs=[fact.output for fact in facts],
             scores=[fact.score for fact in facts],
-            trajectories=[dict(fact.trajectory) for fact in facts],
+            trajectories=[
+                dict(fact.trajectory)
+                if isinstance(fact.trajectory, Mapping)
+                else fact.trajectory
+                for fact in facts
+            ],
             objective_scores=None,
             num_metric_calls=0,
         )
@@ -990,8 +1265,24 @@ class CompassReflectionEngineConfig:
 @dataclass(frozen=True, slots=True)
 class CompassReflectionRun:
     result: Any
-    adapter: SparseObservationDspyAdapter
+    adapter: _SparseObservationStore
     evaluation_policy: SparseMinibatchEvaluationPolicy
+
+
+@dataclass(slots=True)
+class _CompassEngineSetup:
+    logger: LoggerProtocol
+    adapter_rng: random.Random
+    strategy_rng: random.Random
+    sampling_strategy: SingleMutationSampling | IndependentSampling
+    sampler: EpochShuffledBatchSampler
+    proposal_minibatch_size: int
+    admission_minibatch_size: int
+    admission_set: DataLoader[int, Any] | None
+    admission_batch_sampler: EpochShuffledBatchSampler[int, Any] | None
+    admission_reference_rng: random.Random
+    optimization_trainset: Sequence[Any] | DataLoader[int, Any]
+    optimization_valset: Sequence[Any] | DataLoader[int, Any]
 
 
 def resolve_minibatch_sizes(
@@ -1050,26 +1341,17 @@ def proposal_sampling_strategy(
             or not isinstance(proposal_tasks_per_iteration, int)
             or proposal_tasks_per_iteration <= 0
         ):
-            raise TypeError(
-                "proposal_tasks_per_iteration must be a positive integer"
-            )
+            raise TypeError("proposal_tasks_per_iteration must be a positive integer")
         epoch_tasks = min(epoch_tasks, proposal_tasks_per_iteration)
     return IndependentSampling(epoch_tasks)
 
 
-def run_compass_reflection_engine(
+def _prepare_compass_engine(
     *,
-    program: Any,
-    metric_fn: Callable[..., Any],
-    feedback_map: dict[str, Callable[..., Mapping[str, Any]]],
     trainset: list[Any],
-    validation_set: list[Any] | None = None,
-    reflection_lm: Any,
+    validation_set: list[Any] | None,
     config: CompassReflectionEngineConfig,
-    custom_instruction_proposer: ProposalFn | None = None,
-) -> CompassReflectionRun:
-    """Run reflection through the official GEPA engine and DSPy adapter."""
-
+) -> _CompassEngineSetup:
     if config.condition not in (
         "mini_admission_reflection",
         "compass_reflection",
@@ -1087,31 +1369,17 @@ def run_compass_reflection_engine(
                 "max_candidate_proposals requires epoch_parallel_enabled=false "
                 "because the official stopper counts optimizer iterations"
             )
-    seed_candidate = {
-        name: predictor.signature.instructions
-        for name, predictor in program.named_predictors()
-    }
-    if not seed_candidate:
-        raise RuntimeError("official program exposes no named predictors")
 
     logger = Logger(str(config.run_dir / "run_log.txt"))
-    acceptance_criterion = _acceptance_criterion(config.acceptance_mode)
-    if config.acceptance_mode != "strict_improvement":
-        logger.log(f"Admission acceptance mode: {config.acceptance_mode}")
     proposal_minibatch_size, admission_minibatch_size, split_admission = (
         resolve_minibatch_sizes(config)
     )
-    if split_admission and config.condition != "compass_reflection":
-        raise ValueError(
-            "split train/validation admission is defined only for "
-            "condition='compass_reflection', which owns recursive "
-            "proposal-lineage exclusion"
-        )
     if config.dci_config is not None:
         if config.condition != "compass_reflection":
             raise ValueError("DCI requires condition='compass_reflection'")
         if proposal_minibatch_size != 1:
             raise ValueError("DCI requires proposal_minibatch_size=1")
+
     adapter_rng = random.Random(config.seed)
     strategy_rng = random.Random(config.seed)
     sampling_strategy = proposal_sampling_strategy(
@@ -1121,16 +1389,13 @@ def run_compass_reflection_engine(
         proposal_tasks_per_iteration=config.proposal_tasks_per_iteration,
     )
     tasks_per_iteration = (
-        sampling_strategy.n
-        if isinstance(sampling_strategy, IndependentSampling)
-        else 1
+        sampling_strategy.n if isinstance(sampling_strategy, IndependentSampling) else 1
     )
     epoch_tasks = (
         len(trainset) + proposal_minibatch_size - 1
     ) // proposal_minibatch_size
     whole_epoch_wave = (
-        config.epoch_parallel_enabled
-        and tasks_per_iteration == epoch_tasks
+        config.epoch_parallel_enabled and tasks_per_iteration == epoch_tasks
     )
     sampler = EpochShuffledBatchSampler(
         minibatch_size=proposal_minibatch_size,
@@ -1145,9 +1410,7 @@ def run_compass_reflection_engine(
     optimization_valset: Sequence[Any] | DataLoader[int, Any] = trainset
     if split_admission:
         if validation_set is None or not validation_set:
-            raise ValueError(
-                "split admission requires a non-empty validation_set"
-            )
+            raise ValueError("split admission requires a non-empty validation_set")
         optimization_trainset, admission_set = build_split_admission_loaders(
             trainset,
             validation_set,
@@ -1182,26 +1445,153 @@ def run_compass_reflection_engine(
             f"max_candidate_workers={config.max_candidate_workers}, "
             f"max_reflection_workers={config.max_reflection_workers}"
         )
-    adapter_kwargs = dict(
-        student_module=program,
-        metric_fn=metric_fn,
-        feedback_map=feedback_map,
-        failure_score=config.failure_score,
-        num_threads=config.num_threads,
-        add_format_failure_as_feedback=config.add_format_failure_as_feedback,
-        rng=adapter_rng,
-        reflection_lm=reflection_lm,
-        custom_instruction_proposer=custom_instruction_proposer,
-        warn_on_score_mismatch=True,
-        reflection_minibatch_size=proposal_minibatch_size,
-        raise_on_error=config.raise_on_exception,
-        evaluation_timeout=config.evaluation_straggler_timeout,
-        nonfatal_evaluation_exceptions=(dspy.LMTimeoutError,),
-        max_candidate_workers=config.max_candidate_workers,
-        max_reflection_workers=config.max_reflection_workers,
-        rollout_timeout_seconds=config.rollout_timeout_seconds,
-        proposal_timeout_seconds=config.proposal_timeout_seconds,
+    return _CompassEngineSetup(
+        logger=logger,
+        adapter_rng=adapter_rng,
+        strategy_rng=strategy_rng,
+        sampling_strategy=sampling_strategy,
+        sampler=sampler,
+        proposal_minibatch_size=proposal_minibatch_size,
+        admission_minibatch_size=admission_minibatch_size,
+        admission_set=admission_set,
+        admission_batch_sampler=admission_batch_sampler,
+        admission_reference_rng=admission_reference_rng,
+        optimization_trainset=optimization_trainset,
+        optimization_valset=optimization_valset,
     )
+
+
+def _execute_compass_engine(
+    *,
+    seed_candidate: dict[str, str],
+    adapter: _SparseObservationStore,
+    config: CompassReflectionEngineConfig,
+    setup: _CompassEngineSetup,
+    hook_class: type[MiniAdmissionHook],
+    reflection_lm: Any,
+    custom_candidate_proposer: ProposalFn | None,
+    hook_kwargs_extra: Mapping[str, Any] | None = None,
+) -> CompassReflectionRun:
+    acceptance_criterion = _acceptance_criterion(config.acceptance_mode)
+    if config.acceptance_mode != "strict_improvement":
+        setup.logger.log(f"Admission acceptance mode: {config.acceptance_mode}")
+    hook_kwargs: dict[str, Any] = {
+        "adapter": adapter,
+        "rng": setup.admission_reference_rng,
+        "run_dir": config.run_dir,
+        "logger": setup.logger,
+    }
+    if hook_kwargs_extra is not None:
+        hook_kwargs.update(hook_kwargs_extra)
+    admission_hook = hook_class(**hook_kwargs)
+    if config.condition == "mini_admission_reflection":
+        selector = SeedFallbackParetoCandidateSelector(setup.strategy_rng)
+    else:
+        selector = ReversibleMaskedExposureCorrectedCandidateSelector(
+            setup.strategy_rng,
+            _NoOpCandidatePoolObserver(),
+            setup.logger,
+            top_n=config.parent_top_n,
+            score_mode=config.parent_selection_score_mode,
+        )
+    evaluation_policy = SparseMinibatchEvaluationPolicy()
+    proposal_stopper = (
+        None
+        if config.max_candidate_proposals is None
+        else MaxCandidateProposalsStopper(config.max_candidate_proposals)
+    )
+    result = optimize(
+        seed_candidate=seed_candidate,
+        trainset=setup.optimization_trainset,
+        valset=setup.optimization_valset,
+        adapter=adapter,
+        task_lm=None,
+        evaluator=None,
+        reflection_lm=reflection_lm,
+        candidate_selection_strategy=selector,
+        frontier_type="instance",
+        skip_perfect_score=config.skip_perfect_score,
+        batch_sampler=setup.sampler,
+        reflection_minibatch_size=None,
+        perfect_score=config.perfect_score,
+        reflection_prompt_template=None,
+        custom_candidate_proposer=custom_candidate_proposer,
+        module_selector="round_robin",
+        use_merge=False,
+        max_metric_calls=config.max_metric_calls,
+        stop_callbacks=proposal_stopper,
+        logger=setup.logger,
+        run_dir=str(config.run_dir),
+        callbacks=None,
+        use_wandb=False,
+        use_mlflow=False,
+        track_best_outputs=config.track_best_outputs,
+        display_progress_bar=config.display_progress_bar,
+        use_cloudpickle=config.use_cloudpickle,
+        cache_evaluation=True,
+        seed=config.seed,
+        raise_on_exception=config.raise_on_exception,
+        val_evaluation_policy=evaluation_policy,
+        acceptance_criterion=acceptance_criterion,
+        sampling_strategy=setup.sampling_strategy,
+        selection_strategy=AllImprovements(),
+        reflection_strategy=None,
+        admission_set=setup.admission_set,
+        admission_batch_sampler=setup.admission_batch_sampler,
+        admission_hook=admission_hook,
+    )
+    return CompassReflectionRun(
+        result=result,
+        adapter=adapter,
+        evaluation_policy=evaluation_policy,
+    )
+
+
+def run_compass_reflection_engine(
+    *,
+    program: Any,
+    metric_fn: Callable[..., Any],
+    feedback_map: dict[str, Callable[..., Mapping[str, Any]]],
+    trainset: list[Any],
+    validation_set: list[Any] | None = None,
+    reflection_lm: Any,
+    config: CompassReflectionEngineConfig,
+    custom_instruction_proposer: ProposalFn | None = None,
+) -> CompassReflectionRun:
+    """Run reflection through the official GEPA engine and DSPy adapter."""
+
+    seed_candidate = {
+        name: predictor.signature.instructions
+        for name, predictor in program.named_predictors()
+    }
+    if not seed_candidate:
+        raise RuntimeError("official program exposes no named predictors")
+
+    setup = _prepare_compass_engine(
+        trainset=trainset,
+        validation_set=validation_set,
+        config=config,
+    )
+    adapter_kwargs = {
+        "student_module": program,
+        "metric_fn": metric_fn,
+        "feedback_map": feedback_map,
+        "failure_score": config.failure_score,
+        "num_threads": config.num_threads,
+        "add_format_failure_as_feedback": config.add_format_failure_as_feedback,
+        "rng": setup.adapter_rng,
+        "reflection_lm": reflection_lm,
+        "custom_instruction_proposer": custom_instruction_proposer,
+        "warn_on_score_mismatch": True,
+        "reflection_minibatch_size": setup.proposal_minibatch_size,
+        "raise_on_error": config.raise_on_exception,
+        "evaluation_timeout": config.evaluation_straggler_timeout,
+        "nonfatal_evaluation_exceptions": (dspy.LMTimeoutError,),
+        "max_candidate_workers": config.max_candidate_workers,
+        "max_reflection_workers": config.max_reflection_workers,
+        "rollout_timeout_seconds": config.rollout_timeout_seconds,
+        "proposal_timeout_seconds": config.proposal_timeout_seconds,
+    }
     if config.dci_config is None:
         adapter = SparseObservationDspyAdapter(**adapter_kwargs)
         hook_class = (
@@ -1215,95 +1605,74 @@ def run_compass_reflection_engine(
             DciSparseObservationDspyAdapter,
         )
 
-        if not isinstance(optimization_trainset, DataLoader):
-            optimization_trainset = ListDataLoader(optimization_trainset)
+        if not isinstance(setup.optimization_trainset, DataLoader):
+            setup.optimization_trainset = ListDataLoader(setup.optimization_trainset)
         dci_admission_loader = (
-            admission_set
-            if admission_set is not None
-            else optimization_trainset
+            setup.admission_set
+            if setup.admission_set is not None
+            else setup.optimization_trainset
         )
-        optimization_valset = dci_admission_loader
+        setup.optimization_valset = dci_admission_loader
         adapter = DciSparseObservationDspyAdapter(
             **adapter_kwargs,
-            proposal_loader=optimization_trainset,
+            proposal_loader=setup.optimization_trainset,
             admission_loader=dci_admission_loader,
-            proposal_batch_sampler=sampler,
+            proposal_batch_sampler=setup.sampler,
             dci_config=config.dci_config,
             dci_root=config.run_dir / "dci",
             dci_seed=config.seed,
             perfect_score=config.perfect_score,
         )
         hook_class = DciAdmissionHook
-    hook_kwargs = {
-        "adapter": adapter,
-        "rng": admission_reference_rng,
-        "run_dir": config.run_dir,
-        "logger": logger,
-    }
-    if config.dci_config is not None:
-        hook_kwargs["admission_size"] = admission_minibatch_size
-    admission_hook = hook_class(**hook_kwargs)
-    if config.condition == "mini_admission_reflection":
-        selector = SeedFallbackParetoCandidateSelector(strategy_rng)
-    else:
-        selector = ReversibleMaskedExposureCorrectedCandidateSelector(
-            strategy_rng,
-            _NoOpCandidatePoolObserver(),
-            logger,
-            top_n=config.parent_top_n,
-            score_mode=config.parent_selection_score_mode,
-        )
-    evaluation_policy = SparseMinibatchEvaluationPolicy()
-    proposal_stopper = (
-        None
-        if config.max_candidate_proposals is None
-        else MaxCandidateProposalsStopper(config.max_candidate_proposals)
+    return _execute_compass_engine(
+        seed_candidate=seed_candidate,
+        adapter=adapter,
+        config=config,
+        setup=setup,
+        hook_class=hook_class,
+        reflection_lm=None,
+        custom_candidate_proposer=None,
+        hook_kwargs_extra=(
+            {"admission_size": setup.admission_minibatch_size}
+            if config.dci_config is not None
+            else None
+        ),
     )
 
-    result = optimize(
-        seed_candidate=seed_candidate,
-        trainset=optimization_trainset,
-        valset=optimization_valset,
-        adapter=adapter,
-        task_lm=None,
-        evaluator=None,
-        reflection_lm=None,
-        candidate_selection_strategy=selector,
-        frontier_type="instance",
-        skip_perfect_score=config.skip_perfect_score,
-        batch_sampler=sampler,
-        reflection_minibatch_size=None,
-        perfect_score=config.perfect_score,
-        reflection_prompt_template=None,
-        custom_candidate_proposer=None,
-        module_selector="round_robin",
-        use_merge=False,
-        max_metric_calls=config.max_metric_calls,
-        stop_callbacks=proposal_stopper,
-        logger=logger,
-        run_dir=str(config.run_dir),
-        callbacks=None,
-        use_wandb=False,
-        use_mlflow=False,
-        track_best_outputs=config.track_best_outputs,
-        display_progress_bar=config.display_progress_bar,
-        use_cloudpickle=config.use_cloudpickle,
-        cache_evaluation=True,
-        seed=config.seed,
-        raise_on_exception=config.raise_on_exception,
-        val_evaluation_policy=evaluation_policy,
-        acceptance_criterion=acceptance_criterion,
-        sampling_strategy=sampling_strategy,
-        selection_strategy=AllImprovements(),
-        reflection_strategy=None,
-        admission_set=admission_set,
-        admission_batch_sampler=admission_batch_sampler,
-        admission_hook=admission_hook,
+
+def run_compass_gepa_adapter_engine(
+    *,
+    seed_candidate: dict[str, str],
+    adapter: GEPAAdapter[Any, Any, Any],
+    trainset: list[Any],
+    validation_set: list[Any] | None,
+    reflection_lm: Any,
+    config: CompassReflectionEngineConfig,
+    custom_candidate_proposer: ProposalFn | None = None,
+) -> CompassReflectionRun:
+    """Run COMPASS through an existing owner-provided generic GEPA adapter."""
+
+    if config.dci_config is not None:
+        raise ValueError("DCI is available only through the DSPy COMPASS entry point")
+    setup = _prepare_compass_engine(
+        trainset=trainset,
+        validation_set=validation_set,
+        config=config,
     )
-    return CompassReflectionRun(
-        result=result,
-        adapter=adapter,
-        evaluation_policy=evaluation_policy,
+    tracking_adapter = SparseObservationTrackingAdapter(adapter)
+    hook_class = (
+        MiniAdmissionHook
+        if config.condition == "mini_admission_reflection"
+        else CleanMiniAdmissionHook
+    )
+    return _execute_compass_engine(
+        seed_candidate=seed_candidate,
+        adapter=tracking_adapter,
+        config=config,
+        setup=setup,
+        hook_class=hook_class,
+        reflection_lm=reflection_lm,
+        custom_candidate_proposer=custom_candidate_proposer,
     )
 
 
@@ -1318,10 +1687,12 @@ __all__ = [
     "SparseMinibatchEvaluationPolicy",
     "SparseObservation",
     "SparseObservationDspyAdapter",
+    "SparseObservationTrackingAdapter",
     "build_split_admission_loaders",
     "minibatch_config_kwargs",
     "proposal_sampling_strategy",
     "resolve_minibatch_sizes",
+    "run_compass_gepa_adapter_engine",
     "run_compass_reflection_engine",
     "select_reference_program_idx",
 ]
