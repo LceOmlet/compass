@@ -74,6 +74,67 @@ def _git_bytes(repo: Path, revision: str, owner_path: str) -> bytes:
     return result.stdout
 
 
+def _git_bytes_many(
+    repo: Path,
+    revision: str,
+    owner_paths: list[str],
+) -> dict[str, bytes]:
+    """Read many pinned Git blobs through one owner-provided batch process."""
+
+    if len(owner_paths) != len(set(owner_paths)):
+        raise ValueError("pinned Git batch paths must be unique")
+    if not owner_paths:
+        return {}
+    process = subprocess.Popen(
+        ["git", "-C", str(repo), "cat-file", "--batch"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    request = "".join(f"{revision}:{path}\n" for path in owner_paths).encode(
+        "utf-8"
+    )
+    stdout, stderr = process.communicate(request)
+    if process.returncode != 0:
+        raise RuntimeError(
+            "cannot batch-read pinned Git artifacts: "
+            + stderr.decode("utf-8", errors="replace").strip()
+        )
+
+    payloads: dict[str, bytes] = {}
+    cursor = 0
+    for owner_path in owner_paths:
+        header_end = stdout.find(b"\n", cursor)
+        if header_end < 0:
+            raise RuntimeError(f"truncated Git batch header for {owner_path}")
+        header = stdout[cursor:header_end]
+        cursor = header_end + 1
+        if header.endswith(b" missing"):
+            raise RuntimeError(
+                f"cannot read pinned owner artifact {revision}:{owner_path}"
+            )
+        fields = header.split()
+        if len(fields) != 3 or fields[1] != b"blob":
+            raise RuntimeError(
+                f"unexpected Git batch header for {owner_path}: "
+                + header.decode("utf-8", errors="replace")
+            )
+        try:
+            size = int(fields[2])
+        except ValueError as error:
+            raise RuntimeError(
+                f"invalid Git batch size for {owner_path}: {fields[2]!r}"
+            ) from error
+        payload_end = cursor + size
+        if payload_end >= len(stdout) or stdout[payload_end : payload_end + 1] != b"\n":
+            raise RuntimeError(f"truncated Git batch payload for {owner_path}")
+        payloads[owner_path] = stdout[cursor:payload_end]
+        cursor = payload_end + 1
+    if cursor != len(stdout):
+        raise RuntimeError("Git batch returned trailing bytes")
+    return payloads
+
+
 def _require_commit(repo: Path, revision: str, owner: str) -> None:
     result = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", f"{revision}^{{commit}}"],
@@ -376,10 +437,15 @@ def build_snapshot(
     _require_commit(lmms_eval_repo, LMMS_EVAL_COMMIT, "LMMS-Eval")
     _verify_test_parquet(test_parquet)
 
+    annotation_blobs = _git_bytes_many(
+        chartqa_repo,
+        CHARTQA_OWNER_COMMIT,
+        [spec.owner_path for spec in SOURCE_SPECS],
+    )
     owner_payloads: dict[tuple[str, str], bytes] = {}
     source_integrity: dict[str, dict[str, Any]] = {}
     for spec in SOURCE_SPECS:
-        payload = _git_bytes(chartqa_repo, CHARTQA_OWNER_COMMIT, spec.owner_path)
+        payload = annotation_blobs[spec.owner_path]
         owner_payloads[(spec.split, spec.source)] = payload
         output_relative = Path("owner") / Path(spec.owner_path).relative_to(
             "ChartQA Dataset"
@@ -427,10 +493,18 @@ def build_snapshot(
         _write_jsonl(staging / "views" / f"{split}_lite_inputs.jsonl", inputs)
         _write_jsonl(staging / "views" / f"{split}_lite_labels.jsonl", labels)
 
+    image_owner_paths = {
+        (split, imgname): f"ChartQA Dataset/{split}/png/{imgname}"
+        for split, imgname in sorted(image_pairs)
+    }
+    image_blobs = _git_bytes_many(
+        chartqa_repo,
+        CHARTQA_OWNER_COMMIT,
+        list(image_owner_paths.values()),
+    )
     download_lines: list[str] = []
-    for split, imgname in sorted(image_pairs):
-        owner_path = f"ChartQA Dataset/{split}/png/{imgname}"
-        payload = _git_bytes(chartqa_repo, CHARTQA_OWNER_COMMIT, owner_path)
+    for (split, imgname), owner_path in image_owner_paths.items():
+        payload = image_blobs[owner_path]
         if not payload.startswith(PNG_SIGNATURE):
             raise RuntimeError(f"pinned ChartQA image is not PNG: {owner_path}")
         image_path = staging / "images" / split / imgname
@@ -448,8 +522,13 @@ def build_snapshot(
         newline="\n",
     )
 
+    lmms_blobs = _git_bytes_many(
+        lmms_eval_repo,
+        LMMS_EVAL_COMMIT,
+        list(LMMS_OWNER_FILES),
+    )
     for owner_path, (output_relative, expected_sha256) in LMMS_OWNER_FILES.items():
-        payload = _git_bytes(lmms_eval_repo, LMMS_EVAL_COMMIT, owner_path)
+        payload = lmms_blobs[owner_path]
         if _sha256_bytes(payload) != expected_sha256:
             raise RuntimeError(f"LMMS owner checksum mismatch: {owner_path}")
         output_path = staging / output_relative

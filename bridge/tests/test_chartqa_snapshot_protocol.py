@@ -12,6 +12,7 @@ from bridge.chartqa_protocol import (
 from experiments.paper.prepare_chartqa_balanced_snapshot import (
     _canonical_identity,
     _git_bytes,
+    _git_bytes_many,
     _git_split_image_blobs,
     select_balanced_rows,
 )
@@ -89,3 +90,15 @@ def test_selection_identity_does_not_depend_on_the_gold_answer() -> None:
     )
 
     assert left == right
+
+
+def test_git_batch_reader_preserves_exact_owner_blobs() -> None:
+    owner_paths = [SOURCE_SPECS[0].owner_path, SOURCE_SPECS[1].owner_path]
+
+    batched = _git_bytes_many(CHARTQA_REPO, CHARTQA_OWNER_COMMIT, owner_paths)
+
+    assert list(batched) == owner_paths
+    assert batched == {
+        path: _git_bytes(CHARTQA_REPO, CHARTQA_OWNER_COMMIT, path)
+        for path in owner_paths
+    }
