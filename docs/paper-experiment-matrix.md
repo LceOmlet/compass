@@ -47,7 +47,11 @@ until the revised budgets, seeds, and exact benchmark revisions are frozen.
   MIPROv2, native official GEPA, matched sparse-commit M0, and full COMPASS.
   The main-table M0 and COMPASS rows both use `StrictImprovement` admission.
   `AlwaysAccept` is a mechanism ablation only and must not create additional
-  main-table rows.
+  main-table rows.  For tau2-bench Airline, Seed uses the official tau2 runner,
+  while GEPA, M0, and COMPASS use the same native `GEPAAdapter` over the
+  official tau2 agent/environment loop.  The Airline MIPROv2 cell remains
+  blocked because DSPy MIPROv2 has no generic `GEPAAdapter` seam; it must not be
+  replaced by a proxy predictor or a locally reimplemented optimizer.
 - Published GPT-4.1 Mini IFBench and AIME-2025 Seed/MIPROv2/GEPA endpoints may
   be reused only when model, program, evaluator, split, and decoding protocol
   match exactly.
@@ -164,7 +168,11 @@ The remaining task versions and split fingerprints must be frozen before
 launching new runs.  For tau2-bench, frozen tag `v1.0.1` resolves to
 commit `fc0055dc4e0a316c3f83133267fbd6faaa770992`; its bundled Airline split is
 30 train, 20 test, and 50 base tasks.  The release notes' “27 Airline task
-fixes” describes the number of corrected tasks, not the task-set size.
+fixes” describes the number of corrected tasks, not the task-set size.  Tau2
+does not define a validation partition inside its 30-task train split.  Before
+formal optimization, every method config must therefore freeze an explicit,
+disjoint proposal/validation partition whose union is exactly those 30 tasks;
+the runner rejects an absent, overlapping, reordered, or incomplete view.
 
 This document maps every empirical table and figure in
 `compass-paper/main.tex` to either an immutable published result or a new run.
