@@ -34,6 +34,10 @@ if [ ! -x "$control_python" ]; then
     echo "fixed queue-validation Python is unavailable: $control_python" >&2
     exit 2
 fi
+# The control process imports only this repository's frozen orchestration
+# modules.  Bound experiment runners replace PYTHONPATH with their own exact
+# dependency list below.
+export PYTHONPATH="$repo_root"
 for command_name in bash xargs; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "required Bash tool is unavailable: $command_name" >&2
