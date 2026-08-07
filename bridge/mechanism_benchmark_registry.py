@@ -400,6 +400,8 @@ def _resolve_chartqa(
     from bridge.mechanism_chartqa import (
         build_prepared_chartqa_owner_composition,
         chartqa_doc_to_text,
+        chartqa_dspy_task_config,
+        chartqa_generation_kwargs,
     )
 
     _verify_git_revision(
@@ -458,6 +460,8 @@ def _resolve_chartqa(
             "test_metric": "lmms-eval/chartqa",
             "test_metric_owner_commit": CHARTQA_LMMS_OWNER_COMMIT,
             "test_metric_owner_blobs": dict(CHARTQA_LMMS_OWNER_BLOBS),
+            "task_generation_owner_kwargs": chartqa_generation_kwargs(),
+            "task_program_dspy_config": chartqa_dspy_task_config(),
             "reflection_proposer": (
                 "dspy.teleprompt.gepa.instruction_proposal."
                 "MultiModalInstructionProposer"

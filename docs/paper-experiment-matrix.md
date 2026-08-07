@@ -26,9 +26,17 @@ until the revised budgets, seeds, and exact benchmark revisions are frozen.
   structured-image smoke requests both completed normally; the representative
   low-detail ChartQA image request used 299 prompt and 8 completion tokens.
   These probes establish route capability only and are not benchmark evidence.
-- Task execution and proposal/reflection use the same dated model profile:
-  `gpt-4.1-mini-2025-04-14`, chat mode, temperature `1.0`, output cap `16384`,
-  thinking disabled, and DSPy `num_retries=0`.  Each benchmark--method run owns
+- Task execution and proposal/reflection use the same dated model identity,
+  `gpt-4.1-mini-2025-04-14`, while benchmark-owned task decoding is preserved.
+  ChartQA task rollout, validation, and test calls use its pinned LMMS-Eval
+  generation contract (`temperature=0`, `max_new_tokens=16`,
+  `do_sample=False`), mapped through the owner program's official DSPy
+  `Predict.update_config` seam to
+  `temperature=0` and `max_tokens=16`; its single-prediction owner program
+  supplies one output.  ChartQA proposal/reflection calls retain the paper
+  profile (`temperature=1.0`, output cap `16384`).  Unsupported
+  `do_sample` is recorded as owner provenance rather than forwarded to the
+  OpenAI-compatible API.  Each benchmark--method run owns
   a distinct DSPy disk and memory cache namespace, activated through DSPy's
   official `configure_cache` interface before its LM is created; cache entries
   are never reused across methods, pilots, or formal runs.  A shared-route TPM

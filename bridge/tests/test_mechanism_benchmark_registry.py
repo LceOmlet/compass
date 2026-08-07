@@ -98,6 +98,15 @@ def test_chartqa_resolution_passes_the_run_lm_to_the_owner_program(
         build_owner_composition
     )
     fake_owner_module.chartqa_doc_to_text = lambda *_args, **_kwargs: "prompt"
+    fake_owner_module.chartqa_generation_kwargs = lambda: {
+        "max_new_tokens": 16,
+        "temperature": 0,
+        "do_sample": False,
+    }
+    fake_owner_module.chartqa_dspy_task_config = lambda: {
+        "max_tokens": 16,
+        "temperature": 0,
+    }
     monkeypatch.setitem(
         sys.modules,
         "bridge.mechanism_chartqa",
@@ -154,9 +163,22 @@ def test_chartqa_resolution_passes_the_run_lm_to_the_owner_program(
     assert resolved.splits.train is owner_splits.train
     assert resolved.provenance["optimization_splits"] == "vis-nlp/ChartQA"
     assert resolved.provenance["test_metric"] == "lmms-eval/chartqa"
+    assert resolved.provenance["task_generation_owner_kwargs"] == {
+        "max_new_tokens": 16,
+        "temperature": 0,
+        "do_sample": False,
+    }
+    assert resolved.provenance["task_program_dspy_config"] == {
+        "max_tokens": 16,
+        "temperature": 0,
+    }
     assert isinstance(
         resolved.custom_instruction_proposer,
         MultiModalInstructionProposer,
+    )
+    assert (
+        resolved.custom_instruction_proposer.single_proposer.propose_instruction.get_config()
+        == {}
     )
     assert "MultiModalInstructionProposer" in resolved.provenance[
         "reflection_proposer"

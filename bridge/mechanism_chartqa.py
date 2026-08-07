@@ -196,6 +196,36 @@ def chartqa_prompt_kwargs(model_name: str = "default") -> dict[str, Any]:
     return dict(selected)
 
 
+def chartqa_generation_kwargs() -> dict[str, Any]:
+    """Return the pinned LMMS task-generation parameters unchanged."""
+
+    generation_kwargs = _owner_task_config().get("generation_kwargs")
+    if not isinstance(generation_kwargs, Mapping):
+        raise TypeError("pinned LMMS ChartQA has no generation_kwargs mapping")
+    return dict(generation_kwargs)
+
+
+def chartqa_dspy_task_config() -> dict[str, int | float]:
+    """Translate the pinned LMMS request fields accepted by DSPy/OpenAI."""
+
+    owner_kwargs = chartqa_generation_kwargs()
+    return {
+        "max_tokens": owner_kwargs["max_new_tokens"],
+        "temperature": owner_kwargs["temperature"],
+    }
+
+
+def build_chartqa_owner_program(
+    lm: dspy.BaseLM,
+    program_owner_root: str | Path | None = None,
+) -> dspy.Module:
+    """Bind owner decoding to the owner program's single DSPy predictor."""
+
+    program = load_chartqa_program_class(program_owner_root)(lm)
+    program.predict.update_config(**chartqa_dspy_task_config())
+    return program
+
+
 def _dataset_root(root: str | Path) -> Path:
     root = Path(root).resolve()
     nested = root / "ChartQA Dataset"
@@ -704,7 +734,7 @@ def build_chartqa_owner_composition(
     """Build the minimal owner-owned ChartQA surface used by COMPASS."""
 
     return ChartQAOwnerComposition(
-        program=load_chartqa_program_class(program_owner_root)(lm),
+        program=build_chartqa_owner_program(lm, program_owner_root),
         splits=load_chartqa_splits(
             vis_nlp_root,
             model_name=model_name,
@@ -726,7 +756,7 @@ def build_prepared_chartqa_owner_composition(
     """Build ChartQA from the frozen separated views and local test parquet."""
 
     return ChartQAOwnerComposition(
-        program=load_chartqa_program_class(program_owner_root)(lm),
+        program=build_chartqa_owner_program(lm, program_owner_root),
         splits=load_prepared_chartqa_splits(
             prepared_root,
             model_name=model_name,

@@ -23,8 +23,11 @@ from lmms_eval.tasks.chartqa.utils import (
 from PIL import Image
 import bridge.mechanism_chartqa as mechanism_chartqa
 from bridge.mechanism_chartqa import (
+    build_chartqa_owner_program,
     build_prepared_chartqa_owner_composition,
     build_chartqa_owner_composition,
+    chartqa_dspy_task_config,
+    chartqa_generation_kwargs,
     chartqa_metric,
     chartqa_metric_with_feedback,
     chartqa_prompt_kwargs,
@@ -33,6 +36,47 @@ from bridge.mechanism_chartqa import (
     load_chartqa_program_class,
     load_lmms_chartqa_test,
 )
+
+
+def test_owner_generation_contract_is_bound_to_the_chartqa_predictor() -> None:
+    class CapturingDummyLM(DummyLM):
+        def forward(self, prompt=None, messages=None, **kwargs):
+            self.forwarded_kwargs = dict(kwargs)
+            return super().forward(prompt=prompt, messages=messages, **kwargs)
+
+    lm = CapturingDummyLM([{"answer": "0"}])
+    lm.kwargs.update(temperature=1.0, max_tokens=16384)
+
+    program = build_chartqa_owner_program(
+        lm,
+        program_owner_root=UPSTREAM_ROOT / "skill-factory",
+    )
+    candidate = program.deepcopy()
+
+    assert chartqa_generation_kwargs() == {
+        "max_new_tokens": 16,
+        "temperature": 0,
+        "do_sample": False,
+    }
+    assert chartqa_dspy_task_config() == {
+        "max_tokens": 16,
+        "temperature": 0,
+    }
+    assert program.predict.lm is lm
+    assert program.predict.get_config() == chartqa_dspy_task_config()
+    assert candidate.predict.get_config() == chartqa_dspy_task_config()
+    assert dspy.Predict("input -> output").get_config() == {}
+    assert lm.kwargs["temperature"] == 1.0
+    assert lm.kwargs["max_tokens"] == 16384
+
+    prediction = program(
+        image=dspy.Image("https://example.com/chart.png"),
+        prompt="What value is shown? Answer the question with a single word.",
+    )
+
+    assert prediction.answer == "0"
+    assert lm.forwarded_kwargs["temperature"] == 0
+    assert lm.forwarded_kwargs["max_tokens"] == 16
 
 
 def test_composition_imports_the_two_pinned_owners() -> None:
@@ -459,6 +503,10 @@ def test_prepared_composition_uses_pinned_program_without_gold_inputs(
     assert tuple(name for name, _ in composition.program.named_predictors()) == (
         "predict",
     )
+    assert composition.program.predict.get_config() == {
+        "max_tokens": 16,
+        "temperature": 0,
+    }
     assert set(dict(composition.splits.train[0].inputs())) == {"image", "prompt"}
     assert composition.metric is chartqa_metric
     assert composition.metric_with_feedback is chartqa_metric_with_feedback
