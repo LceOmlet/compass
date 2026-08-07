@@ -227,7 +227,7 @@ def _write_prepared_root(tmp_path: Path) -> tuple[Path, _PreparedParquetRows]:
     return root, rows
 
 
-def _use_small_prepared_protocol(monkeypatch) -> None:
+def _use_small_prepared_protocol(monkeypatch, root: Path) -> None:
     monkeypatch.setattr(
         mechanism_chartqa,
         "CHARTQA_PREPARED_SPLIT_COUNTS",
@@ -252,6 +252,11 @@ def _use_small_prepared_protocol(monkeypatch) -> None:
         mechanism_chartqa,
         "CHARTQA_PREPARED_EXACT_DUPLICATE_RULE_ID",
         "small-duplicate-hygiene",
+    )
+    monkeypatch.setattr(
+        mechanism_chartqa,
+        "CHARTQA_PREPARED_MANIFEST_SHA256",
+        _sha256(root / "manifest.json"),
     )
     monkeypatch.setattr(
         mechanism_chartqa,
@@ -359,8 +364,8 @@ def test_prepared_views_and_local_parquet_preserve_owner_semantics(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    _use_small_prepared_protocol(monkeypatch)
     root, parquet_rows = _write_prepared_root(tmp_path)
+    _use_small_prepared_protocol(monkeypatch, root)
     calls: list[tuple[str, dict]] = []
 
     def fake_load_dataset(dataset_name: str, **kwargs):
@@ -409,8 +414,8 @@ def test_prepared_views_fail_on_input_label_identity_mismatch(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    _use_small_prepared_protocol(monkeypatch)
     root, parquet_rows = _write_prepared_root(tmp_path)
+    _use_small_prepared_protocol(monkeypatch, root)
     labels_path = root / "views" / "train_lite_labels.jsonl"
     labels = [json.loads(line) for line in labels_path.read_text().splitlines()]
     labels[1]["id"] = "wrong-id"
@@ -420,6 +425,7 @@ def test_prepared_views_fail_on_input_label_identity_mismatch(
         labels_path
     )
     _seal_prepared_manifest(root, manifest)
+    _use_small_prepared_protocol(monkeypatch, root)
 
     try:
         load_prepared_chartqa_splits(
@@ -436,8 +442,8 @@ def test_prepared_composition_uses_pinned_program_without_gold_inputs(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    _use_small_prepared_protocol(monkeypatch)
     root, parquet_rows = _write_prepared_root(tmp_path)
+    _use_small_prepared_protocol(monkeypatch, root)
 
     composition = build_prepared_chartqa_owner_composition(
         DummyLM([{"answer": "0"}]),

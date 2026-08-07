@@ -20,6 +20,7 @@ from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
 
+from bridge.chartqa_protocol import FROZEN_SPLIT_FINGERPRINTS
 from bridge.paper_benchmark_registry import OfficialDatasetSplits, split_fingerprint
 
 
@@ -35,6 +36,12 @@ CLUTRR_BASELINE_ROOT_ENV = "CLUTRR_BASELINE_ROOT"
 CHARTQA_OWNER_COMMIT = "044eabfc306abfe9340c5741f0093aefc5973d06"
 CHARTQA_LMMS_OWNER_COMMIT = "cb45ac4d4a667ea5ef89c7a148bff69b3489b981"
 CHARTQA_PROGRAM_OWNER_COMMIT = "e23f82f9c7ed2eacfb9124b92143358a9953263c"
+CHARTQA_LMMS_OWNER_BLOBS: Mapping[str, str] = {
+    "lmms_eval/tasks/chartqa/chartqa.yaml": (
+        "2a42f4dfd808730b475117b193b57931300c12b4"
+    ),
+    "lmms_eval/tasks/chartqa/utils.py": "cdba4c4118311dcf5c175334bbf8c1f95ea29fa8",
+}
 CLUTRR_HF_DATA_COMMIT = "e5b496941e91abb7c319d2618a3ce96752bc4ab7"
 CLUTRR_BASELINE_OWNER_COMMIT = "303ed9a48f82a59b4eb34ac5bd5866f0d82c5552"
 
@@ -187,6 +194,38 @@ def _verify_git_revision(root: Path, expected: str, owner: str) -> None:
         )
 
 
+def _verify_git_blobs(
+    root: Path,
+    expected_blobs: Mapping[str, str],
+    owner: str,
+) -> None:
+    """Reject dirty owner files while respecting the checkout's Git filters."""
+
+    if not (root / ".git").exists():
+        raise RuntimeError(f"pinned {owner} checkout has no Git metadata: {root}")
+    for relative_path, expected_blob in expected_blobs.items():
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "hash-object",
+                f"--path={relative_path}",
+                relative_path,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        actual_blob = result.stdout.strip()
+        if result.returncode != 0 or actual_blob != expected_blob:
+            raise RuntimeError(
+                f"{owner} file differs from the pinned owner blob: "
+                f"path={relative_path}, expected={expected_blob}, "
+                f"actual={actual_blob or result.stderr.strip()}"
+            )
+
+
 def _freeze_split_parts(
     train: Any,
     validation: Any,
@@ -243,6 +282,38 @@ def clutrr_task_score_summary(
     }
 
 
+def chartqa_type_score_summary(
+    examples: Any,
+    scores: Any,
+) -> dict[str, float]:
+    """Aggregate owner-produced ChartQA scores without replacing its metric."""
+
+    examples = tuple(examples)
+    values = tuple(float(score) for score in scores)
+    if len(examples) != len(values) or not values:
+        raise ValueError(
+            "ChartQA examples and owner scores must be non-empty and aligned"
+        )
+    grouped: dict[str, list[float]] = {"human": [], "augmented": []}
+    for example, score in zip(examples, values, strict=True):
+        source = str(example.chartqa_type).split("_", 1)[0]
+        if source not in grouped:
+            raise ValueError(f"unexpected ChartQA owner type: {example.chartqa_type!r}")
+        grouped[source].append(score)
+    if any(not group_scores for group_scores in grouped.values()):
+        raise ValueError("ChartQA owner score vector is missing a required subgroup")
+    return {
+        "relaxed_overall_percent": 100.0 * math.fsum(values) / len(values),
+        "relaxed_human_split_percent": (
+            100.0 * math.fsum(grouped["human"]) / len(grouped["human"])
+        ),
+        "relaxed_augmented_split_percent": (
+            100.0 * math.fsum(grouped["augmented"])
+            / len(grouped["augmented"])
+        ),
+    }
+
+
 @lru_cache(maxsize=None)
 def _load_clutrr_relation_overlap_cached(root_text: str) -> Callable[..., Any]:
     root = Path(root_text)
@@ -295,7 +366,7 @@ def _resolve_hitab(
     if roots.hitab_prepared is None:
         raise RuntimeError(
             f"{HITAB_PREPARED_ROOT_ENV} must point to the frozen HiTab prepared root"
-        )
+    )
     composition = build_prepared_hitab_owner_composition(roots.hitab_prepared)
     return ResolvedMechanismBenchmark(
         task_id=definition.task_id,
@@ -347,6 +418,7 @@ def _resolve_chartqa(
         CHARTQA_LMMS_OWNER_COMMIT,
         "lmms-eval",
     )
+    _verify_git_blobs(lmms_root, CHARTQA_LMMS_OWNER_BLOBS, "lmms-eval")
     composition = build_prepared_chartqa_owner_composition(
         lm,
         roots.chartqa_prepared,
@@ -361,6 +433,13 @@ def _resolve_chartqa(
             "ChartQA prepared split sizes differ from the frozen protocol: "
             f"expected=(150, 300, 2500), actual={split_sizes}"
         )
+    frozen_splits = _freeze_splits(composition.splits)
+    if dict(frozen_splits.fingerprints) != FROZEN_SPLIT_FINGERPRINTS:
+        raise RuntimeError(
+            "ChartQA loaded split fingerprints differ from the frozen paper data: "
+            f"expected={FROZEN_SPLIT_FINGERPRINTS}, "
+            f"actual={dict(frozen_splits.fingerprints)}"
+        )
     return ResolvedMechanismBenchmark(
         task_id=definition.task_id,
         display_name=definition.display_name,
@@ -368,8 +447,9 @@ def _resolve_chartqa(
         program=composition.program,
         metric=composition.metric,
         metric_with_feedback=composition.metric_with_feedback,
-        splits=_freeze_splits(composition.splits),
+        splits=frozen_splits,
         custom_instruction_proposer=MultiModalInstructionProposer(),
+        score_breakdown=chartqa_type_score_summary,
         provenance={
             "optimization_splits": "vis-nlp/ChartQA",
             "optimization_owner_commit": CHARTQA_OWNER_COMMIT,
@@ -377,6 +457,7 @@ def _resolve_chartqa(
             "program_owner_commit": CHARTQA_PROGRAM_OWNER_COMMIT,
             "test_metric": "lmms-eval/chartqa",
             "test_metric_owner_commit": CHARTQA_LMMS_OWNER_COMMIT,
+            "test_metric_owner_blobs": dict(CHARTQA_LMMS_OWNER_BLOBS),
             "reflection_proposer": (
                 "dspy.teleprompt.gepa.instruction_proposal."
                 "MultiModalInstructionProposer"
@@ -499,6 +580,7 @@ __all__ = [
     "MechanismBenchmarkDefinition",
     "MechanismOwnerRoots",
     "ResolvedMechanismBenchmark",
+    "chartqa_type_score_summary",
     "clutrr_task_score_summary",
     "load_mechanism_benchmark_specs",
     "resolve_mechanism_benchmark",

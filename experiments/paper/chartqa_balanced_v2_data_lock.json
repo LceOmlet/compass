@@ -1,0 +1,56 @@
+{
+  "benchmark": "ChartQA",
+  "data_protocol": "balanced-owner-view-v2",
+  "formal_test": {
+    "count": 2500,
+    "dataset_revision": "9e63b7df1592a1c2158e735cc1725454aef0d6d9",
+    "parquet_sha256": "165263505f2998aba65d819b44be832edecd92d676fee2c030645f784cd55d06",
+    "type_counts": {
+      "augmented_test": 1250,
+      "human_test": 1250
+    }
+  },
+  "loaded_split_fingerprints": {
+    "test": "341561aa8e7ad27c769599e007fdacf96505ad79ec4df9f6a5374ab77bdebbed",
+    "train": "410792d8bc493b0e4b97d55d6c2dffca34e33f647e2aeb587036bc30a06301de",
+    "validation": "3637d073a0fddd8e73d6d841dd6b9687baaef955ae694c939702bcf1f722d907"
+  },
+  "optimization_owner_commit": "044eabfc306abfe9340c5741f0093aefc5973d06",
+  "program_owner": {
+    "blob": "b98f967246a9e2639acea69f7cf2a2532c8238e4",
+    "commit": "e23f82f9c7ed2eacfb9124b92143358a9953263c",
+    "path": "src/skill_factory/programs/chartqa.py"
+  },
+  "selection": {
+    "exact_duplicate_rule_id": "retain_earliest_exact_owner_record_per_source_v1",
+    "rule_id": "sha256_rank_after_owner_blob_hygiene_v2",
+    "split_hygiene_rule_id": "exclude_cross_owner_split_git_blob_v1",
+    "train_composition": {
+      "augmented": 75,
+      "human": 75
+    },
+    "validation_composition": {
+      "augmented": 150,
+      "human": 150
+    }
+  },
+  "snapshot": {
+    "builder_sha256": "0342107da25105e9f7a49e1c7c0ebf43063f6a958633d21a2f06b0fe6f74a168",
+    "manifest_sha256": "ace63d0a25e587898cbf281764fe5d0aedd332585f1841efeea3df57407f326a",
+    "root_basename": "chartqa_balanced_v2_044eabfc_9e63b7df",
+    "view_sha256": {
+      "views/train_lite_inputs.jsonl": "14b503a5d0545a44f4a0ce29741262e3bf8c81264b9f0f5313a7e72a4cc9d5e3",
+      "views/train_lite_labels.jsonl": "bbe58facb6a7244c8420d732cabc4fe40bc6b370eac2e8b7fd7549dddf405b6d",
+      "views/val_lite_inputs.jsonl": "9e267711f4a392ff59212a9301a8ed85f8bb42c2dbb548278623fae8888931c7",
+      "views/val_lite_labels.jsonl": "548d8edf3596936c876c3e82623014d1b1bbfa4d41740f87cf36be1592fd4774"
+    }
+  },
+  "test_metric_owner": {
+    "blobs": {
+      "lmms_eval/tasks/chartqa/chartqa.yaml": "2a42f4dfd808730b475117b193b57931300c12b4",
+      "lmms_eval/tasks/chartqa/utils.py": "cdba4c4118311dcf5c175334bbf8c1f95ea29fa8"
+    },
+    "commit": "cb45ac4d4a667ea5ef89c7a148bff69b3489b981"
+  },
+  "status": "frozen-data-only"
+}

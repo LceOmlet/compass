@@ -43,6 +43,7 @@ from bridge.chartqa_protocol import (
     EXACT_DUPLICATE_RULE_ID,
     EXPECTED_COMPOSITION,
     EXPECTED_SPLIT_COUNTS,
+    FROZEN_SNAPSHOT_MANIFEST_SHA256,
     LMMS_EVAL_COMMIT,
     SELECTION_RULE_ID,
     SPLIT_HYGIENE_RULE_ID,
@@ -52,6 +53,8 @@ from bridge.chartqa_protocol import (
 
 
 SKILL_FACTORY_OWNER_COMMIT = "e23f82f9c7ed2eacfb9124b92143358a9953263c"
+SKILL_FACTORY_CHARTQA_PROGRAM_PATH = "src/skill_factory/programs/chartqa.py"
+SKILL_FACTORY_CHARTQA_PROGRAM_BLOB = "b98f967246a9e2639acea69f7cf2a2532c8238e4"
 CHARTQA_OPTIMIZATION_OWNER_COMMIT = CHARTQA_OWNER_COMMIT
 LMMS_EVAL_OWNER_COMMIT = LMMS_EVAL_COMMIT
 CHARTQA_PREPARED_SPLIT_COUNTS = dict(EXPECTED_SPLIT_COUNTS)
@@ -61,6 +64,7 @@ CHARTQA_PREPARED_COMPOSITION = {
 CHARTQA_PREPARED_SELECTION_RULE_ID = SELECTION_RULE_ID
 CHARTQA_PREPARED_SPLIT_HYGIENE_RULE_ID = SPLIT_HYGIENE_RULE_ID
 CHARTQA_PREPARED_EXACT_DUPLICATE_RULE_ID = EXACT_DUPLICATE_RULE_ID
+CHARTQA_PREPARED_MANIFEST_SHA256 = FROZEN_SNAPSHOT_MANIFEST_SHA256
 CHARTQA_TEST_DATASET_REVISION = CHARTQA_DATASET_REVISION
 CHARTQA_TEST_PARQUET_SHA256 = TEST_PARQUET_SHA256
 CHARTQA_TEST_TYPE_COUNTS = dict(TEST_TYPE_COUNTS)
@@ -77,7 +81,9 @@ def _skill_factory_root(root: str | Path | None = None) -> Path:
 
 def _verify_skill_factory_revision(root: Path) -> None:
     if not (root / ".git").exists():
-        return
+        raise RuntimeError(
+            f"pinned skill-factory checkout has no Git metadata: {root}"
+        )
     result = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "HEAD"],
         check=False,
@@ -95,6 +101,29 @@ def _verify_skill_factory_revision(root: Path) -> None:
             "skill-factory owner revision differs from the experiment pin: "
             f"expected={SKILL_FACTORY_OWNER_COMMIT}, actual={revision}"
         )
+    file_result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "hash-object",
+            f"--path={SKILL_FACTORY_CHARTQA_PROGRAM_PATH}",
+            SKILL_FACTORY_CHARTQA_PROGRAM_PATH,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    actual_blob = file_result.stdout.strip()
+    if (
+        file_result.returncode != 0
+        or actual_blob != SKILL_FACTORY_CHARTQA_PROGRAM_BLOB
+    ):
+        raise RuntimeError(
+            "skill-factory ChartQA program differs from the pinned owner blob: "
+            f"expected={SKILL_FACTORY_CHARTQA_PROGRAM_BLOB}, "
+            f"actual={actual_blob or file_result.stderr.strip()}"
+        )
 
 
 @lru_cache(maxsize=None)
@@ -103,7 +132,7 @@ def _load_chartqa_program_class(root_text: str) -> type[dspy.Module]:
 
     root = Path(root_text)
     _verify_skill_factory_revision(root)
-    module_path = root / "src" / "skill_factory" / "programs" / "chartqa.py"
+    module_path = root / SKILL_FACTORY_CHARTQA_PROGRAM_PATH
     if not module_path.is_file():
         raise FileNotFoundError(
             f"the pinned skill-factory ChartQA program is missing: {module_path}"
@@ -221,6 +250,12 @@ def _load_prepared_manifest(root: Path) -> Mapping[str, Any]:
         raise RuntimeError(
             "ChartQA prepared manifest checksum mismatch: "
             f"expected={expected_manifest_hash}, actual={actual_manifest_hash}"
+        )
+    if actual_manifest_hash != CHARTQA_PREPARED_MANIFEST_SHA256:
+        raise RuntimeError(
+            "ChartQA prepared manifest differs from the frozen paper snapshot: "
+            f"expected={CHARTQA_PREPARED_MANIFEST_SHA256}, "
+            f"actual={actual_manifest_hash}"
         )
     with manifest_path.open("r", encoding="utf-8") as handle:
         manifest = json.load(handle)

@@ -21,6 +21,7 @@ from bridge import mechanism_benchmark_registry as mechanism_registry
 from bridge.mechanism_benchmark_registry import (
     CLUTRR_HF_VARIANT_DIRECTORY,
     MechanismOwnerRoots,
+    chartqa_type_score_summary,
     clutrr_task_score_summary,
     load_mechanism_benchmark_specs,
     resolve_mechanism_benchmark,
@@ -115,6 +116,16 @@ def test_chartqa_resolution_passes_the_run_lm_to_the_owner_program(
         mechanism_registry,
         "_verify_git_revision",
         verify_owner_revision,
+    )
+    monkeypatch.setattr(
+        mechanism_registry,
+        "_verify_git_blobs",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        mechanism_registry,
+        "FROZEN_SPLIT_FINGERPRINTS",
+        dict(mechanism_registry._freeze_splits(owner_splits).fingerprints),
     )
     lm = object()
     prepared_root = tmp_path / "chartqa-prepared"
@@ -312,4 +323,21 @@ def test_clutrr_reporting_groups_owner_scores_without_replacing_them() -> None:
             "task_3": 0.0,
             "task_4": 100.0,
         },
+    }
+
+
+def test_chartqa_reporting_groups_owner_scores_without_replacing_them() -> None:
+    examples = (
+        SimpleNamespace(chartqa_type="human_test"),
+        SimpleNamespace(chartqa_type="human_test"),
+        SimpleNamespace(chartqa_type="augmented_test"),
+        SimpleNamespace(chartqa_type="augmented_test"),
+    )
+
+    summary = chartqa_type_score_summary(examples, (1.0, 0.0, 0.5, 0.5))
+
+    assert summary == {
+        "relaxed_overall_percent": 50.0,
+        "relaxed_human_split_percent": 50.0,
+        "relaxed_augmented_split_percent": 50.0,
     }

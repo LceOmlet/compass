@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -11,6 +12,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +48,9 @@ LMMS_OWNER_FILES = {
     ),
 }
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+CHARTQA_RAW_ROOT = "https://raw.githubusercontent.com/vis-nlp/ChartQA"
+IMAGE_DOWNLOAD_WORKERS = 8
+IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 120
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -58,6 +63,50 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _git_blob_sha1(payload: bytes) -> str:
+    header = f"blob {len(payload)}\0".encode("ascii")
+    return hashlib.sha1(header + payload).hexdigest()
+
+
+def _download_pinned_image_blobs(
+    owner_paths: list[str],
+    expected_blob_ids: dict[str, str],
+) -> dict[str, bytes]:
+    """Materialize exact pinned owner images and verify their Git identities."""
+
+    if len(owner_paths) != len(set(owner_paths)):
+        raise ValueError("pinned image paths must be unique")
+    if set(owner_paths) != set(expected_blob_ids):
+        raise ValueError("pinned image paths and expected Git blobs differ")
+
+    def download(owner_path: str) -> tuple[str, bytes]:
+        url = (
+            f"{CHARTQA_RAW_ROOT}/{CHARTQA_OWNER_COMMIT}/"
+            + quote(owner_path, safe="/")
+        )
+        request = Request(url, headers={"User-Agent": "COMPASS-ChartQA-freezer/1"})
+        with urlopen(request, timeout=IMAGE_DOWNLOAD_TIMEOUT_SECONDS) as response:
+            payload = response.read()
+        actual_blob_id = _git_blob_sha1(payload)
+        expected_blob_id = expected_blob_ids[owner_path]
+        if actual_blob_id != expected_blob_id:
+            raise RuntimeError(
+                f"pinned ChartQA image blob mismatch for {owner_path}: "
+                f"expected={expected_blob_id}, actual={actual_blob_id}"
+            )
+        return owner_path, payload
+
+    payloads: dict[str, bytes] = {}
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=IMAGE_DOWNLOAD_WORKERS
+    ) as executor:
+        futures = {executor.submit(download, path): path for path in owner_paths}
+        for future in concurrent.futures.as_completed(futures):
+            owner_path, payload = future.result()
+            payloads[owner_path] = payload
+    return {owner_path: payloads[owner_path] for owner_path in owner_paths}
 
 
 def _git_bytes(repo: Path, revision: str, owner_path: str) -> bytes:
@@ -497,10 +546,13 @@ def build_snapshot(
         (split, imgname): f"ChartQA Dataset/{split}/png/{imgname}"
         for split, imgname in sorted(image_pairs)
     }
-    image_blobs = _git_bytes_many(
-        chartqa_repo,
-        CHARTQA_OWNER_COMMIT,
+    expected_image_blob_ids = {
+        owner_path: split_image_blobs[split][imgname]
+        for (split, imgname), owner_path in image_owner_paths.items()
+    }
+    image_blobs = _download_pinned_image_blobs(
         list(image_owner_paths.values()),
+        expected_image_blob_ids,
     )
     download_lines: list[str] = []
     for (split, imgname), owner_path in image_owner_paths.items():
@@ -575,6 +627,10 @@ def build_snapshot(
             "count": len(image_pairs),
             "download_list": "download_images.tsv",
             "all_png_signature_valid": True,
+            "materialization": (
+                "pinned raw commit URL with exact Git blob SHA-1 verification"
+            ),
+            "git_blob_id_source": "pinned owner git tree",
             "url_template": (
                 "https://raw.githubusercontent.com/vis-nlp/ChartQA/"
                 f"{CHARTQA_OWNER_COMMIT}/ChartQA%20Dataset/{{split}}/png/{{imgname}}"

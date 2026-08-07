@@ -17,6 +17,31 @@ TEST_PARQUET_SHA256 = (
 )
 TEST_ROW_COUNT = 2500
 TEST_TYPE_COUNTS = {"human_test": 1250, "augmented_test": 1250}
+FROZEN_SNAPSHOT_MANIFEST_SHA256 = (
+    "ace63d0a25e587898cbf281764fe5d0aedd332585f1841efeea3df57407f326a"
+)
+FROZEN_SNAPSHOT_BUILDER_SHA256 = (
+    "0342107da25105e9f7a49e1c7c0ebf43063f6a958633d21a2f06b0fe6f74a168"
+)
+FROZEN_SPLIT_FINGERPRINTS = {
+    "train": "410792d8bc493b0e4b97d55d6c2dffca34e33f647e2aeb587036bc30a06301de",
+    "validation": "3637d073a0fddd8e73d6d841dd6b9687baaef955ae694c939702bcf1f722d907",
+    "test": "341561aa8e7ad27c769599e007fdacf96505ad79ec4df9f6a5374ab77bdebbed",
+}
+FROZEN_VIEW_SHA256 = {
+    "views/train_lite_inputs.jsonl": (
+        "14b503a5d0545a44f4a0ce29741262e3bf8c81264b9f0f5313a7e72a4cc9d5e3"
+    ),
+    "views/train_lite_labels.jsonl": (
+        "bbe58facb6a7244c8420d732cabc4fe40bc6b370eac2e8b7fd7549dddf405b6d"
+    ),
+    "views/val_lite_inputs.jsonl": (
+        "9e267711f4a392ff59212a9301a8ed85f8bb42c2dbb548278623fae8888931c7"
+    ),
+    "views/val_lite_labels.jsonl": (
+        "548d8edf3596936c876c3e82623014d1b1bbfa4d41740f87cf36be1592fd4774"
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)

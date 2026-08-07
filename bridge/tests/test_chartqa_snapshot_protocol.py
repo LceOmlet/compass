@@ -12,6 +12,7 @@ from bridge.chartqa_protocol import (
 from experiments.paper.prepare_chartqa_balanced_snapshot import (
     _canonical_identity,
     _git_bytes,
+    _git_blob_sha1,
     _git_bytes_many,
     _git_split_image_blobs,
     select_balanced_rows,
@@ -102,3 +103,14 @@ def test_git_batch_reader_preserves_exact_owner_blobs() -> None:
         path: _git_bytes(CHARTQA_REPO, CHARTQA_OWNER_COMMIT, path)
         for path in owner_paths
     }
+
+
+def test_git_blob_identity_matches_the_pinned_owner_tree() -> None:
+    image_blobs = _git_split_image_blobs(CHARTQA_REPO, CHARTQA_OWNER_COMMIT)
+    split = "train"
+    imgname, expected_blob_id = next(iter(image_blobs[split].items()))
+    owner_path = f"ChartQA Dataset/{split}/png/{imgname}"
+
+    payload = _git_bytes(CHARTQA_REPO, CHARTQA_OWNER_COMMIT, owner_path)
+
+    assert _git_blob_sha1(payload) == expected_blob_id
