@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
@@ -27,6 +28,7 @@ from tau2.runner.batch import run_single_task
 
 TAU2_AGENT_INSTRUCTION_COMPONENT = "agent_instruction"
 TAU2_CANDIDATE_AGENT_NAME = "compass_candidate_llm_agent"
+TAU2_FIXED_CANDIDATE_AGENT_PREFIX = "compass_fixed_candidate_llm_agent_"
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +72,8 @@ _candidate_binding: ContextVar[_CandidateBinding | None] = ContextVar(
     "compass_tau2_candidate_binding",
     default=None,
 )
+_fixed_candidate_factories: dict[str, Any] = {}
+_fixed_candidate_factories_lock = threading.Lock()
 
 
 def _validate_candidate(candidate: Mapping[str, str]) -> str:
@@ -166,6 +170,50 @@ def register_tau2_candidate_agent() -> str:
             "tau2 candidate agent name is already owned by another factory"
         )
     return TAU2_CANDIDATE_AGENT_NAME
+
+
+def register_tau2_fixed_candidate_agent(candidate: Mapping[str, str]) -> str:
+    """Bind one frozen candidate to an official registry factory.
+
+    The optimizer uses a ``ContextVar`` because different candidates can run
+    concurrently.  Tau2's official ``run_tasks`` final evaluator creates its
+    own worker threads, so a frozen candidate instead needs an immutable
+    factory that can be resolved by name in every owner worker.
+    """
+
+    instruction = _validate_candidate(candidate)
+    agent_name = TAU2_FIXED_CANDIDATE_AGENT_PREFIX + candidate_sha256(candidate)
+    with _fixed_candidate_factories_lock:
+        owned_factory = _fixed_candidate_factories.get(agent_name)
+        registered_factory = registry.get_agent_factory(agent_name)
+        if owned_factory is not None:
+            if registered_factory is not owned_factory:
+                raise RuntimeError(
+                    "tau2 fixed candidate agent name is no longer owned by "
+                    "its registered factory"
+                )
+            return agent_name
+        if registered_factory is not None:
+            raise RuntimeError(
+                "tau2 fixed candidate agent name is already owned by another factory"
+            )
+
+        def fixed_candidate_agent_factory(
+            tools: list[Any],
+            domain_policy: str,
+            **kwargs: Any,
+        ) -> CandidateBoundLLMAgent:
+            return CandidateBoundLLMAgent(
+                tools=tools,
+                domain_policy=domain_policy,
+                llm=kwargs.get("llm"),
+                llm_args=kwargs.get("llm_args"),
+                agent_instruction=instruction,
+            )
+
+        _fixed_candidate_factories[agent_name] = fixed_candidate_agent_factory
+        registry.register_agent_factory(fixed_candidate_agent_factory, agent_name)
+    return agent_name
 
 
 class Tau2GEPAAdapter(GEPAAdapter[Tau2Example, Tau2Trajectory, Tau2RolloutOutput]):
@@ -363,6 +411,7 @@ class Tau2GEPAAdapter(GEPAAdapter[Tau2Example, Tau2Trajectory, Tau2RolloutOutput
 __all__ = [
     "TAU2_AGENT_INSTRUCTION_COMPONENT",
     "TAU2_CANDIDATE_AGENT_NAME",
+    "TAU2_FIXED_CANDIDATE_AGENT_PREFIX",
     "CandidateBoundLLMAgent",
     "Tau2Example",
     "Tau2ExecutionFailure",
@@ -370,5 +419,6 @@ __all__ = [
     "Tau2Trajectory",
     "candidate_sha256",
     "register_tau2_candidate_agent",
+    "register_tau2_fixed_candidate_agent",
     "tau2_seed_candidate",
 ]

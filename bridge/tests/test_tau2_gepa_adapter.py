@@ -85,6 +85,57 @@ def test_factory_fails_closed_without_a_bound_candidate():
         factory([], "policy", llm="model", llm_args={})
 
 
+def test_fixed_candidate_factory_is_stable_and_context_free():
+    candidate = {subject.TAU2_AGENT_INSTRUCTION_COMPONENT: "frozen instruction"}
+    agent_name = subject.register_tau2_fixed_candidate_agent(candidate)
+    assert agent_name == (
+        subject.TAU2_FIXED_CANDIDATE_AGENT_PREFIX + subject.candidate_sha256(candidate)
+    )
+    factory = subject.registry.get_agent_factory(agent_name)
+    assert subject.register_tau2_fixed_candidate_agent(dict(candidate)) == agent_name
+    assert subject.registry.get_agent_factory(agent_name) is factory
+
+    result: dict[str, object] = {}
+
+    def construct_in_owner_worker():
+        result["agent"] = factory(
+            [],
+            "owner policy",
+            llm="owner/model",
+            llm_args={"temperature": 0},
+        )
+
+    worker = threading.Thread(target=construct_in_owner_worker)
+    worker.start()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    agent = result["agent"]
+    assert agent.system_prompt == subject.SYSTEM_PROMPT.format(
+        domain_policy="owner policy",
+        agent_instruction="frozen instruction",
+    )
+    assert agent.llm == "owner/model"
+    assert agent.llm_args == {"temperature": 0}
+
+
+def test_fixed_candidate_factory_does_not_reuse_another_candidate():
+    left = {subject.TAU2_AGENT_INSTRUCTION_COMPONENT: "left"}
+    right = {subject.TAU2_AGENT_INSTRUCTION_COMPONENT: "right"}
+    left_name = subject.register_tau2_fixed_candidate_agent(left)
+    right_name = subject.register_tau2_fixed_candidate_agent(right)
+    assert left_name != right_name
+    left_agent = subject.registry.get_agent_factory(left_name)(
+        [], "policy", llm="model", llm_args={}
+    )
+    right_agent = subject.registry.get_agent_factory(right_name)(
+        [], "policy", llm="model", llm_args={}
+    )
+    assert "left" in left_agent.system_prompt
+    assert "right" not in left_agent.system_prompt
+    assert "right" in right_agent.system_prompt
+    assert "left" not in right_agent.system_prompt
+
+
 def test_evaluate_uses_official_entry_and_preserves_input_order(monkeypatch):
     barrier = threading.Barrier(3)
     seen: list[tuple[str, int, object, str]] = []
