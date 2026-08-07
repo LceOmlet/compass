@@ -1,4 +1,28 @@
 {
+  "qwen3_5_9b_local_vllm_18035": {
+    "api_base": "http://127.0.0.1:18035/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "cache": true,
+    "cache_in_memory": true,
+    "checkpoint": "/mnt/geogpt-doc-new/deepresearch/tool_jepa_qwen35_9b/models/Qwen3.5-9B",
+    "enable_thinking": true,
+    "max_tokens": 32768,
+    "model": "openai/qwen3.5-9b",
+    "model_type": "chat",
+    "num_retries": 0,
+    "repetition_detection": {
+      "max_pattern_size": 1024,
+      "min_pattern_size": 3,
+      "min_count": 4
+    },
+    "serving_backend": "vllm-metax-0.17.0+gd10261.d20260409.maca3.5.3.20.torch2.8",
+    "serving_max_model_len": 131072,
+    "supports_response_schema": true,
+    "temperature": 0.6,
+    "timeout": 1200,
+    "top_k": 20,
+    "top_p": 0.95
+  },
   "qwen3_8b_local_vllm": {
     "api_base": "http://127.0.0.1:18080/v1",
     "api_key_env": "LOCAL_OPENAI_API_KEY",
@@ -50,6 +74,18 @@
   },
   "gpt_4_1_mini": {
     "api_key_env": "OPENAI_API_KEY",
+    "cache": true,
+    "cache_in_memory": true,
+    "enable_thinking": false,
+    "max_tokens": 16384,
+    "model": "openai/gpt-4.1-mini-2025-04-14",
+    "model_type": "chat",
+    "num_retries": 0,
+    "temperature": 1.0
+  },
+  "gpt_4_1_mini_gpt_ge": {
+    "api_base": "https://api.gpt.ge/v1",
+    "api_key_env": "COMPASS_GPT_GE_API_KEY",
     "cache": true,
     "cache_in_memory": true,
     "enable_thinking": false,

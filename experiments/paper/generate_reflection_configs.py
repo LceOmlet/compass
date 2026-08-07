@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import subprocess
 import sys
@@ -35,8 +36,16 @@ SNAPSHOT_FILES = (
     "bridge/b16_official_gepa_ifbench.py",
     "bridge/b19_reversible_parent_selection.py",
     "bridge/b20_compass_reflection.py",
+    "bridge/dci_agent_lite.py",
+    "bridge/dci_compass.py",
+    "bridge/dci_docker_isolation.py",
     "bridge/minibatch_config.py",
     "bridge/paper_benchmark_registry.py",
+    "bridge/prompts/dci_subproblem_free_text.txt",
+    "bridge/request_deadline.py",
+    "docker/dci-sandbox/Dockerfile",
+    "docker/dci-sandbox/entrypoint.sh",
+    "experiments/paper/dci_agent_qwen3_5_9b/models.json",
     "experiments/paper/generate_reflection_configs.py",
     "experiments/paper/model_profiles.json",
     "experiments/paper/run_compass_reflection.py",
@@ -45,9 +54,11 @@ SNAPSHOT_FILES = (
     "scripts/start_aime_v51_v54_window1_timeout6000_local.ps1",
 )
 SUBMODULES = (
+    "upstreams/dci-agent-lite",
     "upstreams/dspy",
     "upstreams/gepa",
     "upstreams/gepa-artifact",
+    "upstreams/pi-mono",
 )
 TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -122,6 +133,8 @@ def build_run_config(
     max_reflection_workers: int = 1,
     parent_selection_score_mode: str = "high_resolution",
     proposal_tasks_per_iteration: int | None = None,
+    rollout_timeout_seconds: float | None = None,
+    proposal_timeout_seconds: float | None = None,
 ) -> tuple[str, dict[str, Any]]:
     if task_id not in TASK_BUDGETS:
         raise ValueError(f"unknown paper task: {task_id!r}")
@@ -158,6 +171,17 @@ def build_run_config(
         raise ValueError(
             "proposal_tasks_per_iteration requires epoch_parallel_enabled=true"
         )
+    for name, value in (
+        ("rollout_timeout_seconds", rollout_timeout_seconds),
+        ("proposal_timeout_seconds", proposal_timeout_seconds),
+    ):
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise TypeError(f"{name} must be a positive number")
     if (
         proposal_minibatch_size is not None
         or admission_minibatch_size is not None
@@ -203,6 +227,7 @@ def build_run_config(
             "failure_score": 0,
             "acceptance_mode": acceptance_mode,
             "epoch_parallel_enabled": epoch_parallel_enabled,
+            "evaluation_straggler_timeout": 0,
             "max_candidate_workers": max_candidate_workers,
             "max_metric_calls": TASK_BUDGETS[task_id],
             "max_reflection_workers": max_reflection_workers,
@@ -215,6 +240,16 @@ def build_run_config(
             "track_best_outputs": True,
             "use_cloudpickle": True,
             "proposal_tasks_per_iteration": proposal_tasks_per_iteration,
+            **(
+                {"rollout_timeout_seconds": rollout_timeout_seconds}
+                if rollout_timeout_seconds is not None
+                else {}
+            ),
+            **(
+                {"proposal_timeout_seconds": proposal_timeout_seconds}
+                if proposal_timeout_seconds is not None
+                else {}
+            ),
             **minibatch_config,
         },
         "optimizer_seed": seed,
@@ -269,6 +304,8 @@ def main() -> int:
     )
     parser.add_argument("--epoch-parallel-enabled", action="store_true")
     parser.add_argument("--proposal-tasks-per-iteration", type=int)
+    parser.add_argument("--rollout-timeout-seconds", type=float)
+    parser.add_argument("--proposal-timeout-seconds", type=float)
     parser.add_argument("--max-candidate-workers", type=int, default=3)
     parser.add_argument("--max-reflection-workers", type=int, default=1)
     parser.add_argument("--tag", required=True)
@@ -317,6 +354,8 @@ def main() -> int:
                 proposal_tasks_per_iteration=(
                     args.proposal_tasks_per_iteration
                 ),
+                rollout_timeout_seconds=args.rollout_timeout_seconds,
+                proposal_timeout_seconds=args.proposal_timeout_seconds,
             )
             path = args.output_dir / f"{slug}.json"
             _write_new_json(path, config)

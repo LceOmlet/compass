@@ -19,6 +19,7 @@ from io import BytesIO
 import json
 import os
 import subprocess
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -36,11 +37,33 @@ from lmms_eval.tasks.chartqa.utils import (
 )
 from PIL import Image as PILImage
 
+from bridge.chartqa_protocol import (
+    CHARTQA_DATASET_REVISION,
+    CHARTQA_OWNER_COMMIT,
+    EXACT_DUPLICATE_RULE_ID,
+    EXPECTED_COMPOSITION,
+    EXPECTED_SPLIT_COUNTS,
+    LMMS_EVAL_COMMIT,
+    SELECTION_RULE_ID,
+    SPLIT_HYGIENE_RULE_ID,
+    TEST_PARQUET_SHA256,
+    TEST_TYPE_COUNTS,
+)
+
 
 SKILL_FACTORY_OWNER_COMMIT = "e23f82f9c7ed2eacfb9124b92143358a9953263c"
-CHARTQA_OPTIMIZATION_OWNER_COMMIT = "044eabfc306abfe9340c5741f0093aefc5973d06"
-LMMS_EVAL_OWNER_COMMIT = "cb45ac4d4a667ea5ef89c7a148bff69b3489b981"
-CHARTQA_PREPARED_SPLIT_COUNTS = {"train": 150, "val": 300, "test": 2500}
+CHARTQA_OPTIMIZATION_OWNER_COMMIT = CHARTQA_OWNER_COMMIT
+LMMS_EVAL_OWNER_COMMIT = LMMS_EVAL_COMMIT
+CHARTQA_PREPARED_SPLIT_COUNTS = dict(EXPECTED_SPLIT_COUNTS)
+CHARTQA_PREPARED_COMPOSITION = {
+    split: dict(composition) for split, composition in EXPECTED_COMPOSITION.items()
+}
+CHARTQA_PREPARED_SELECTION_RULE_ID = SELECTION_RULE_ID
+CHARTQA_PREPARED_SPLIT_HYGIENE_RULE_ID = SPLIT_HYGIENE_RULE_ID
+CHARTQA_PREPARED_EXACT_DUPLICATE_RULE_ID = EXACT_DUPLICATE_RULE_ID
+CHARTQA_TEST_DATASET_REVISION = CHARTQA_DATASET_REVISION
+CHARTQA_TEST_PARQUET_SHA256 = TEST_PARQUET_SHA256
+CHARTQA_TEST_TYPE_COUNTS = dict(TEST_TYPE_COUNTS)
 SKILL_FACTORY_ROOT_ENV = "SKILL_FACTORY_ROOT"
 _DEFAULT_SKILL_FACTORY_ROOT = (
     Path(__file__).resolve().parents[1] / "upstreams" / "skill-factory"
@@ -221,6 +244,37 @@ def _load_prepared_manifest(root: Path) -> Mapping[str, Any]:
         raise RuntimeError(
             "prepared ChartQA LMMS-Eval owner differs from the experiment pin"
         )
+    selection = manifest.get("selection")
+    if not isinstance(selection, Mapping):
+        raise RuntimeError("prepared ChartQA manifest has no selection mapping")
+    for split in ("train", "val"):
+        entry = selection.get(f"{split}_lite")
+        if not isinstance(entry, Mapping):
+            raise RuntimeError(f"prepared ChartQA manifest has no {split} selection")
+        if entry.get("rule_id") != CHARTQA_PREPARED_SELECTION_RULE_ID:
+            raise RuntimeError(
+                f"prepared ChartQA {split} selection rule differs from the protocol"
+            )
+        if dict(entry.get("composition", {})) != CHARTQA_PREPARED_COMPOSITION[split]:
+            raise RuntimeError(
+                f"prepared ChartQA {split} composition differs from the protocol"
+            )
+    hygiene = manifest.get("hygiene")
+    if not isinstance(hygiene, Mapping):
+        raise RuntimeError("prepared ChartQA manifest has no hygiene mapping")
+    if hygiene.get("split_hygiene_rule_id") != CHARTQA_PREPARED_SPLIT_HYGIENE_RULE_ID:
+        raise RuntimeError("prepared ChartQA split hygiene differs from the protocol")
+    if hygiene.get("exact_duplicate_rule_id") != CHARTQA_PREPARED_EXACT_DUPLICATE_RULE_ID:
+        raise RuntimeError(
+            "prepared ChartQA duplicate hygiene differs from the protocol"
+        )
+    formal_test = manifest["formal_test"]
+    if formal_test.get("dataset_revision") != CHARTQA_TEST_DATASET_REVISION:
+        raise RuntimeError("prepared ChartQA test dataset revision differs from the pin")
+    if formal_test.get("parquet_sha256") != CHARTQA_TEST_PARQUET_SHA256:
+        raise RuntimeError("prepared ChartQA test parquet differs from the pin")
+    if dict(formal_test.get("type_counts", {})) != CHARTQA_TEST_TYPE_COUNTS:
+        raise RuntimeError("prepared ChartQA test composition differs from the protocol")
     files = manifest.get("files")
     if not isinstance(files, Mapping):
         raise RuntimeError("prepared ChartQA manifest has no files mapping")
@@ -241,6 +295,9 @@ def _load_prepared_manifest(root: Path) -> Mapping[str, Any]:
             raise RuntimeError(
                 f"prepared ChartQA file checksum mismatch: {relative_path}"
             )
+    parquet_entry = files[str(formal_test["parquet"])]
+    if parquet_entry["sha256"] != CHARTQA_TEST_PARQUET_SHA256:
+        raise RuntimeError("prepared ChartQA test file hash differs from the pin")
     return manifest
 
 
@@ -335,11 +392,18 @@ def load_prepared_chartqa_optimization_split(
     converted_images: dict[Path, dspy.Image] = {}
     examples: list[dspy.Example] = []
 
-    for input_row, label_row in _join_prepared_view(
+    joined = _join_prepared_view(
         root,
         split,
         expected_count=expected_count,
-    ):
+    )
+    actual_composition = Counter(input_row.get("source") for input_row, _ in joined)
+    if dict(actual_composition) != CHARTQA_PREPARED_COMPOSITION[split]:
+        raise RuntimeError(
+            f"prepared ChartQA {split} view composition differs from the manifest"
+        )
+
+    for input_row, label_row in joined:
         image_path = _prepared_relative_file(root, input_row.get("image"))
         image = converted_images.get(image_path)
         chartqa_type = f"{input_row['source']}_{split}"

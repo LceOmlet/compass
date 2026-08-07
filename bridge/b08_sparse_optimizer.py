@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import math
 import os
-import threading
 import traceback
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import contextmanager
 from dataclasses import dataclass
-from importlib import import_module
 from numbers import Integral, Real
 from typing import Any, Protocol
 
@@ -29,38 +26,7 @@ from .b06_dependency_gate import (
 from .b07_sparse_state import SparseSkillState
 from .b11_terminal_likelihood import AIMEHistoricalReplayScorer
 from .b13_reflection_budget import OfficialReflectionInputBudget
-
-
-_DSPY_EVALUATE = import_module("dspy.evaluate.evaluate")
-_OFFICIAL_EVALUATE_PARALLEL_EXECUTOR = _DSPY_EVALUATE.ParallelExecutor
-_PARENT_EVALUATION_LOCK = threading.RLock()
-
-
-def _parent_parallel_executor(*args: Any, **kwargs: Any) -> ParallelExecutor:
-    if "timeout" in kwargs or "straggler_limit" in kwargs:
-        raise RuntimeError("official Evaluate unexpectedly configured straggler handling")
-    return _OFFICIAL_EVALUATE_PARALLEL_EXECUTOR(
-        *args,
-        timeout=0,
-        straggler_limit=0,
-        **kwargs,
-    )
-
-
-@contextmanager
-def _without_parent_straggler_resubmission():
-    with _PARENT_EVALUATION_LOCK:
-        previous = _DSPY_EVALUATE.ParallelExecutor
-        if previous not in (
-            _OFFICIAL_EVALUATE_PARALLEL_EXECUTOR,
-            _parent_parallel_executor,
-        ):
-            raise RuntimeError("another component replaced DSPy Evaluate ParallelExecutor")
-        _DSPY_EVALUATE.ParallelExecutor = _parent_parallel_executor
-        try:
-            yield
-        finally:
-            _DSPY_EVALUATE.ParallelExecutor = previous
+from .dspy_evaluate import without_parent_straggler_resubmission
 
 
 class PreparedReplayDependency(Protocol):
@@ -588,7 +554,7 @@ class AIMESparseDependencyOptimizer:
             self._metric_calls += len(selected_ids)
             state.record_evaluations(skill=parent_identity, instance_ids=selected_ids)
             selected_examples = [examples[index] for index in selected_ids]
-            with _without_parent_straggler_resubmission():
+            with without_parent_straggler_resubmission():
                 dataset_with_feedback, subsample_score, subsample_scores = (
                     capture_module_trace_with_feedback(
                         parent_predictor,

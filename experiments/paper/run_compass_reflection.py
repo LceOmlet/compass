@@ -625,6 +625,30 @@ def _create_lm(model_config: Mapping[str, Any], *, api_key: str) -> dspy.LM:
     return DeadlineAwareLM(**kwargs)
 
 
+def _configure_run_cache(
+    cache_dir: Path,
+    model_config: Mapping[str, Any],
+) -> Path:
+    """Point DSPy's official cache owner at this run's isolated directory."""
+
+    dspy_cache_dir = cache_dir / ".dspy_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dspy_cache_dir.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "DSPY_CACHEDIR",
+        "DSP_CACHEDIR",
+        "DSPY_NOTEBOOK_CACHEDIR",
+        "DSP_NOTEBOOK_CACHEDIR",
+    ):
+        os.environ[name] = str(dspy_cache_dir)
+    dspy.configure_cache(
+        enable_disk_cache=model_config["cache"],
+        enable_memory_cache=model_config["cache_in_memory"],
+        disk_cache_dir=str(dspy_cache_dir),
+    )
+    return dspy_cache_dir
+
+
 def _lm_usage(lm: Any) -> dict[str, float | int]:
     cost = 0.0
     input_tokens = 0
@@ -729,14 +753,6 @@ def main(*, benchmark_family: str = "official") -> int:
         )
 
     cache_dir = Path(config["cache_dir"]).resolve()
-    dspy_cache_dir = cache_dir / ".dspy_cache"
-    for name in (
-        "DSPY_CACHEDIR",
-        "DSP_CACHEDIR",
-        "DSPY_NOTEBOOK_CACHEDIR",
-        "DSP_NOTEBOOK_CACHEDIR",
-    ):
-        os.environ[name] = str(dspy_cache_dir)
 
     run_dir = Path(config["run_dir"]).resolve()
     previous_manifest: Mapping[str, Any] | None = None
@@ -767,6 +783,7 @@ def main(*, benchmark_family: str = "official") -> int:
     elif run_dir.exists():
         raise FileExistsError(run_dir)
 
+    dspy_cache_dir = _configure_run_cache(cache_dir, config["model"])
     start_wall = time.time()
     started_at = datetime.now(timezone.utc).isoformat()
     lm = _create_lm(config["model"], api_key=api_key)
@@ -820,8 +837,6 @@ def main(*, benchmark_family: str = "official") -> int:
             config_sha256=config_sha256,
             task_manifest=task_manifest,
         )
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    dspy_cache_dir.mkdir(parents=True, exist_ok=True)
     if not args.resume:
         run_dir.mkdir(parents=True, exist_ok=False)
     manifest = {
@@ -910,6 +925,11 @@ def main(*, benchmark_family: str = "official") -> int:
                 validation_set=list(splits.validation),
                 reflection_lm=lm,
                 config=engine_config,
+                custom_instruction_proposer=getattr(
+                    spec,
+                    "custom_instruction_proposer",
+                    None,
+                ),
             )
 
             state = GEPAState.load(str(run_dir))

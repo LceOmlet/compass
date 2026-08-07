@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
+import dspy
 import pytest
 
 from bridge.request_deadline import DeadlineAwareLM
 
 from experiments.paper.run_compass_reflection import (
+    _configure_run_cache,
     _create_lm,
     _method_config_kwargs,
     _minibatch_config_kwargs,
@@ -111,6 +114,67 @@ def test_runner_config_accepts_profile_owned_output_cap(tmp_path: Path) -> None:
 
     assert lm.kwargs["max_tokens"] == 32768
     assert isinstance(lm, DeadlineAwareLM)
+
+
+def test_runner_reconfigures_official_dspy_cache_per_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "experiments.paper.run_compass_reflection.dspy.configure_cache",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    for name in (
+        "DSPY_CACHEDIR",
+        "DSP_CACHEDIR",
+        "DSPY_NOTEBOOK_CACHEDIR",
+        "DSP_NOTEBOOK_CACHEDIR",
+    ):
+        monkeypatch.setenv(name, "before-test")
+
+    cache_dir = tmp_path / "method-run-cache"
+    dspy_cache_dir = _configure_run_cache(cache_dir, _config(tmp_path)["model"])
+
+    assert dspy_cache_dir == cache_dir / ".dspy_cache"
+    assert dspy_cache_dir.is_dir()
+    assert calls == [
+        {
+            "enable_disk_cache": True,
+            "enable_memory_cache": True,
+            "disk_cache_dir": str(dspy_cache_dir),
+        }
+    ]
+    assert os.environ["DSPY_CACHEDIR"] == str(dspy_cache_dir)
+
+
+def test_runner_activates_the_isolated_official_dspy_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_cache = dspy.cache
+    configured_cache = None
+    for name in (
+        "DSPY_CACHEDIR",
+        "DSP_CACHEDIR",
+        "DSPY_NOTEBOOK_CACHEDIR",
+        "DSP_NOTEBOOK_CACHEDIR",
+    ):
+        monkeypatch.setenv(name, "before-test")
+    try:
+        cache_dir = tmp_path / "actual-method-run-cache"
+        dspy_cache_dir = _configure_run_cache(cache_dir, _config(tmp_path)["model"])
+        configured_cache = dspy.cache
+
+        assert configured_cache is not original_cache
+        assert configured_cache.enable_disk_cache is True
+        assert configured_cache.enable_memory_cache is True
+        assert configured_cache.disk_cache_dir == str(dspy_cache_dir)
+    finally:
+        disk_cache = getattr(configured_cache, "disk_cache", None)
+        if hasattr(disk_cache, "close"):
+            disk_cache.close()
+        dspy.cache = original_cache
 
 
 def test_runner_forwards_whole_operation_timeouts(tmp_path: Path) -> None:

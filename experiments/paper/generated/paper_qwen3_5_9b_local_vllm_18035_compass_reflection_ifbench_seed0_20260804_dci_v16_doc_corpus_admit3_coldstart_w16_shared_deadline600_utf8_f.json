@@ -1,0 +1,121 @@
+{
+  "cache_dir": "F:\\COMPASS_evolution\\cache_paper_qwen3_5_9b_local_vllm_18035_compass_reflection_ifbench_seed0_20260804_dci_v16_doc_corpus_admit3_coldstart_w16_shared_deadline600_utf8_f",
+  "condition": "compass_reflection",
+  "dataset_mode": "lite",
+  "model": {
+    "api_base": "http://127.0.0.1:18035/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "cache": true,
+    "cache_in_memory": true,
+    "checkpoint": "/mnt/geogpt-doc-new/deepresearch/tool_jepa_qwen35_9b/models/Qwen3.5-9B",
+    "enable_thinking": true,
+    "max_tokens": 32768,
+    "model": "openai/qwen3.5-9b",
+    "model_type": "chat",
+    "num_retries": 0,
+    "repetition_detection": {
+      "max_pattern_size": 1024,
+      "min_count": 4,
+      "min_pattern_size": 3
+    },
+    "serving_backend": "vllm-metax-0.17.0+gd10261.d20260409.maca3.5.3.20.torch2.8",
+    "serving_max_model_len": 131072,
+    "temperature": 0.6,
+    "timeout": 600,
+    "top_k": 20,
+    "top_p": 0.95
+  },
+  "optimizer": {
+    "acceptance_mode": "strict_improvement",
+    "add_format_failure_as_feedback": false,
+    "admission_minibatch_size": 3,
+    "dci": {
+      "agent_dir": "D:\\Users\\Administrator\\Documents\\skill optimize\\compass\\experiments\\paper\\dci_agent_qwen3_5_9b",
+      "max_turns": 20,
+      "model": "qwen3.5-9b:off",
+      "package_dir": "D:\\Users\\Administrator\\Documents\\skill optimize\\compass\\upstreams\\pi-mono\\packages\\coding-agent",
+      "proposal_evidence_size": 3,
+      "provider": "vllm-local",
+      "runner_command": [
+        "D:\\Users\\Administrator\\Documents\\skill optimize\\compass\\.venv\\Scripts\\python.exe",
+        "-m",
+        "bridge.dci_docker_isolation",
+        "--image",
+        "sha256:41ae5fedc1ae117592e808e079cfecdbdd15a995a69d6887393db7627f007056",
+        "--pass-env",
+        "OPENAI_API_KEY",
+        "--"
+      ],
+      "tools": "read,bash"
+    },
+    "display_progress_bar": false,
+    "epoch_parallel_enabled": true,
+    "evaluation_straggler_timeout": 0,
+    "failure_score": 0,
+    "max_candidate_workers": 16,
+    "max_metric_calls": 3593,
+    "max_reflection_workers": 16,
+    "num_threads": 32,
+    "parent_selection_score_mode": "high_resolution",
+    "parent_top_n": 5,
+    "perfect_score": 1,
+    "proposal_minibatch_size": 1,
+    "proposal_tasks_per_iteration": 16,
+    "proposal_timeout_seconds": 600.0,
+    "raise_on_exception": true,
+    "rollout_timeout_seconds": 600.0,
+    "skip_perfect_score": true,
+    "track_best_outputs": true,
+    "use_cloudpickle": true
+  },
+  "optimizer_seed": 0,
+  "run_dir": "F:\\COMPASS_evolution\\runs\\paper_qwen3_5_9b_local_vllm_18035_compass_reflection_ifbench_seed0_20260804_dci_v16_doc_corpus_admit3_coldstart_w16_shared_deadline600_utf8_f",
+  "source_snapshot": {
+    "file_sha256": {
+      "bridge/b16_official_gepa_ifbench.py": "377a87eb1594a20bda2f82cdd9616fb30c93820551bf40a845a57164babccb04",
+      "bridge/b19_reversible_parent_selection.py": "20d71dc433342c97f7d3b2fddf57cf37e54fdbe9c72bb3d6dcf6f4975bb5519e",
+      "bridge/b20_compass_reflection.py": "3d8513618591ff1a192a0c13d8a7d986f0258602ab5d78aa6e8061bdfc43b53b",
+      "bridge/dci_agent_lite.py": "26ee7409cbe9820d6b030f28b00f2f1920afe50d046c3692c40484d1c2ea862b",
+      "bridge/dci_compass.py": "50b3a0d7cc4f2631eac34c6146526ed80ac42700687c5c6210dbba7f9c8a296c",
+      "bridge/dci_docker_isolation.py": "1030fc6eca0741dc200147a298a6d96231862c6b4966f80c437af15bae05ac59",
+      "bridge/minibatch_config.py": "daad2a16c7d2be824533e14c201c8869bd1c4de6f6be8341ac4f1bf7e1a65899",
+      "bridge/paper_benchmark_registry.py": "876a712784a112a72459fb282e7cc3c3ce8d1e709aa89bb3909058be99030b5a",
+      "bridge/prompts/dci_subproblem_free_text.txt": "0c038ae1a4f5f73534a1b67f1fa34cfec2a7065ef26884f74abfd53c7f364078",
+      "bridge/request_deadline.py": "149fe8d3117c53ddae927b5291030a730611555548afcd3177bc6a5e5234bb61",
+      "docker/dci-sandbox/Dockerfile": "1cd668df1d9ab76b0bed65138f8b63ef87f9c140140eb070685c5f3b2d99e643",
+      "docker/dci-sandbox/entrypoint.sh": "00099a3a129069c200d87f8b5018629a11c5b672c99932a73124bfacd91d99c7",
+      "experiments/paper/dci_agent_qwen3_5_9b/models.json": "e0649c6d3e4e3af208973276e8181bd77afe8ce8631378138281d94328e41b3c",
+      "experiments/paper/generate_reflection_configs.py": "f8c8ae76965ce14edddcbe74e5846e789b6be11634155eb2467acf510fc57c42",
+      "experiments/paper/model_profiles.json": "a79d0198aff945bf3c95488deb2afb7004580bedee631a39e429b83463ff6cbe",
+      "experiments/paper/run_compass_reflection.py": "6670264129a863c293a0d47c8581437b76ceb9365b95741dc6824dbbc3fbc79c",
+      "experiments/paper/serve_qwen3_8b_vllm_metax.sh": "bf3d4b56c726a29948a854910d3aef0229e69d9584bfa5d86962775adec3ca2d",
+      "scripts/start_aime_v47_v50_gepa_parity_local.ps1": "d79622c14d321b459e8b4ede51c851bd0355e0b67b24245c61a89f44e90b8414",
+      "scripts/start_aime_v51_v54_window1_timeout6000_local.ps1": "a816e0d78150fde720ecede040208a29cff4dc1aa4ba0889bfa33aef1e918a7c"
+    },
+    "root_diff_git_blob": "6b0723e9afd487e597e3253d1e509bab08bfe889",
+    "root_head": "e325177b9c1326c3818d5d9e9ce3093bca278011",
+    "submodules": {
+      "upstreams/dci-agent-lite": {
+        "diff_git_blob": "9bd2b9808461c77551a81a75318d2e67a24e7e43",
+        "head": "271f37e71f053bf0c99c05ce6d2fb53b841d922e"
+      },
+      "upstreams/dspy": {
+        "diff_git_blob": "0b6dece058241e1f46e5e9f14719877bb9262c07",
+        "head": "96bae53d458d300b2cab49a5ddf30087498df952"
+      },
+      "upstreams/gepa": {
+        "diff_git_blob": "85a525cffb8c2592e29f9f45debd1ab9948f0b90",
+        "head": "665cbc368313b7223f2b0638d2ef47da7a130dad"
+      },
+      "upstreams/gepa-artifact": {
+        "diff_git_blob": "6609ef18148e90ca4c32ed2304797d4ca7fe000a",
+        "head": "cbefbc1aa0f43dd39874ec4bf42211365dbda42e"
+      },
+      "upstreams/pi-mono": {
+        "diff_git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "head": "a6be5eb4cce278de31ac05792af3dfc0883215dc"
+      }
+    }
+  },
+  "task_id": "ifbench"
+}

@@ -1,0 +1,35 @@
+{
+  "providers": {
+    "vllm-local": {
+      "api": "openai-completions",
+      "apiKey": "OPENAI_API_KEY",
+      "baseUrl": "http://host.docker.internal:18035/v1",
+      "compat": {
+        "maxTokensField": "max_tokens",
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "supportsStore": false,
+        "supportsStrictMode": false,
+        "thinkingFormat": "qwen-chat-template"
+      },
+      "models": [
+        {
+          "contextWindow": 131072,
+          "cost": {
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "input": 0,
+            "output": 0
+          },
+          "id": "qwen3.5-9b",
+          "input": [
+            "text"
+          ],
+          "maxTokens": 4096,
+          "name": "Qwen3.5-9B local vLLM",
+          "reasoning": true
+        }
+      ]
+    }
+  }
+}

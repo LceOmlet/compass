@@ -48,6 +48,50 @@ def test_generated_config_preserves_frozen_batch_and_budget() -> None:
     assert config["cache_dir"].endswith(f"cache_{slug}")
 
 
+def test_qwen35_profile_uses_supported_long_context_without_changing_dci_output() -> None:
+    profiles = load_model_profiles(
+        Path("experiments/paper/model_profiles.json")
+    )
+    profile = profiles["qwen3_5_9b_local_vllm_18035"]
+
+    assert profile["max_tokens"] == 32768
+    assert profile["serving_max_model_len"] == 131072
+    assert profile["serving_backend"] == (
+        "vllm-metax-0.17.0+gd10261.d20260409.maca3.5.3.20.torch2.8"
+    )
+    assert profile["supports_response_schema"] is True
+    assert profile["repetition_detection"] == {
+        "max_pattern_size": 1024,
+        "min_pattern_size": 3,
+        "min_count": 4,
+    }
+
+    dci_models = Path(
+        "experiments/paper/dci_agent_qwen3_5_9b/models.json"
+    ).read_text(encoding="utf-8")
+    assert '"contextWindow": 131072' in dci_models
+    assert '"maxTokens": 4096' in dci_models
+
+
+def test_gpt_ge_profile_pins_dated_gpt41_mini_without_embedding_a_key() -> None:
+    profile = load_model_profiles(
+        Path("experiments/paper/model_profiles.json")
+    )["gpt_4_1_mini_gpt_ge"]
+
+    assert profile == {
+        "api_base": "https://api.gpt.ge/v1",
+        "api_key_env": "COMPASS_GPT_GE_API_KEY",
+        "cache": True,
+        "cache_in_memory": True,
+        "enable_thinking": False,
+        "max_tokens": 16384,
+        "model": "openai/gpt-4.1-mini-2025-04-14",
+        "model_type": "chat",
+        "num_retries": 0,
+        "temperature": 1.0,
+    }
+
+
 def test_generated_config_rejects_unsafe_tag() -> None:
     with pytest.raises(ValueError, match="tag"):
         build_run_config(
@@ -168,6 +212,36 @@ def test_generated_aime_window_one_limits_only_outer_minibatch_concurrency() -> 
     assert config["optimizer"]["max_reflection_workers"] == 1
     assert config["optimizer"]["num_threads"] == 32
     assert config["model"]["timeout"] == 6000
+
+
+def test_ifbench_qwen35_profile_uses_1200_second_request_timeout() -> None:
+    profile = load_model_profiles(
+        Path("experiments/paper/model_profiles.json")
+    )["qwen3_5_9b_local_vllm_18035"]
+
+    assert profile["timeout"] == 1200
+
+
+def test_generated_ifbench_config_uses_1200_second_operation_deadlines() -> None:
+    _, config = build_run_config(
+        task_id="ifbench",
+        condition="compass_reflection",
+        seed=0,
+        tag="timeout1200",
+        model_profile_name="qwen3_5_9b_local_vllm_18035",
+        model_profile=load_model_profiles(
+            Path("experiments/paper/model_profiles.json")
+        )["qwen3_5_9b_local_vllm_18035"],
+        remote_root=Path("F:/COMPASS_evolution"),
+        snapshot={},
+        rollout_timeout_seconds=1200,
+        proposal_timeout_seconds=1200,
+    )
+
+    assert config["model"]["timeout"] == 1200
+    assert config["optimizer"]["rollout_timeout_seconds"] == 1200
+    assert config["optimizer"]["proposal_timeout_seconds"] == 1200
+    assert config["optimizer"]["evaluation_straggler_timeout"] == 0
 
 
 def test_generated_config_requires_both_split_batch_sizes() -> None:

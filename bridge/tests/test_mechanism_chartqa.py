@@ -185,13 +185,28 @@ def _write_prepared_root(tmp_path: Path) -> tuple[Path, _PreparedParquetRows]:
                 "commit": "044eabfc306abfe9340c5741f0093aefc5973d06"
             },
             "selection": {
-                "train_lite": {"count": 2},
-                "val_lite": {"count": 1},
+                "train_lite": {
+                    "count": 2,
+                    "composition": {"human": 2},
+                    "rule_id": "small-test-rule",
+                },
+                "val_lite": {
+                    "count": 1,
+                    "composition": {"human": 1},
+                    "rule_id": "small-test-rule",
+                },
+            },
+            "hygiene": {
+                "split_hygiene_rule_id": "small-split-hygiene",
+                "exact_duplicate_rule_id": "small-duplicate-hygiene",
             },
             "formal_test": {
                 "parquet": "lmms_test/test.parquet",
+                "parquet_sha256": _sha256(parquet_path),
                 "row_count": 2,
+                "dataset_revision": "small-test-revision",
                 "lmms_eval_commit": "cb45ac4d4a667ea5ef89c7a148bff69b3489b981",
+                "type_counts": {"human_test": 1, "augmented_test": 1},
             },
             "files": {
                 path: {"sha256": _sha256(root / path)} for path in pinned_files
@@ -217,6 +232,41 @@ def _use_small_prepared_protocol(monkeypatch) -> None:
         mechanism_chartqa,
         "CHARTQA_PREPARED_SPLIT_COUNTS",
         {"train": 2, "val": 1, "test": 2},
+    )
+    monkeypatch.setattr(
+        mechanism_chartqa,
+        "CHARTQA_PREPARED_COMPOSITION",
+        {"train": {"human": 2}, "val": {"human": 1}},
+    )
+    monkeypatch.setattr(
+        mechanism_chartqa,
+        "CHARTQA_PREPARED_SELECTION_RULE_ID",
+        "small-test-rule",
+    )
+    monkeypatch.setattr(
+        mechanism_chartqa,
+        "CHARTQA_PREPARED_SPLIT_HYGIENE_RULE_ID",
+        "small-split-hygiene",
+    )
+    monkeypatch.setattr(
+        mechanism_chartqa,
+        "CHARTQA_PREPARED_EXACT_DUPLICATE_RULE_ID",
+        "small-duplicate-hygiene",
+    )
+    monkeypatch.setattr(
+        mechanism_chartqa,
+        "CHARTQA_TEST_DATASET_REVISION",
+        "small-test-revision",
+    )
+    monkeypatch.setattr(
+        mechanism_chartqa,
+        "CHARTQA_TEST_PARQUET_SHA256",
+        hashlib.sha256(b"").hexdigest(),
+    )
+    monkeypatch.setattr(
+        mechanism_chartqa,
+        "CHARTQA_TEST_TYPE_COUNTS",
+        {"human_test": 1, "augmented_test": 1},
     )
 
 
