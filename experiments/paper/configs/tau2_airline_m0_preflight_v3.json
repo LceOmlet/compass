@@ -1,0 +1,14 @@
+{
+  "api_base": "https://api.gpt.ge/v1",
+  "api_key_env": "COMPASS_GPT_GE_API_KEY",
+  "cache_dir": "F:/compass-paper-formal/f86830e/primary/preflight/cache/primary_tau2_airline_m0_seed0_preflight",
+  "logical_rollout_budget": 96,
+  "matrix_id": "compass_paper_primary_ablation_v1",
+  "method": "m0",
+  "phase": "preflight",
+  "quiet": true,
+  "run_dir": "F:/compass-paper-formal/f86830e/primary/preflight/runs/primary_tau2_airline_m0_seed0_preflight",
+  "schema_version": 1,
+  "task_id": "tau2_airline",
+  "tau2_root": "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench"
+}

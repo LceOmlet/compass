@@ -1,0 +1,147 @@
+{
+  "bindings": {
+    "primary.tau2_airline.seed.seed0": {
+      "formal": {
+        "argv": [
+          "F:/compass-tau2-local/venv-v101/Scripts/python.exe",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/run_tau2_airline.py",
+          "--config",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/configs/tau2_airline_seed_formal_v3.json"
+        ],
+        "config_sha256": "18282c3b28cb1ce91a51896a2174c6fc5199499ff0c77c11b999f9bdf3278245",
+        "cwd": "D:/Users/Administrator/Documents/skill optimize/compass",
+        "pythonpath": [
+          "D:/Users/Administrator/Documents/skill optimize/compass",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/dspy",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa/src",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa-artifact",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench/src"
+        ],
+        "required_env": ["COMPASS_GPT_GE_API_KEY"],
+        "runner_sha256": "e1b69514e8ab55d0e31f0f75a072989d334d884492b07607c87e3f3b32a66a3b"
+      }
+    },
+    "primary.tau2_airline.gepa.seed0": {
+      "preflight": {
+        "argv": [
+          "F:/compass-tau2-local/venv-v101/Scripts/python.exe",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/run_tau2_airline.py",
+          "--config",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/configs/tau2_airline_gepa_preflight_v3.json"
+        ],
+        "config_sha256": "e275c27ca31766d7620e52faaa4dac579fcf77a54579ecd8f5b24ccb5e8156dc",
+        "cwd": "D:/Users/Administrator/Documents/skill optimize/compass",
+        "pythonpath": [
+          "D:/Users/Administrator/Documents/skill optimize/compass",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/dspy",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa/src",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa-artifact",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench/src"
+        ],
+        "required_env": ["COMPASS_GPT_GE_API_KEY"],
+        "runner_sha256": "e1b69514e8ab55d0e31f0f75a072989d334d884492b07607c87e3f3b32a66a3b"
+      },
+      "formal": {
+        "argv": [
+          "F:/compass-tau2-local/venv-v101/Scripts/python.exe",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/run_tau2_airline.py",
+          "--config",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/configs/tau2_airline_gepa_formal_v3.json"
+        ],
+        "config_sha256": "ec65cabd1dcd864c4633af914e9bb520b6e80596f93e6f30b83637baf51b26bb",
+        "cwd": "D:/Users/Administrator/Documents/skill optimize/compass",
+        "pythonpath": [
+          "D:/Users/Administrator/Documents/skill optimize/compass",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/dspy",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa/src",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa-artifact",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench/src"
+        ],
+        "required_env": ["COMPASS_GPT_GE_API_KEY"],
+        "runner_sha256": "e1b69514e8ab55d0e31f0f75a072989d334d884492b07607c87e3f3b32a66a3b"
+      }
+    },
+    "primary.tau2_airline.m0.seed0": {
+      "preflight": {
+        "argv": [
+          "F:/compass-tau2-local/venv-v101/Scripts/python.exe",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/run_tau2_airline.py",
+          "--config",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/configs/tau2_airline_m0_preflight_v3.json"
+        ],
+        "config_sha256": "58401bebb8035661e4521aad9b7b47f1cff7c99b109b8654e8cb7fd4a056402a",
+        "cwd": "D:/Users/Administrator/Documents/skill optimize/compass",
+        "pythonpath": [
+          "D:/Users/Administrator/Documents/skill optimize/compass",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/dspy",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa/src",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa-artifact",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench/src"
+        ],
+        "required_env": ["COMPASS_GPT_GE_API_KEY"],
+        "runner_sha256": "e1b69514e8ab55d0e31f0f75a072989d334d884492b07607c87e3f3b32a66a3b"
+      },
+      "formal": {
+        "argv": [
+          "F:/compass-tau2-local/venv-v101/Scripts/python.exe",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/run_tau2_airline.py",
+          "--config",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/configs/tau2_airline_m0_formal_v3.json"
+        ],
+        "config_sha256": "18a6b0d570b49e2a8f362aa678f12d2f742f664a46ef48e937d78fb773f6a784",
+        "cwd": "D:/Users/Administrator/Documents/skill optimize/compass",
+        "pythonpath": [
+          "D:/Users/Administrator/Documents/skill optimize/compass",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/dspy",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa/src",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa-artifact",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench/src"
+        ],
+        "required_env": ["COMPASS_GPT_GE_API_KEY"],
+        "runner_sha256": "e1b69514e8ab55d0e31f0f75a072989d334d884492b07607c87e3f3b32a66a3b"
+      }
+    },
+    "primary.tau2_airline.compass.seed0": {
+      "preflight": {
+        "argv": [
+          "F:/compass-tau2-local/venv-v101/Scripts/python.exe",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/run_tau2_airline.py",
+          "--config",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/configs/tau2_airline_compass_preflight_v3.json"
+        ],
+        "config_sha256": "aa9d991e958cf11f43392602880b30222bac126906025a16bcc6b308e4c499e2",
+        "cwd": "D:/Users/Administrator/Documents/skill optimize/compass",
+        "pythonpath": [
+          "D:/Users/Administrator/Documents/skill optimize/compass",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/dspy",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa/src",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa-artifact",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench/src"
+        ],
+        "required_env": ["COMPASS_GPT_GE_API_KEY"],
+        "runner_sha256": "e1b69514e8ab55d0e31f0f75a072989d334d884492b07607c87e3f3b32a66a3b"
+      },
+      "formal": {
+        "argv": [
+          "F:/compass-tau2-local/venv-v101/Scripts/python.exe",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/run_tau2_airline.py",
+          "--config",
+          "D:/Users/Administrator/Documents/skill optimize/compass/experiments/paper/configs/tau2_airline_compass_formal_v3.json"
+        ],
+        "config_sha256": "75151bca53c188e6d2ec6ec2a1194886f5efaa2accd0b8f9d6a3886630a95a9d",
+        "cwd": "D:/Users/Administrator/Documents/skill optimize/compass",
+        "pythonpath": [
+          "D:/Users/Administrator/Documents/skill optimize/compass",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/dspy",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa/src",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/gepa-artifact",
+          "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench/src"
+        ],
+        "required_env": ["COMPASS_GPT_GE_API_KEY"],
+        "runner_sha256": "e1b69514e8ab55d0e31f0f75a072989d334d884492b07607c87e3f3b32a66a3b"
+      }
+    }
+  },
+  "matrix_id": "compass_paper_primary_ablation_v1",
+  "schema_version": 1
+}

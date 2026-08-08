@@ -25,8 +25,8 @@
     "ablation": [12, 30]
   },
   "runtime_roots": {
-    "primary": "F:/compass-paper-formal/7ea5c0b/primary",
-    "ablation": "F:/compass-paper-formal/7ea5c0b/ablation"
+    "primary": "F:/compass-paper-formal/f86830e/primary",
+    "ablation": "F:/compass-paper-formal/f86830e/ablation"
   },
   "model_panels": {
     "gpt_4_1_mini_gpt_ge": {
