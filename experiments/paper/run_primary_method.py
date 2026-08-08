@@ -327,16 +327,18 @@ def _compile_gepa(
     if actual is None:
         raise RuntimeError("native DSPy GEPA did not expose total_metric_calls")
     actual = int(actual)
-    expected = int(config["logical_rollout_budget"])
-    if actual != expected:
+    threshold = int(config["logical_rollout_budget"])
+    if actual < threshold:
         raise RuntimeError(
-            "native GEPA did not exactly consume the frozen rollout allocation; "
-            "no filler evaluations are permitted: "
-            f"expected={expected}, actual={actual}"
+            "native GEPA stopped before reaching its frozen soft metric-call "
+            f"threshold: threshold={threshold}, actual={actual}"
         )
     return optimized, {
         "owner": "dspy.GEPA",
         "total_metric_calls": actual,
+        "max_metric_calls_threshold": threshold,
+        "metric_call_overshoot": actual - threshold,
+        "budget_semantics": "official_soft_iteration_boundary",
         "use_merge": False,
         "custom_instruction_proposer": (
             type(getattr(benchmark, "custom_instruction_proposer", None)).__name__
@@ -485,21 +487,25 @@ def run(config_path: Path) -> int:
                 expected = int(config["logical_rollout_budget"])
                 if (
                     config["phase"] == "formal"
+                    and config["method"] == "mipro"
                     and optimization_metric_calls != expected
                 ):
                     raise RuntimeError(
-                        "formal optimization did not exactly consume its frozen "
-                        "logical-rollout allocation; no filler evaluations are "
-                        f"permitted: expected={expected}, "
+                        "formal MIPROv2 did not exactly consume its frozen "
+                        "owner rollout allocation: "
+                        f"expected={expected}, "
                         f"actual={optimization_metric_calls}"
                     )
                 if (
-                    config["phase"] == "preflight"
+                    (
+                        config["phase"] == "preflight"
+                        or config["method"] == "gepa"
+                    )
                     and optimization_metric_calls < expected
                 ):
                     raise RuntimeError(
-                        "preflight did not reach its minimum logical-rollout "
-                        f"coverage: required={expected}, "
+                        "optimization did not reach its frozen metric-call "
+                        f"threshold: threshold={expected}, "
                         f"actual={optimization_metric_calls}"
                     )
             result: dict[str, Any] = {

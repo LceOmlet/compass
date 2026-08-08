@@ -490,6 +490,7 @@ def _completed_result_if_valid(
 def _optimization_summary(
     result: Any,
     *,
+    max_metric_calls_threshold: int,
     owner_resource_usage: Mapping[str, Any],
     reflection_lm: Any,
 ) -> dict[str, Any]:
@@ -501,8 +502,17 @@ def _optimization_summary(
         or total_metric_calls < 0
     ):
         raise RuntimeError("official GEPA result has no valid total_metric_calls")
+    if total_metric_calls < max_metric_calls_threshold:
+        raise RuntimeError(
+            "official GEPA stopped before reaching its frozen soft metric-call "
+            "threshold: "
+            f"threshold={max_metric_calls_threshold}, actual={total_metric_calls}"
+        )
     return {
         "total_metric_calls": total_metric_calls,
+        "max_metric_calls_threshold": max_metric_calls_threshold,
+        "metric_call_overshoot": total_metric_calls - max_metric_calls_threshold,
+        "budget_semantics": "official_soft_iteration_boundary",
         "num_candidates": len(candidates) if isinstance(candidates, Sequence) else None,
         "num_full_val_evals": getattr(result, "num_full_val_evals", None),
         "owner_episode_resource_usage": dict(owner_resource_usage),
@@ -670,6 +680,7 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             selected_idx = optimization.selected_candidate_idx
             optimization_summary = _optimization_summary(
                 optimization.result,
+                max_metric_calls_threshold=_budget_for(method, phase),
                 owner_resource_usage=load_usage(),
                 reflection_lm=reflection_lm,
             )

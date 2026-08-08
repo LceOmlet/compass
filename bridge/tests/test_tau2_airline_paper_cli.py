@@ -67,7 +67,7 @@ def test_identity_freezes_partition_budget_and_never_serializes_secret(
     assert identity["optimizer"]["parent_selection_score_mode"] == ("high_resolution")
 
 
-def test_preflight_uses_96_calls_and_does_not_touch_official_test(
+def test_preflight_uses_official_96_soft_threshold_and_does_not_touch_test(
     monkeypatch,
     tmp_path,
 ):
@@ -81,15 +81,15 @@ def test_preflight_uses_96_calls_and_does_not_touch_official_test(
     def fake_optimize(**kwargs):
         captured.update(kwargs)
         usage = subject.summarize_tau2_resource_usage([])
-        usage["logical_episodes"] = 96
-        usage["execution_failures"] = 96
+        usage["logical_episodes"] = 101
+        usage["execution_failures"] = 101
         kwargs["resource_usage_callback"](usage)
         return SimpleNamespace(
             selected_candidate_idx=2,
             selected_candidate={"agent_instruction": "pilot candidate"},
             result=SimpleNamespace(
                 candidates=[{}, {}, {}],
-                total_metric_calls=96,
+                total_metric_calls=101,
                 num_full_val_evals=0,
             ),
         )
@@ -107,9 +107,16 @@ def test_preflight_uses_96_calls_and_does_not_touch_official_test(
     assert len(captured["view"].validation) == 6
     assert result["status"] == "completed"
     assert result["evaluation"]["status"] == "not_run"
-    assert result["optimization"]["total_metric_calls"] == 96
+    assert result["optimization"]["max_metric_calls_threshold"] == 96
+    assert result["optimization"]["total_metric_calls"] == 101
+    assert result["optimization"]["metric_call_overshoot"] == 5
     assert (
-        result["optimization"]["owner_episode_resource_usage"]["logical_episodes"] == 96
+        result["optimization"]["budget_semantics"]
+        == "official_soft_iteration_boundary"
+    )
+    assert (
+        result["optimization"]["owner_episode_resource_usage"]["logical_episodes"]
+        == 101
     )
 
 

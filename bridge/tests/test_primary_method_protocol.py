@@ -340,7 +340,7 @@ def test_gepa_factory_forwards_multimodal_owner_proposer(
             calls["program"] = program
             calls["compile"] = kwargs
             return SimpleNamespace(
-                detailed_results=SimpleNamespace(total_metric_calls=1152)
+                detailed_results=SimpleNamespace(total_metric_calls=1160)
             )
 
     monkeypatch.setattr(dspy, "GEPA", FakeGEPA)
@@ -375,4 +375,49 @@ def test_gepa_factory_forwards_multimodal_owner_proposer(
     assert calls["compile"]["trainset"] == [1]
     assert calls["compile"]["valset"] == [2]
     assert result["owner"] == "dspy.GEPA"
+    assert result["max_metric_calls_threshold"] == 1152
+    assert result["total_metric_calls"] == 1160
+    assert result["metric_call_overshoot"] == 8
+    assert result["budget_semantics"] == "official_soft_iteration_boundary"
     assert result["custom_instruction_proposer"] == "object"
+
+
+def test_gepa_factory_rejects_stopping_below_soft_threshold(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class FakeGEPA:
+        def __init__(self, **kwargs):
+            pass
+
+        def compile(self, program, **kwargs):
+            return SimpleNamespace(
+                detailed_results=SimpleNamespace(total_metric_calls=1151)
+            )
+
+    monkeypatch.setattr(dspy, "GEPA", FakeGEPA)
+    monkeypatch.setattr(
+        "experiments.paper.run_primary_method.make_gepa_feedback_metric",
+        lambda benchmark, scalar_metric: object(),
+    )
+    benchmark = SimpleNamespace(
+        program=object(),
+        splits=SimpleNamespace(train=(1,), validation=(2,), test=()),
+        custom_instruction_proposer=None,
+    )
+    config = _baseline_config(
+        tmp_path,
+        task_id="chartqa",
+        method="gepa",
+        logical_rollout_budget=1152,
+        num_threads=4,
+    )
+
+    with pytest.raises(RuntimeError, match="soft metric-call threshold"):
+        _compile_gepa(
+            benchmark=benchmark,
+            metric=object(),
+            lm=object(),
+            config=config,
+            run_dir=tmp_path,
+        )

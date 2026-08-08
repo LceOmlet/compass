@@ -10,6 +10,8 @@
     "no_runtime_watchdog_or_proactive_interruption": true,
     "no_dynamic_worker_change": true,
     "no_new_optimizer_gate": true,
+    "gepa_max_metric_calls_uses_official_soft_iteration_boundary": true,
+    "actual_optimization_metric_calls_are_reported": true,
     "preflight_and_formal_state_and_cache_are_disjoint": true,
     "formal_release_requires_recorded_preflight_approval": true
   },
