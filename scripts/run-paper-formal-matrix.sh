@@ -113,7 +113,11 @@ exec >"$stdout_log" 2>"$stderr_log"
 set +o noclobber
 printf "%s START %s\n" "$(date -Iseconds)" "$slug"
 cd "$cwd"
-exec env PYTHONPATH="$pythonpath" "$python_executable" "$runner" "$config_flag" "$config_path"'
+exec env \
+    PYTHONUTF8=1 \
+    PYTHONIOENCODING=utf-8 \
+    PYTHONPATH="$pythonpath" \
+    "$python_executable" "$runner" "$config_flag" "$config_path"'
 
 "${emit_args[@]}" | xargs -0 -r -n 13 -P "$parallel" \
     bash -c "$launch_record" _

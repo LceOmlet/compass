@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -226,6 +229,44 @@ def test_launcher_is_bash_only_and_has_no_retry_watchdog_or_secret_loader() -> N
     assert "watchdog" not in lowered
     assert "api_key" not in lowered
     assert "sk-" not in launcher
+
+
+def test_launcher_utf8_contract_covers_the_owner_gepa_logger(
+    tmp_path: Path,
+) -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    launcher = (project_root / "scripts/run-paper-formal-matrix.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "PYTHONUTF8=1" in launcher
+    assert "PYTHONIOENCODING=utf-8" in launcher
+
+    log_path = tmp_path / "run_log.txt"
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONPATH"] = str(project_root / "upstreams/gepa/src")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys\n"
+                "from gepa.logging.logger import Logger\n"
+                "with Logger(sys.argv[1]) as logger:\n"
+                "    logger.log(chr(0x2022))\n"
+            ),
+            str(log_path),
+        ],
+        env=env,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr.decode(
+        "utf-8", errors="replace"
+    )
+    assert "•".encode("utf-8") in completed.stdout
+    assert log_path.read_text(encoding="utf-8").strip() == "•"
 
 
 def test_binding_freezes_runner_and_config_content(tmp_path: Path) -> None:
