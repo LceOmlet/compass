@@ -1,0 +1,15 @@
+{
+  "api_base": "https://api.gpt.ge/v1",
+  "api_key_env": "COMPASS_GPT_GE_API_KEY",
+  "expected_candidate_idx": 4,
+  "expected_candidate_sha256": "10d343650b0d775c81254c958c887c520be3d221aa0366bd515a08e4791e7bef",
+  "expected_source_candidates_sha256": "2a07a81e4716035aac33c034a2b328ed9134ee32f16711822061f03a19573027",
+  "expected_source_identity_sha256": "3ff509b6f918c741a68dda4a9733c518af2b72cbe0103d0e5d89db4e4d886edc",
+  "expected_source_recorded_candidate_idx": 0,
+  "expected_source_state_sha256": "203cc86c07717fa9ea042571ab4e1616b922c9b49759237648e43123e025a1d7",
+  "output_dir": "F:/compass-paper-formal/owner-final-correction/v1/runs/primary_tau2_airline_compass_seed0_owner_final_official_test",
+  "quiet": true,
+  "schema_version": 1,
+  "source_run": "F:/compass-paper-formal/f86830e/primary/formal/runs/primary_tau2_airline_compass_seed0_formal",
+  "tau2_root": "D:/Users/Administrator/Documents/skill optimize/compass/upstreams/tau2-bench"
+}
