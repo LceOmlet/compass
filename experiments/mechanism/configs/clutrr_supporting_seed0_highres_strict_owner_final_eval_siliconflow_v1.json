@@ -1,14 +1,14 @@
 {
   "api_key_env": "COMPASS_VLLM_API_KEY",
   "backend_identity": {
-    "evaluation_backend_id": "remote_vllm_18000",
-    "evaluation_provider_model": "Qwen3-8B",
-    "model_equivalence_basis": "exact_source_model_config",
-    "serving_backend_changed": false,
+    "evaluation_backend_id": "siliconflow_proxy_40038_secondary",
+    "evaluation_provider_model": "Qwen/Qwen3-8B",
+    "model_equivalence_basis": "same Qwen3-8B family and frozen decoding; provider and serving backend differ",
+    "serving_backend_changed": true,
     "source_backend_id": "remote_vllm_18000",
     "source_provider_model": "Qwen3-8B"
   },
-  "cache_dir": "F:/compass-mechanism-local/owner-final-correction/v1/cache/clutrr_supporting_seed0_highres_strict_owner_final",
+  "cache_dir": "F:/compass-mechanism-local/owner-final-correction/siliconflow-v1/cache/clutrr_supporting_seed0_highres_strict_owner_final",
   "expected": {
     "candidate_pool_size": 18,
     "candidate_sha256": "c0511ff1d04524df509e825c585e360a37d03c89e23bc0748f0de3e734f5186f",
@@ -49,12 +49,12 @@
     "task_id": "clutrr_supporting"
   },
   "model": {
-    "api_base": "http://127.0.0.1:18000/v1",
+    "api_base": "http://127.0.0.1:40038/v1",
     "cache": true,
     "cache_in_memory": true,
     "enable_thinking": true,
     "max_tokens": 16384,
-    "model": "openai/Qwen3-8B",
+    "model": "openai/compass-qwen3-8b",
     "model_type": "chat",
     "num_retries": 0,
     "temperature": 0.6,
@@ -63,7 +63,7 @@
     "top_p": 0.95
   },
   "num_threads": 32,
-  "output_dir": "F:/compass-mechanism-local/owner-final-correction/v1/runs/clutrr_supporting_seed0_highres_strict_owner_final",
+  "output_dir": "F:/compass-mechanism-local/owner-final-correction/siliconflow-v1/runs/clutrr_supporting_seed0_highres_strict_owner_final",
   "schema_version": 2,
   "source_run_dir": "F:/compass-mechanism-local/runs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_highres_strict"
 }

@@ -66,3 +66,48 @@ def test_numeric_score_accepts_owner_zero_and_rejects_nonfinite() -> None:
         assert "non-finite" in str(error)
     else:
         raise AssertionError("non-finite owner score was accepted")
+
+
+def test_backend_identity_records_exact_source_backend() -> None:
+    source_model = {key: f"value-{key}" for key in subject.MODEL_KEYS}
+    config = {
+        "expected": {"source_model": source_model},
+        "model": dict(source_model),
+        "backend_identity": {
+            "evaluation_backend_id": "owner-vllm",
+            "evaluation_provider_model": "Qwen3-8B",
+            "model_equivalence_basis": "exact_source_model_config",
+            "serving_backend_changed": False,
+            "source_backend_id": "owner-vllm",
+            "source_provider_model": "Qwen3-8B",
+        },
+    }
+    identity = subject._verify_backend_identity(
+        config, {"model": dict(source_model)}
+    )
+    assert identity["serving_backend_changed"] is False
+    assert identity["source_model"] == identity["evaluation_model"]
+
+
+def test_backend_identity_requires_explicit_backend_change() -> None:
+    source_model = {key: f"source-{key}" for key in subject.MODEL_KEYS}
+    evaluation_model = dict(source_model)
+    evaluation_model["api_base"] = "http://proxy/v1"
+    config = {
+        "expected": {"source_model": source_model},
+        "model": evaluation_model,
+        "backend_identity": {
+            "evaluation_backend_id": "proxy",
+            "evaluation_provider_model": "Qwen/Qwen3-8B",
+            "model_equivalence_basis": "same model family; serving backend differs",
+            "serving_backend_changed": False,
+            "source_backend_id": "owner-vllm",
+            "source_provider_model": "Qwen3-8B",
+        },
+    }
+    try:
+        subject._verify_backend_identity(config, {"model": source_model})
+    except RuntimeError as error:
+        assert "serving_backend_changed" in str(error)
+    else:
+        raise AssertionError("unacknowledged backend change was accepted")

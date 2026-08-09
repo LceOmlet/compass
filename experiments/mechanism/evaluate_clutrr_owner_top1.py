@@ -32,6 +32,7 @@ Identity = tuple[str, int]
 
 CONFIG_KEYS = {
     "api_key_env",
+    "backend_identity",
     "cache_dir",
     "expected",
     "model",
@@ -52,10 +53,19 @@ EXPECTED_KEYS = {
     "source_gepa_state_sha256",
     "source_manifest_config_sha256",
     "source_manifest_sha256",
+    "source_model",
     "source_root_head",
     "split_fingerprints",
     "split_sizes",
     "task_id",
+}
+BACKEND_IDENTITY_KEYS = {
+    "evaluation_backend_id",
+    "evaluation_provider_model",
+    "model_equivalence_basis",
+    "serving_backend_changed",
+    "source_backend_id",
+    "source_provider_model",
 }
 MODEL_KEYS = {
     "api_base",
@@ -137,8 +147,8 @@ def _exact_mapping(value: Any, *, name: str, keys: set[str]) -> dict[str, Any]:
 
 def _load_config(path: Path) -> dict[str, Any]:
     config = _exact_mapping(_read_json(path), name="config", keys=CONFIG_KEYS)
-    if config["schema_version"] != 1:
-        raise ValueError("config.schema_version must equal 1")
+    if config["schema_version"] != 2:
+        raise ValueError("config.schema_version must equal 2")
     config["expected"] = _exact_mapping(
         config["expected"],
         name="config.expected",
@@ -148,6 +158,16 @@ def _load_config(path: Path) -> dict[str, Any]:
         config["model"],
         name="config.model",
         keys=MODEL_KEYS,
+    )
+    config["expected"]["source_model"] = _exact_mapping(
+        config["expected"]["source_model"],
+        name="config.expected.source_model",
+        keys=MODEL_KEYS,
+    )
+    config["backend_identity"] = _exact_mapping(
+        config["backend_identity"],
+        name="config.backend_identity",
+        keys=BACKEND_IDENTITY_KEYS,
     )
     if config["model"]["cache"] is not True:
         raise ValueError("CLUTRR correction must preserve cache=true")
@@ -161,7 +181,43 @@ def _load_config(path: Path) -> dict[str, Any]:
     api_key_env = config["api_key_env"]
     if not isinstance(api_key_env, str) or not api_key_env:
         raise TypeError("config.api_key_env must be non-empty text")
+    for key in BACKEND_IDENTITY_KEYS.difference({"serving_backend_changed"}):
+        value = config["backend_identity"][key]
+        if not isinstance(value, str) or not value:
+            raise TypeError(f"config.backend_identity.{key} must be non-empty text")
+    if not isinstance(
+        config["backend_identity"]["serving_backend_changed"], bool
+    ):
+        raise TypeError(
+            "config.backend_identity.serving_backend_changed must be boolean"
+        )
     return config
+
+
+def _verify_backend_identity(
+    config: Mapping[str, Any], source_manifest: Mapping[str, Any]
+) -> dict[str, Any]:
+    source_model = config["expected"]["source_model"]
+    if source_manifest.get("model") != source_model:
+        raise RuntimeError("source manifest model identity changed")
+    backend = dict(config["backend_identity"])
+    model_config_changed = dict(config["model"]) != dict(source_model)
+    if backend["serving_backend_changed"] is not model_config_changed:
+        raise RuntimeError(
+            "serving_backend_changed does not match the frozen model configs"
+        )
+    backend_ids_changed = (
+        backend["evaluation_backend_id"] != backend["source_backend_id"]
+    )
+    if backend_ids_changed is not backend["serving_backend_changed"]:
+        raise RuntimeError(
+            "backend IDs do not match serving_backend_changed"
+        )
+    return {
+        **backend,
+        "source_model": dict(source_model),
+        "evaluation_model": dict(config["model"]),
+    }
 
 
 def _verify_source_artifacts(
@@ -203,6 +259,7 @@ def _verify_source_artifacts(
         "source_manifest_config_sha256"
     ]:
         raise RuntimeError("source manifest config identity changed")
+    _verify_backend_identity(config, source_manifest)
 
     task = source_manifest.get("task")
     if not isinstance(task, Mapping) or task.get("task_id") != expected["task_id"]:
@@ -231,7 +288,10 @@ def _verify_source_artifacts(
     raw_candidate = state.program_candidates[selected_idx]
     if not isinstance(raw_candidate, Mapping):
         raise TypeError("owner-selected candidate is not a mapping")
-    candidate = {str(name): str(instruction) for name, instruction in raw_candidate.items()}
+    candidate = {
+        str(name): str(instruction)
+        for name, instruction in raw_candidate.items()
+    }
     if _candidate_sha256(candidate) != expected["candidate_sha256"]:
         raise RuntimeError("owner-selected candidate content changed")
     return state, candidate, source_manifest
@@ -266,6 +326,9 @@ def _new_checkpoint(
         "split_fingerprints": dict(expected["split_fingerprints"]),
         "selected_candidate_idx": expected["owner_selected_candidate_idx"],
         "candidate_sha256": _candidate_sha256(candidate),
+        "backend_identity": _verify_backend_identity(
+            config, source_manifest={"model": expected["source_model"]}
+        ),
         "retry_policy": "empty_prediction_until_complete",
         "selection_frozen_before_test": True,
         "test_used_for_selection": False,
@@ -426,6 +489,9 @@ def _validate_resume(
         "split_fingerprints": expected["split_fingerprints"],
         "selected_candidate_idx": expected["owner_selected_candidate_idx"],
         "candidate_sha256": candidate_sha256,
+        "backend_identity": _verify_backend_identity(
+            config, source_manifest={"model": expected["source_model"]}
+        ),
     }
     for key, expected_value in checks.items():
         if checkpoint.get(key) != expected_value:
@@ -445,6 +511,7 @@ def main() -> int:
     config_sha256 = _config_sha256(config)
     state, candidate, source_manifest = _verify_source_artifacts(config)
     expected = config["expected"]
+    backend_identity = _verify_backend_identity(config, source_manifest)
 
     api_key = os.environ.get(config["api_key_env"])
     if not api_key:
@@ -537,6 +604,8 @@ def main() -> int:
                     ),
                 },
                 "model": dict(config["model"]),
+                "source_model": dict(expected["source_model"]),
+                "backend_identity": backend_identity,
                 "api_key_env_name": config["api_key_env"],
                 "num_threads": config["num_threads"],
                 "retry_policy": "empty_prediction_until_complete",
@@ -679,6 +748,9 @@ def main() -> int:
             ],
             "candidate_sha256": _candidate_sha256(candidate),
             "candidate_pool_size": len(state.program_candidates),
+            "source_model": dict(expected["source_model"]),
+            "evaluation_model": dict(config["model"]),
+            "backend_identity": backend_identity,
             "optimization_metric_calls": state.total_num_evals,
             "selection_frozen_before_test": True,
             "test_used_for_selection": False,
