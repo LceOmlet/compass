@@ -7,15 +7,18 @@ from typing import Any
 
 from dspy.utils.parallelizer import ParallelExecutor
 
-
 _DSPY_EVALUATE = import_module("dspy.evaluate.evaluate")
 _OFFICIAL_EVALUATE_PARALLEL_EXECUTOR = _DSPY_EVALUATE.ParallelExecutor
 _PARENT_EVALUATION_LOCK = threading.RLock()
 
 
 def _parent_parallel_executor(*args: Any, **kwargs: Any) -> ParallelExecutor:
-    if "timeout" in kwargs or "straggler_limit" in kwargs:
-        raise RuntimeError("official Evaluate unexpectedly configured straggler handling")
+    # Current DSPy Evaluate always forwards its configured timeout and
+    # straggler_limit (including the official defaults) to ParallelExecutor.
+    # This owner scope intentionally replaces only those two scheduler values;
+    # every other official executor argument is preserved unchanged.
+    kwargs.pop("timeout", None)
+    kwargs.pop("straggler_limit", None)
     return _OFFICIAL_EVALUATE_PARALLEL_EXECUTOR(
         *args,
         timeout=0,
@@ -34,7 +37,9 @@ def without_parent_straggler_resubmission():
             _OFFICIAL_EVALUATE_PARALLEL_EXECUTOR,
             _parent_parallel_executor,
         ):
-            raise RuntimeError("another component replaced DSPy Evaluate ParallelExecutor")
+            raise RuntimeError(
+                "another component replaced DSPy Evaluate ParallelExecutor"
+            )
         _DSPY_EVALUATE.ParallelExecutor = _parent_parallel_executor
         try:
             yield

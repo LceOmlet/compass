@@ -134,7 +134,9 @@ def test_owner_scope_disables_only_dspy_tail_straggler_resubmission() -> None:
     try:
         with _EVALUATE_OWNER.without_parent_straggler_resubmission():
             executor = _EVALUATE_OWNER._DSPY_EVALUATE.ParallelExecutor(
-                num_threads=3
+                num_threads=3,
+                timeout=120,
+                straggler_limit=3,
             )
             assert isinstance(executor, FakeOfficialExecutor)
         assert _EVALUATE_OWNER._DSPY_EVALUATE.ParallelExecutor is FakeOfficialExecutor
@@ -148,3 +150,22 @@ def test_owner_scope_disables_only_dspy_tail_straggler_resubmission() -> None:
         "timeout": 0,
         "straggler_limit": 0,
     }
+
+
+def test_owner_scope_accepts_current_dspy_evaluate_forwarded_defaults() -> None:
+    class EchoProgram(dspy.Module):
+        def forward(self, value: str) -> dspy.Prediction:
+            return dspy.Prediction(value=value)
+
+    example = dspy.Example(value="ok").with_inputs("value")
+    evaluator = dspy.Evaluate(
+        devset=[example],
+        metric=lambda item, prediction: float(item.value == prediction.value),
+        num_threads=1,
+    )
+
+    with _EVALUATE_OWNER.without_parent_straggler_resubmission():
+        result = evaluator(EchoProgram())
+
+    assert len(result.results) == 1
+    assert result.results[0][2] == 1.0
