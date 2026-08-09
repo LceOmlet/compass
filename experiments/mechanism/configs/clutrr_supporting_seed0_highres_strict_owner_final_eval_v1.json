@@ -1,0 +1,47 @@
+{
+  "api_key_env": "COMPASS_VLLM_API_KEY",
+  "cache_dir": "F:/compass-mechanism-local/owner-final-correction/v1/cache/clutrr_supporting_seed0_highres_strict_owner_final",
+  "expected": {
+    "candidate_pool_size": 18,
+    "candidate_sha256": "c0511ff1d04524df509e825c585e360a37d03c89e23bc0748f0de3e734f5186f",
+    "old_selected_candidate_idx": 1,
+    "optimization_metric_calls": 1051,
+    "owner_selected_candidate_idx": 3,
+    "source_candidates_sha256": "765fbdb1fd0dfdb7969f418f0ed13032541a23d1e8fed96f94b174346ca4bb37",
+    "source_config_sha256": "b6147590ddc877b6fb5f1c95f6577a0dadb1d6a3234715b283f80fcada6869a9",
+    "source_final_result_sha256": "4e5fc4845de70d61519bc34cbdf724231e3f8d30655634f7bb7c23cfa296485a",
+    "source_gepa_state_sha256": "b1625c336665e1138b1ec6e56ba824d7744b2c1cf6183e7821ffeaec95085dc9",
+    "source_manifest_config_sha256": "0e23d1ff1a4069ccc72308002dc7df8a41d6d6f6e71073473e3bef0eaf21043c",
+    "source_manifest_sha256": "1343038dfc90f631e9baacc5ba11b7b277e31176f54bd1447b8247d7e06399d3",
+    "source_root_head": "ee04edcaa844b71c0fd8679f60fc9749cf135230",
+    "split_fingerprints": {
+      "test": "4c159d40ad12228661d0bab4c45a0a5b893c78180755b0de86eed6827136b535",
+      "train": "be4a5e945b29315fbc871cccbe90f73ba2fe689a46ef1652e52d598433f47e93",
+      "validation": "3d3bbc55d59e17822f288f9931b36f514ac96a0f9db7790663424511eb0bc2ce"
+    },
+    "split_sizes": {
+      "test": 447,
+      "train": 150,
+      "validation": 300
+    },
+    "task_id": "clutrr_supporting"
+  },
+  "model": {
+    "api_base": "http://127.0.0.1:18000/v1",
+    "cache": true,
+    "cache_in_memory": true,
+    "enable_thinking": true,
+    "max_tokens": 16384,
+    "model": "openai/Qwen3-8B",
+    "model_type": "chat",
+    "num_retries": 0,
+    "temperature": 0.6,
+    "timeout": 1200,
+    "top_k": 20,
+    "top_p": 0.95
+  },
+  "num_threads": 32,
+  "output_dir": "F:/compass-mechanism-local/owner-final-correction/v1/runs/clutrr_supporting_seed0_highres_strict_owner_final",
+  "schema_version": 1,
+  "source_run_dir": "F:/compass-mechanism-local/runs/hitab_chartqa_clutrr_mechanism_v1_clutrr_supporting_seed0_highres_strict"
+}
