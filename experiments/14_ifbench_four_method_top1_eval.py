@@ -21,18 +21,21 @@ from gepa.core.state import GEPAState
 from gepa_artifact.benchmarks.IFBench import (
     IFBench,
     IFBenchCoT2StageProgram,
+)
+from gepa_artifact.benchmarks.IFBench import (
     feedback_fn_map as official_feedback_fn_map,
+)
+from gepa_artifact.benchmarks.IFBench import (
     metric as official_metric,
 )
 
 from bridge.b19_reversible_parent_selection import (
     evaluation_count,
     frontier_count,
-    frontier_rate,
     high_resolution_frontier_credits,
     high_resolution_selection_rate,
 )
-
+from bridge.b20_compass_reflection import SparseMinibatchEvaluationPolicy
 
 RUNTIME_ROOT = Path(r"F:\compass-ifbench-local")
 RUN_ROOT = RUNTIME_ROOT / "runs"
@@ -115,6 +118,30 @@ METHOD_SETS = {
             ),
         },
     ),
+    "v45-v46-owner-final": (
+        {
+            "label": "high_resolution_strict_window5_owner_final",
+            "version": "v45",
+            "admission": "strict_improvement",
+            "score_mode": "raw_frontier_rate",
+            "parent_selection_score_mode": "high_resolution",
+            "run_name": (
+                "11_ifbench_raw_feedback_k1_20260731_"
+                "v45_split_1to1_high_resolution_strict_window5"
+            ),
+        },
+        {
+            "label": "high_resolution_always_accept_window5_owner_final",
+            "version": "v46",
+            "admission": "always_accept",
+            "score_mode": "raw_frontier_rate",
+            "parent_selection_score_mode": "high_resolution",
+            "run_name": (
+                "11_ifbench_raw_feedback_k1_20260731_"
+                "v46_split_1to1_high_resolution_always_accept_window5"
+            ),
+        },
+    ),
 }
 
 
@@ -169,26 +196,22 @@ def _select_top1(
 
     high_resolution_credits = high_resolution_frontier_credits(state)
     if score_mode == "raw_frontier_rate":
-        score = lambda candidate_idx: Fraction(
-            frontier_count(state, candidate_idx),
-            evaluation_count(state, candidate_idx),
-        )
+        selected_idx = SparseMinibatchEvaluationPolicy().get_best_program(state)
     elif score_mode == "high_resolution":
         score = lambda candidate_idx: high_resolution_selection_rate(
             state,
             candidate_idx,
         )
+        selected_idx = max(
+            eligible,
+            key=lambda candidate_idx: (
+                score(candidate_idx),
+                evaluation_count(state, candidate_idx),
+                -candidate_idx,
+            ),
+        )
     else:
         raise ValueError(f"unsupported score mode: {score_mode!r}")
-
-    selected_idx = max(
-        eligible,
-        key=lambda candidate_idx: (
-            score(candidate_idx),
-            evaluation_count(state, candidate_idx),
-            -candidate_idx,
-        ),
-    )
     frontiers = frontier_count(state, selected_idx)
     exposure = evaluation_count(state, selected_idx)
     high_resolution_rate = high_resolution_selection_rate(state, selected_idx)

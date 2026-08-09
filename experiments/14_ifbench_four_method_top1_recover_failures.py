@@ -23,17 +23,27 @@ from gepa.core.state import GEPAState
 from gepa_artifact.benchmarks.IFBench import (
     IFBench,
     IFBenchCoT2StageProgram,
+)
+from gepa_artifact.benchmarks.IFBench import (
     feedback_fn_map as official_feedback_fn_map,
+)
+from gepa_artifact.benchmarks.IFBench import (
     metric as official_metric,
 )
 
 Identity = tuple[int, str]
 
-EXPECTED_V43_V46_TOP1 = {
-    "v43": 78,
-    "v44": 341,
-    "v45": 15,
-    "v46": 417,
+EXPECTED_TOP1_BY_METHOD_SET = {
+    "v43-v46": {
+        "v43": 78,
+        "v44": 341,
+        "v45": 15,
+        "v46": 417,
+    },
+    "v45-v46-owner-final": {
+        "v45": 24,
+        "v46": 246,
+    },
 }
 
 _PARALLELIZER_ERROR_MARKER = "ERROR dspy.utils.parallelizer: Error for Example("
@@ -410,7 +420,11 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--num-threads", default=32, type=int)
-    parser.add_argument("--method-set", choices=("v43-v46",), default="v43-v46")
+    parser.add_argument(
+        "--method-set",
+        choices=tuple(EXPECTED_TOP1_BY_METHOD_SET),
+        default="v43-v46",
+    )
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
@@ -449,7 +463,7 @@ def main() -> int:
         base_final=base_final,
         base_manifest=base_manifest,
         method_set=args.method_set,
-        expected_candidates=EXPECTED_V43_V46_TOP1,
+        expected_candidates=EXPECTED_TOP1_BY_METHOD_SET[args.method_set],
         test_keys=set(test_fields),
         config_path=args.config,
     )

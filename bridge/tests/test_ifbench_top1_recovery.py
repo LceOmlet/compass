@@ -5,11 +5,27 @@ import importlib
 import dspy
 import pytest
 
-
 _RECOVERY = importlib.import_module(
     "experiments.14_ifbench_four_method_top1_recover_failures"
 )
+_TOP1_EVAL = importlib.import_module(
+    "experiments.14_ifbench_four_method_top1_eval"
+)
 _EVALUATE_OWNER = importlib.import_module("bridge.dspy_evaluate")
+
+
+def test_corrected_high_resolution_runs_freeze_owner_final_candidates() -> None:
+    methods = _TOP1_EVAL.METHOD_SETS["v45-v46-owner-final"]
+
+    assert [method["version"] for method in methods] == ["v45", "v46"]
+    assert all(method["score_mode"] == "raw_frontier_rate" for method in methods)
+    assert all(
+        method["parent_selection_score_mode"] == "high_resolution"
+        for method in methods
+    )
+    assert _RECOVERY.EXPECTED_TOP1_BY_METHOD_SET[
+        "v45-v46-owner-final"
+    ] == {"v45": 24, "v46": 246}
 
 
 def test_parallelizer_error_parser_uses_explicit_example_identity() -> None:
