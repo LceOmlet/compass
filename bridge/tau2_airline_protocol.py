@@ -26,10 +26,7 @@ from tau2.metrics.agent_metrics import AgentMetrics, compute_metrics
 from tau2.runner.batch import run_tasks
 from tau2.runner.helpers import get_tasks
 
-from bridge.b19_reversible_parent_selection import (
-    SelectionScoreMode,
-    select_top_candidate_idx,
-)
+from bridge.b19_reversible_parent_selection import SelectionScoreMode
 from bridge.b20_compass_reflection import (
     CompassReflectionEngineConfig,
     run_compass_gepa_adapter_engine,
@@ -589,10 +586,7 @@ def run_tau2_airline_optimization(
         )
         result = compass_run.result
         state = GEPAState.load(str(run_dir))
-        selected_idx = select_top_candidate_idx(
-            state,
-            score_mode=settings.parent_selection_score_mode,
-        )
+        selected_idx = compass_run.evaluation_policy.get_best_program(state)
 
     selected_candidate = dict(result.candidates[selected_idx])
     return Tau2AirlineOptimizationRun(

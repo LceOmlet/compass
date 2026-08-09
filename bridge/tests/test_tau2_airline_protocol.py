@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -226,14 +227,17 @@ def test_compass_family_uses_same_adapter_engine(
             {"agent_instruction": "selected"},
         ]
     )
+    evaluation_policy = SimpleNamespace(get_best_program=Mock(return_value=1))
 
     def fake_engine(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(result=result)
+        return SimpleNamespace(
+            result=result,
+            evaluation_policy=evaluation_policy,
+        )
 
     monkeypatch.setattr(subject, "run_compass_gepa_adapter_engine", fake_engine)
     monkeypatch.setattr(subject.GEPAState, "load", lambda path: "state")
-    monkeypatch.setattr(subject, "select_top_candidate_idx", lambda *a, **k: 1)
     run_config = subject.build_tau2_airline_text_config(
         api_base="https://example.test/v1",
         task_split_name="train",
@@ -256,6 +260,7 @@ def test_compass_family_uses_same_adapter_engine(
     assert captured["config"].max_metric_calls == 600
     assert run.selected_candidate_idx == 1
     assert run.selected_candidate == {"agent_instruction": "selected"}
+    evaluation_policy.get_best_program.assert_called_once_with("state")
 
 
 def test_mipro_is_not_shadow_adapted(tmp_path):

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import dspy
 import pytest
@@ -13,6 +15,7 @@ from experiments.paper.run_compass_reflection import (
     _create_lm,
     _method_config_kwargs,
     _minibatch_config_kwargs,
+    _owner_selected_candidate_idx,
     _require_aime_gepa_protocol,
     _require_frozen_protocol,
     _require_resume_identity,
@@ -317,6 +320,16 @@ def test_runner_forwards_existing_compass_method_controls(tmp_path: Path) -> Non
         "parent_selection_score_mode": "raw_frontier_rate",
         "proposal_tasks_per_iteration": 5,
     }
+
+
+def test_final_selection_delegates_to_owner_evaluation_policy() -> None:
+    state = object()
+    policy = Mock()
+    policy.get_best_program.return_value = 7
+    run = SimpleNamespace(evaluation_policy=policy)
+
+    assert _owner_selected_candidate_idx(run, state) == 7
+    policy.get_best_program.assert_called_once_with(state)
 
 
 def test_runner_forwards_optional_official_candidate_proposal_budget(

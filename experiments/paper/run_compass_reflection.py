@@ -23,7 +23,6 @@ from bridge.b19_reversible_parent_selection import (
     frontier_count,
     high_resolution_frontier_credits,
     high_resolution_selection_rate,
-    select_top_candidate_idx,
 )
 from bridge.b20_compass_reflection import (
     CompassReflectionEngineConfig,
@@ -645,6 +644,11 @@ def _fraction_record(value: Any) -> dict[str, int]:
     }
 
 
+def _owner_selected_candidate_idx(run: Any, state: GEPAState) -> int:
+    """Keep final-program ownership with GEPA's evaluation policy."""
+    return int(run.evaluation_policy.get_best_program(state))
+
+
 def _load_benchmark_definition(
     config: Mapping[str, Any],
     *,
@@ -882,11 +886,10 @@ def main(*, benchmark_family: str = "official") -> int:
             )
 
             state = GEPAState.load(str(run_dir))
-            score_mode = config["optimizer"]["parent_selection_score_mode"]
-            selected_idx = select_top_candidate_idx(
-                state,
-                score_mode=score_mode,
-            )
+            parent_score_mode = config["optimizer"][
+                "parent_selection_score_mode"
+            ]
+            selected_idx = _owner_selected_candidate_idx(run, state)
             selected_candidate = state.program_candidates[selected_idx]
             selected_frontiers = frontier_count(state, selected_idx)
             selected_exposure = evaluation_count(state, selected_idx)
@@ -900,13 +903,14 @@ def main(*, benchmark_family: str = "official") -> int:
             selection = {
                 "selected_candidate_idx": selected_idx,
                 "selection_rule": (
-                    f"max({score_mode}, clean_exposure, -candidate_idx)"
+                    "max(raw_frontier_rate, clean_exposure, -candidate_idx)"
                 ),
+                "parent_selection_score_mode": parent_score_mode,
                 "selection_score": _fraction_record(
                     candidate_selection_rate(
                         state,
                         selected_idx,
-                        score_mode=score_mode,
+                        score_mode="raw_frontier_rate",
                     )
                 ),
                 "frontier_count": selected_frontiers,
