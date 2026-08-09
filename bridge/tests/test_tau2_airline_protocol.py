@@ -385,6 +385,47 @@ def test_final_evaluation_resume_requires_external_verification_and_owner_resume
         )
 
 
+def test_final_resume_checkpoint_requires_exact_owner_info_and_tasks(
+    monkeypatch,
+    tmp_path,
+):
+    expected_info = SimpleNamespace(digest="same")
+    previous = SimpleNamespace(
+        info=SimpleNamespace(digest="same"),
+        tasks=[SimpleNamespace(id="2", digest="task")],
+    )
+    monkeypatch.setattr(subject.Results, "load", lambda path: previous)
+    monkeypatch.setattr(subject, "get_info", lambda config: expected_info)
+    monkeypatch.setattr(
+        subject,
+        "get_pydantic_hash",
+        lambda value, exclude=None: value.digest,
+    )
+    official_test = [SimpleNamespace(id="2", digest="task")]
+
+    subject._validate_final_resume_checkpoint(
+        tmp_path / "results.json",
+        final_config=object(),
+        official_test=official_test,
+    )
+
+    previous.info.digest = "different"
+    with pytest.raises(RuntimeError, match="run config changed"):
+        subject._validate_final_resume_checkpoint(
+            tmp_path / "results.json",
+            final_config=object(),
+            official_test=official_test,
+        )
+    previous.info.digest = "same"
+    previous.tasks[0].digest = "different"
+    with pytest.raises(RuntimeError, match="tasks changed"):
+        subject._validate_final_resume_checkpoint(
+            tmp_path / "results.json",
+            final_config=object(),
+            official_test=official_test,
+        )
+
+
 def test_final_evaluation_rejects_unresolved_infrastructure_failure():
     identities = [
         SimpleNamespace(

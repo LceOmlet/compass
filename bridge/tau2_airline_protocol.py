@@ -24,7 +24,8 @@ from tau2.data_model.tasks import Task
 from tau2.evaluator.evaluator import EvaluationType
 from tau2.metrics.agent_metrics import AgentMetrics, compute_metrics
 from tau2.runner.batch import run_tasks
-from tau2.runner.helpers import get_tasks
+from tau2.runner.helpers import get_info, get_tasks
+from tau2.utils.pydantic_utils import get_pydantic_hash
 
 from bridge.b19_reversible_parent_selection import SelectionScoreMode
 from bridge.b20_compass_reflection import (
@@ -639,6 +640,37 @@ def _validate_final_results(results: Results) -> None:
         )
 
 
+def _validate_final_resume_checkpoint(
+    save_path: Path,
+    *,
+    final_config: TextRunConfig,
+    official_test: Sequence[Task],
+) -> None:
+    """Apply tau2's own compatibility identity before allowing auto-resume."""
+
+    previous = Results.load(save_path)
+    expected_info = get_info(final_config)
+    exclude_fields = {"environment_info": {"policy"}}
+    if get_pydantic_hash(previous.info, exclude=exclude_fields) != get_pydantic_hash(
+        expected_info, exclude=exclude_fields
+    ):
+        raise RuntimeError("tau2 final resume checkpoint run config changed")
+    previous_tasks = {str(task.id): task for task in previous.tasks}
+    expected_tasks = {str(task.id): task for task in official_test}
+    if set(previous_tasks) != set(expected_tasks):
+        raise RuntimeError("tau2 final resume checkpoint task set changed")
+    changed = [
+        task_id
+        for task_id, expected_task in expected_tasks.items()
+        if get_pydantic_hash(previous_tasks[task_id])
+        != get_pydantic_hash(expected_task)
+    ]
+    if changed:
+        raise RuntimeError(
+            f"tau2 final resume checkpoint tasks changed: {sorted(changed)}"
+        )
+
+
 def run_tau2_airline_final_evaluation(
     *,
     candidate: dict[str, str],
@@ -681,6 +713,12 @@ def run_tau2_airline_final_evaluation(
             "max_concurrency": TAU2_MAX_CONCURRENCY,
         }
     )
+    if save_path.exists():
+        _validate_final_resume_checkpoint(
+            save_path,
+            final_config=final_config,
+            official_test=official_test,
+        )
     results = run_tasks(
         final_config,
         list(official_test),
