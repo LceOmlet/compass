@@ -253,8 +253,13 @@ def test_formal_matrix_delegates_without_copying_compass_engine(tmp_path: Path) 
         ]
         == "high_resolution_lexicographic"
     )
+    compass_optimizer = by_key[("chartqa", "compass")]["config"]["optimizer"]
+    assert compass_optimizer["proposal_sampling_mode"] == "joint_linucb"
+    assert compass_optimizer["epoch_parallel_enabled"] is True
     m0_optimizer = by_key[("ifbench", "m0")]["config"]["optimizer"]
     assert m0_optimizer["parent_selection_score_mode"] == "high_resolution"
+    assert "proposal_sampling_mode" not in m0_optimizer
+    assert m0_optimizer["epoch_parallel_enabled"] is False
     assert m0_optimizer["reflection_minibatch_size"] == 3
     assert "proposal_minibatch_size" not in m0_optimizer
     assert "admission_minibatch_size" not in m0_optimizer

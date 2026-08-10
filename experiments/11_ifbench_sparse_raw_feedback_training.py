@@ -72,7 +72,10 @@ CONFIG_KEYS = {
 OPTIONAL_CONFIG_KEYS = {
     "remote_lm": {"rollout_timeout_seconds"},
     "parent_selection": {"mode"},
-    "epoch_parallel": {"proposal_tasks_per_iteration"},
+    "epoch_parallel": {
+        "proposal_sampling_mode",
+        "proposal_tasks_per_iteration",
+    },
     "official_gepa": {
         "acceptance_mode",
         "reflection_minibatch_size",
@@ -196,6 +199,24 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
         )
     if epoch_parallel["enabled"] is not True:
         raise ValueError("epoch_parallel.enabled must be true")
+    proposal_sampling_mode = epoch_parallel.get(
+        "proposal_sampling_mode",
+        "independent",
+    )
+    if proposal_sampling_mode not in {"independent", "joint_linucb"}:
+        raise ValueError(
+            "epoch_parallel.proposal_sampling_mode must be "
+            "'independent' or 'joint_linucb'"
+        )
+    if (
+        proposal_sampling_mode == "joint_linucb"
+        and parent_selection.get("mode", "high_resolution")
+        != "high_resolution_lexicographic"
+    ):
+        raise ValueError(
+            "joint_linucb requires parent_selection.mode="
+            "'high_resolution_lexicographic'"
+        )
     for name in ("max_candidate_workers", "max_reflection_workers"):
         value = epoch_parallel[name]
         if type(value) is not int or value <= 0:
@@ -326,6 +347,10 @@ def main() -> int:
             raise_on_exception=official["raise_on_exception"],
             use_cloudpickle=official["use_cloudpickle"],
             epoch_parallel_enabled=epoch_parallel["enabled"],
+            proposal_sampling_mode=epoch_parallel.get(
+                "proposal_sampling_mode",
+                "independent",
+            ),
             proposal_tasks_per_iteration=epoch_parallel.get(
                 "proposal_tasks_per_iteration"
             ),

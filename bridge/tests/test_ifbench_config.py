@@ -210,6 +210,23 @@ def test_lexicographic_high_resolution_mode_is_accepted() -> None:
     namespace["_require_configuration"](config)
 
 
+def test_joint_linucb_mode_is_explicit_and_requires_lexicographic_selection() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    config = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v35_dual_account_rate_limit_failover.json"
+    )
+    config["parent_selection"]["mode"] = "high_resolution_lexicographic"
+    config["epoch_parallel"]["proposal_sampling_mode"] = "joint_linucb"
+
+    namespace["_require_configuration"](config)
+
+    config["parent_selection"]["mode"] = "high_resolution"
+    with pytest.raises(ValueError, match="high_resolution_lexicographic"):
+        namespace["_require_configuration"](config)
+
+
 def test_v37_and_v38_only_add_high_resolution_mode_and_acceptance_choice() -> None:
     namespace = runpy.run_path(str(_RAW_ENTRY))
     v36 = namespace["load_config"](

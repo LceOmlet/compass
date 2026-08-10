@@ -75,6 +75,7 @@ OPTIMIZER_METHOD_KEYS = {
     "max_candidate_proposals",
     "max_reflection_workers",
     "parent_selection_score_mode",
+    "proposal_sampling_mode",
     "proposal_timeout_seconds",
     "proposal_tasks_per_iteration",
     "rollout_timeout_seconds",
@@ -203,12 +204,33 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
             "'raw_frontier_rate', 'high_resolution', or "
             "'high_resolution_lexicographic'"
         )
+    proposal_sampling_mode = optimizer.get(
+        "proposal_sampling_mode",
+        "independent",
+    )
+    if proposal_sampling_mode not in {"independent", "joint_linucb"}:
+        raise ValueError(
+            "optimizer.proposal_sampling_mode must be "
+            "'independent' or 'joint_linucb'"
+        )
     epoch_parallel_enabled = optimizer.get(
         "epoch_parallel_enabled",
         False,
     )
     if not isinstance(epoch_parallel_enabled, bool):
         raise TypeError("optimizer.epoch_parallel_enabled must be a JSON boolean")
+    if proposal_sampling_mode == "joint_linucb":
+        if not epoch_parallel_enabled:
+            raise ValueError(
+                "optimizer.proposal_sampling_mode='joint_linucb' requires "
+                "optimizer.epoch_parallel_enabled=true"
+            )
+        if score_mode != "high_resolution_lexicographic":
+            raise ValueError(
+                "optimizer.proposal_sampling_mode='joint_linucb' requires "
+                "optimizer.parent_selection_score_mode="
+                "'high_resolution_lexicographic'"
+            )
     proposal_tasks = optimizer.get("proposal_tasks_per_iteration")
     if proposal_tasks is not None and (
         isinstance(proposal_tasks, bool)
@@ -330,6 +352,8 @@ def _method_config_kwargs(optimizer: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "proposal_tasks_per_iteration": optimizer.get("proposal_tasks_per_iteration"),
     }
+    if "proposal_sampling_mode" in optimizer:
+        method["proposal_sampling_mode"] = optimizer["proposal_sampling_mode"]
     for name in ("rollout_timeout_seconds", "proposal_timeout_seconds"):
         if optimizer.get(name) is not None:
             method[name] = optimizer[name]

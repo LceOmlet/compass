@@ -85,9 +85,53 @@ _Avoid_: admission exclusion, direct-parent exclusion
 The share of a skill's clean exposures on which it is an official instance-frontier owner, with every frontier membership counted in full.
 _Avoid_: shared frontier rate, unique coverage
 
+**Program candidate (`skill`)**:
+The complete mapping of instruction components identified by one GEPA program index. It is the unit eligible for proposal-parent scheduling and admission; component selection inside the candidate remains owned by the official proposer.
+_Avoid_: instruction component, isolated prompt field, partial candidate
+
+**Proposal-active skill set (`A_t`)**:
+The non-masked program candidates retained by the tie-inclusive lexicographic Top-k boundary before proposal minibatches are allocated. Boundary ties remain members of the same active set.
+_Avoid_: all candidate-pool members, masked ancestor set, final-incumbent set
+
+**Joint proposal matching**:
+Maximum-weight rectangular matching between the proposal-active skill set and the current uncovered proposal minibatches using their joint scheduling scores. One matching pass uses each skill and minibatch at most once; when minibatches outnumber skills, further passes reuse the full skill set on only the remaining minibatches, without a separate per-skill capacity gate. Each pass first maximizes total scheduling score, then minimizes the sum of the selected skills' previously completed joint-arm observation counts. One completed `(skill, proposal minibatch)` task with an observed `y` adds one count; a task without a complete official admission comparison adds none. Any remaining optimum is the lexicographically smallest assignment sequence after sorting pairs by epoch minibatch position and then program index. Scores are never perturbed, and solver return order is not a tie-break.
+_Avoid_: proportional parent sampling, per-skill capacity parameter, executor concurrency limit, epsilon tie-breaking
+
+**Joint LinUCB scheduler**:
+The single deterministic proposal scheduler over `(skill, proposal minibatch)` arms. Its context is exactly `x=(1,H,N,U)`, its shared ridge state starts at `V_0=I_4` and `q_0=0`, and its score is exactly `x^T V_t^{-1}q_t + sqrt(x^T V_t^{-1}x)` (`beta_t=1`). One whole proposal wave freezes its active set, observations, `V_t`, and `q_t`, constructs the complete matching before execution, and then aggregates all completed admission observations in canonical assignment order into `V_{t+1}` and `q_{t+1}`. It delegates proposal generation, independent admission, acceptance, stopping, official testing, and final-candidate selection to their existing owners. The scheduler is implemented through the official joint `SamplingStrategy.sample_tasks(...)` seam and has no second policy layer.
+_Avoid_: per-skill bandit, tuned beta schedule, probability sampling, extra exploration rule, shadow proposal loop
+
+**Minimal scheduler boundary**:
+Only active-set construction, exact context calculation, joint LinUCB scoring, repeated rectangular matching, sufficient-statistic updates, and their checkpoint/trace representation belong to the scheduler. Executor concurrency is not a scheduling constraint, and the scheduler adds no capacity gate, IPS estimator, fallback selector, retry wrapper, budget pre-check, admission variant, or final-selection rule.
+_Avoid_: defensive policy additions, speculative gates, duplicated owner behavior
+
+**Signed admission gain (`y`)**:
+The unnormalized arithmetic-mean reward difference on the official independent admission batch between a completed child and the history-frozen per-instance bound references already used by official admission. It is recorded with its sign, without positive-part clipping and without division by rollout cost. Every completed admission outcome updates the shared LinUCB sufficient statistics with this value, whether the child is accepted or rejected.
+_Avoid_: accepted-only feedback, rejected-as-zero feedback, cost-normalized gain, extra parent evaluation, held-out test reward
+
+**Unobserved scheduler outcome**:
+A scheduled arm that does not produce a complete official admission comparison has no observed `y` and therefore makes no LinUCB update. Execution, reflection, or transport failure is never encoded as zero or as a negative method reward; a later completed execution supplies the sole update for that arm.
+_Avoid_: failure-as-zero feedback, failure penalty, partial-outcome update
+
 **Lexicographic high-resolution selection (`high_resolution_lexicographic`)**:
 Proposal-parent ordering by the exact tuple `(F/E, C/F)`, where `F/E` is the clean frontier hit rate and `C/F` is average shared credit conditional on a frontier hit. The second coordinate refines only exact hit-rate ties. Global top-N is tie inclusive on the complete tuple and the retained set is sampled uniformly, because a tuple has no proportional scalar weight. The historical `high_resolution` label and missing mode fields remain the legacy scalar `C/E` behavior for clean reruns and result interpretation; lexicographic mode requires explicit opt-in and a distinct run identity.
 _Avoid_: weighted sum, product score, epsilon scalarization, task-difficulty weighting
+
+**Observed active set (`O_i`)**:
+The proposal-active program candidates with a finite committed training observation on instance `i`. A missing observation is unknown evidence, never a zero reward.
+_Avoid_: complete active set, zero-filled score set, held-out result set
+
+**Observed repairable gap (`H`)**:
+The proposal-batch average positive deficit of one program candidate relative to the best observed active candidate. An unobserved candidate-instance pair contributes no repairable-gap value and remains represented by observation incompleteness.
+_Avoid_: proven inability, imputed-zero deficit, admission gain
+
+**Observed residual gap (`N`)**:
+The proposal-batch average shortfall of the best observed active candidate from the run's frozen official `perfect_score`. It means that all active candidates remain short of that target only when active-set observations are complete.
+_Avoid_: proven universal failure under incomplete observations, held-out error
+
+**Active-set observation incompleteness (`U`)**:
+The share of proposal-batch instances for which at least one proposal-active candidate lacks a finite committed training observation. It may be positive together with observed repairable and residual gaps.
+_Avoid_: failure score, abstention, incomparable lineage relation
 
 **Common-exposure ancestor mask**:
 A reversible proposal-parent eligibility rule that compares a strict descendant with an ancestor only on clean instance IDs exposed to both. Lexicographic high-resolution mode compares `(F/E, C/F)` on that shared domain; the descendant masks the ancestor when its complete tuple is no lower. With no shared clean exposure, the ancestor remains lineage-active, while explicit raw `F/E` and legacy scalar `C/E` modes retain their historical comparisons.

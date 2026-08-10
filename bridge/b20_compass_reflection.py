@@ -48,6 +48,7 @@ from bridge.b19_reversible_parent_selection import (
     frontier_count,
     frontier_rate,
 )
+from bridge.b21_joint_linucb_scheduler import JointLinUCBSamplingStrategy
 from bridge.minibatch_config import minibatch_config_kwargs
 from bridge.request_deadline import remaining_request_seconds, request_deadline
 
@@ -63,6 +64,10 @@ ReflectionCondition = Literal[
 AcceptanceMode = Literal[
     "strict_improvement",
     "always_accept",
+]
+ProposalSamplingMode = Literal[
+    "independent",
+    "joint_linucb",
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -1260,6 +1265,7 @@ class CompassReflectionEngineConfig:
     admission_minibatch_size: int | None = None
     dci_config: DciCompassConfig | None = None
     max_candidate_proposals: int | None = None
+    proposal_sampling_mode: ProposalSamplingMode = "independent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1274,7 +1280,11 @@ class _CompassEngineSetup:
     logger: LoggerProtocol
     adapter_rng: random.Random
     strategy_rng: random.Random
-    sampling_strategy: SingleMutationSampling | IndependentSampling
+    sampling_strategy: (
+        SingleMutationSampling
+        | IndependentSampling
+        | JointLinUCBSamplingStrategy[int, Any]
+    )
     sampler: EpochShuffledBatchSampler
     proposal_minibatch_size: int
     admission_minibatch_size: int
@@ -1327,9 +1337,24 @@ def proposal_sampling_strategy(
     minibatch_size: int,
     epoch_parallel_enabled: bool,
     proposal_tasks_per_iteration: int | None = None,
-) -> SingleMutationSampling | IndependentSampling:
+    proposal_sampling_mode: ProposalSamplingMode = "independent",
+    parent_top_n: int | None = None,
+    perfect_score: float | None = None,
+) -> (
+    SingleMutationSampling
+    | IndependentSampling
+    | JointLinUCBSamplingStrategy[int, Any]
+):
     """Use one proposal task or a bounded window of epoch minibatches."""
 
+    if proposal_sampling_mode not in ("independent", "joint_linucb"):
+        raise ValueError(
+            f"unsupported proposal sampling mode: {proposal_sampling_mode!r}"
+        )
+    if proposal_sampling_mode == "joint_linucb" and not epoch_parallel_enabled:
+        raise ValueError(
+            "joint_linucb requires epoch_parallel_enabled=true"
+        )
     if not epoch_parallel_enabled:
         return SingleMutationSampling()
     epoch_tasks = (trainset_size + minibatch_size - 1) // minibatch_size
@@ -1343,7 +1368,17 @@ def proposal_sampling_strategy(
         ):
             raise TypeError("proposal_tasks_per_iteration must be a positive integer")
         epoch_tasks = min(epoch_tasks, proposal_tasks_per_iteration)
-    return IndependentSampling(epoch_tasks)
+    if proposal_sampling_mode == "independent":
+        return IndependentSampling(epoch_tasks)
+    if parent_top_n is None:
+        raise ValueError("joint_linucb requires parent_top_n")
+    if perfect_score is None:
+        raise ValueError("joint_linucb requires perfect_score")
+    return JointLinUCBSamplingStrategy(
+        top_n=parent_top_n,
+        minibatches_per_wave=epoch_tasks,
+        perfect_score=perfect_score,
+    )
 
 
 def _prepare_compass_engine(
@@ -1357,6 +1392,16 @@ def _prepare_compass_engine(
         "compass_reflection",
     ):
         raise ValueError(f"unsupported reflection condition: {config.condition!r}")
+    if config.proposal_sampling_mode == "joint_linucb":
+        if config.condition != "compass_reflection":
+            raise ValueError(
+                "joint_linucb requires condition='compass_reflection'"
+            )
+        if config.parent_selection_score_mode != "high_resolution_lexicographic":
+            raise ValueError(
+                "joint_linucb requires "
+                "parent_selection_score_mode='high_resolution_lexicographic'"
+            )
     if config.max_candidate_proposals is not None:
         if (
             isinstance(config.max_candidate_proposals, bool)
@@ -1387,10 +1432,16 @@ def _prepare_compass_engine(
         minibatch_size=proposal_minibatch_size,
         epoch_parallel_enabled=config.epoch_parallel_enabled,
         proposal_tasks_per_iteration=config.proposal_tasks_per_iteration,
+        proposal_sampling_mode=config.proposal_sampling_mode,
+        parent_top_n=config.parent_top_n,
+        perfect_score=config.perfect_score,
     )
-    tasks_per_iteration = (
-        sampling_strategy.n if isinstance(sampling_strategy, IndependentSampling) else 1
-    )
+    if isinstance(sampling_strategy, IndependentSampling):
+        tasks_per_iteration = sampling_strategy.n
+    elif isinstance(sampling_strategy, JointLinUCBSamplingStrategy):
+        tasks_per_iteration = sampling_strategy.minibatches_per_wave
+    else:
+        tasks_per_iteration = 1
     epoch_tasks = (
         len(trainset) + proposal_minibatch_size - 1
     ) // proposal_minibatch_size
@@ -1433,15 +1484,15 @@ def _prepare_compass_engine(
             f"admission_universe_size={len(admission_set)}"
         )
     if config.epoch_parallel_enabled:
-        assert isinstance(sampling_strategy, IndependentSampling)
         wave_kind = "Whole-epoch" if whole_epoch_wave else "Windowed-epoch"
         logger.log(
             f"{wave_kind} proposal wave enabled: "
+            f"proposal_sampling_mode={config.proposal_sampling_mode}, "
             f"trainset_size={len(trainset)}, "
             f"proposal_minibatch_size={proposal_minibatch_size}, "
             f"admission_minibatch_size={admission_minibatch_size}, "
             f"epoch_tasks={epoch_tasks}, "
-            f"n_tasks={sampling_strategy.n}, "
+            f"n_tasks={tasks_per_iteration}, "
             f"max_candidate_workers={config.max_candidate_workers}, "
             f"max_reflection_workers={config.max_reflection_workers}"
         )
@@ -1681,6 +1732,7 @@ __all__ = [
     "AlwaysAcceptAcceptance",
     "CleanMiniAdmissionHook",
     "CompassReflectionEngineConfig",
+    "ProposalSamplingMode",
     "CompassReflectionRun",
     "MiniAdmissionHook",
     "SeedFallbackParetoCandidateSelector",

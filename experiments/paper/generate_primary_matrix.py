@@ -35,7 +35,7 @@ COMPASS_TEXT_RUNNER: Final = (
 COMPASS_CHARTQA_RUNNER: Final = (
     PROJECT_ROOT / "experiments/mechanism/run_compass_reflection.py"
 )
-DEFAULT_MATRIX_ID: Final = "primary_gpt41mini_seed0_v1"
+DEFAULT_MATRIX_ID: Final = "primary_gpt41mini_seed0_joint_linucb_v2"
 DEFAULT_OUTPUT_DIR: Final = (
     PROJECT_ROOT / "experiments/paper/generated" / DEFAULT_MATRIX_ID
 )
@@ -53,6 +53,7 @@ _SAFE_NAME: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SOURCE_FILES: Final[tuple[str, ...]] = (
     "bridge/b19_reversible_parent_selection.py",
     "bridge/b20_compass_reflection.py",
+    "bridge/b21_joint_linucb_scheduler.py",
     "bridge/chartqa_protocol.py",
     "bridge/mechanism_benchmark_registry.py",
     "bridge/mechanism_chartqa.py",
@@ -206,7 +207,7 @@ def _compass_config(
         "acceptance_mode": "strict_improvement",
         "add_format_failure_as_feedback": False,
         "display_progress_bar": False,
-        "epoch_parallel_enabled": False,
+        "epoch_parallel_enabled": method == "compass",
         "evaluation_straggler_timeout": 0,
         "failure_score": 0,
         "max_candidate_workers": max_candidate_workers,
@@ -230,6 +231,8 @@ def _compass_config(
     else:
         optimizer["proposal_minibatch_size"] = 3
         optimizer["admission_minibatch_size"] = 3
+    if method == "compass":
+        optimizer["proposal_sampling_mode"] = "joint_linucb"
 
     return {
         "cache_dir": _portable(runtime_root / "cache" / slug),

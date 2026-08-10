@@ -44,6 +44,7 @@ def test_generated_config_preserves_frozen_batch_and_budget() -> None:
     assert config["optimizer"]["reflection_minibatch_size"] == 3
     assert config["optimizer"]["max_candidate_workers"] == 3
     assert config["optimizer"]["parent_selection_score_mode"] == "high_resolution"
+    assert "proposal_sampling_mode" not in config["optimizer"]
     assert config["optimizer_seed"] == 2
     assert config["run_dir"].endswith(slug)
     assert config["cache_dir"].endswith(f"cache_{slug}")
@@ -66,6 +67,26 @@ def test_generated_config_can_explicitly_enable_lexicographic_high_resolution() 
     assert config["optimizer"]["parent_selection_score_mode"] == (
         "high_resolution_lexicographic"
     )
+
+
+def test_generated_config_can_explicitly_enable_joint_linucb() -> None:
+    slug, config = build_run_config(
+        task_id="hover",
+        condition="compass_reflection",
+        seed=2,
+        tag="20260810_joint_linucb_v1",
+        model_profile_name="qwen3_8b_local_vllm",
+        model_profile=_profile(),
+        remote_root=Path("/shared/reflection-bridge"),
+        snapshot={"root_head": "abc"},
+        parent_selection_score_mode="high_resolution_lexicographic",
+        proposal_sampling_mode="joint_linucb",
+        epoch_parallel_enabled=True,
+    )
+
+    assert config["optimizer"]["proposal_sampling_mode"] == "joint_linucb"
+    assert config["optimizer"]["epoch_parallel_enabled"] is True
+    assert slug.endswith("_joint_linucb")
 
 
 def test_qwen35_profile_uses_supported_long_context_without_changing_dci_output() -> None:

@@ -30,6 +30,7 @@ from tau2.utils.pydantic_utils import get_pydantic_hash
 from bridge.b19_reversible_parent_selection import SelectionScoreMode
 from bridge.b20_compass_reflection import (
     CompassReflectionEngineConfig,
+    ProposalSamplingMode,
     run_compass_gepa_adapter_engine,
 )
 from bridge.tau2_gepa_adapter import (
@@ -159,6 +160,9 @@ class Tau2AirlineOptimizationSettings:
     max_concurrency: int = TAU2_MAX_CONCURRENCY
     display_progress_bar: bool = False
     use_cloudpickle: bool = True
+    proposal_sampling_mode: ProposalSamplingMode = "independent"
+    epoch_parallel_enabled: bool = False
+    proposal_tasks_per_iteration: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -571,7 +575,9 @@ def run_tau2_airline_optimization(
             raise_on_exception=True,
             use_cloudpickle=settings.use_cloudpickle,
             parent_selection_score_mode=settings.parent_selection_score_mode,
-            epoch_parallel_enabled=False,
+            proposal_sampling_mode=settings.proposal_sampling_mode,
+            epoch_parallel_enabled=settings.epoch_parallel_enabled,
+            proposal_tasks_per_iteration=settings.proposal_tasks_per_iteration,
             max_reflection_workers=1,
             acceptance_mode="strict_improvement",
             proposal_minibatch_size=settings.proposal_minibatch_size,

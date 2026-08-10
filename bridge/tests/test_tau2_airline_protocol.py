@@ -258,9 +258,54 @@ def test_compass_family_uses_same_adapter_engine(
     assert captured["config"].proposal_minibatch_size == 3
     assert captured["config"].admission_minibatch_size == 3
     assert captured["config"].max_metric_calls == 600
+    assert captured["config"].proposal_sampling_mode == "independent"
+    assert captured["config"].epoch_parallel_enabled is False
     assert run.selected_candidate_idx == 1
     assert run.selected_candidate == {"agent_instruction": "selected"}
     evaluation_policy.get_best_program.assert_called_once_with("state")
+
+
+def test_tau2_compass_can_explicitly_bind_joint_linucb_without_changing_defaults(
+    monkeypatch,
+    tmp_path,
+):
+    view = subject.Tau2AirlineOptimizationView(
+        proposal=fake_tasks(subject.TAU2_AIRLINE_TRAIN_IDS[:-6]),
+        validation=fake_tasks(subject.TAU2_AIRLINE_TRAIN_IDS[-6:]),
+    )
+    monkeypatch.setattr(subject, "Tau2GEPAAdapter", lambda *args, **kwargs: object())
+    captured = {}
+
+    def fake_engine(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            result=SimpleNamespace(candidates=[{"agent_instruction": "seed"}]),
+            evaluation_policy=SimpleNamespace(get_best_program=Mock(return_value=0)),
+        )
+
+    monkeypatch.setattr(subject, "run_compass_gepa_adapter_engine", fake_engine)
+    monkeypatch.setattr(subject.GEPAState, "load", lambda path: "state")
+    run_config = subject.build_tau2_airline_text_config(
+        api_base="https://example.test/v1",
+        task_split_name="train",
+        num_trials=1,
+    )
+
+    subject.run_tau2_airline_optimization(
+        method="compass",
+        view=view,
+        run_config=run_config,
+        reflection_lm="reflection",
+        run_dir=tmp_path,
+        settings=subject.Tau2AirlineOptimizationSettings(
+            parent_selection_score_mode="high_resolution_lexicographic",
+            proposal_sampling_mode="joint_linucb",
+            epoch_parallel_enabled=True,
+        ),
+    )
+
+    assert captured["config"].proposal_sampling_mode == "joint_linucb"
+    assert captured["config"].epoch_parallel_enabled is True
 
 
 def test_mipro_is_not_shadow_adapted(tmp_path):

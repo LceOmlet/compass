@@ -132,6 +132,7 @@ def build_run_config(
     max_candidate_workers: int = 3,
     max_reflection_workers: int = 1,
     parent_selection_score_mode: str = "high_resolution",
+    proposal_sampling_mode: str = "independent",
     proposal_tasks_per_iteration: int | None = None,
     rollout_timeout_seconds: float | None = None,
     proposal_timeout_seconds: float | None = None,
@@ -154,8 +155,20 @@ def build_run_config(
         "high_resolution_lexicographic",
     }:
         raise ValueError("unknown parent-selection score mode")
+    if proposal_sampling_mode not in {"independent", "joint_linucb"}:
+        raise ValueError("unknown proposal-sampling mode")
     if not isinstance(epoch_parallel_enabled, bool):
         raise TypeError("epoch_parallel_enabled must be a boolean")
+    if proposal_sampling_mode == "joint_linucb":
+        if not epoch_parallel_enabled:
+            raise ValueError(
+                "joint_linucb requires epoch_parallel_enabled=true"
+            )
+        if parent_selection_score_mode != "high_resolution_lexicographic":
+            raise ValueError(
+                "joint_linucb requires "
+                "parent_selection_score_mode='high_resolution_lexicographic'"
+            )
     for name, value in (
         ("max_candidate_workers", max_candidate_workers),
         ("max_reflection_workers", max_reflection_workers),
@@ -213,9 +226,12 @@ def build_run_config(
         if value is not None
     }
 
+    sampling_suffix = (
+        "" if proposal_sampling_mode == "independent" else "_joint_linucb"
+    )
     slug = (
         f"paper_{model_profile_name}_{condition}_{task_id}_"
-        f"seed{seed}_{tag}"
+        f"seed{seed}_{tag}{sampling_suffix}"
     )
     config = {
         "cache_dir": str(remote_root / f"cache_{slug}"),
@@ -241,6 +257,11 @@ def build_run_config(
             "track_best_outputs": True,
             "use_cloudpickle": True,
             "proposal_tasks_per_iteration": proposal_tasks_per_iteration,
+            **(
+                {"proposal_sampling_mode": proposal_sampling_mode}
+                if proposal_sampling_mode != "independent"
+                else {}
+            ),
             **(
                 {"rollout_timeout_seconds": rollout_timeout_seconds}
                 if rollout_timeout_seconds is not None
@@ -308,6 +329,11 @@ def main() -> int:
         default="high_resolution",
     )
     parser.add_argument("--epoch-parallel-enabled", action="store_true")
+    parser.add_argument(
+        "--proposal-sampling-mode",
+        choices=("independent", "joint_linucb"),
+        default="independent",
+    )
     parser.add_argument("--proposal-tasks-per-iteration", type=int)
     parser.add_argument("--rollout-timeout-seconds", type=float)
     parser.add_argument("--proposal-timeout-seconds", type=float)
@@ -356,6 +382,7 @@ def main() -> int:
                 parent_selection_score_mode=(
                     args.parent_selection_score_mode
                 ),
+                proposal_sampling_mode=args.proposal_sampling_mode,
                 proposal_tasks_per_iteration=(
                     args.proposal_tasks_per_iteration
                 ),
