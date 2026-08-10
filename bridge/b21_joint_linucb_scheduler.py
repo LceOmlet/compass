@@ -100,6 +100,31 @@ class _LexCost:
             raise ValueError("lexicographic costs have different dimensions")
 
 
+def relaxed_repairable_gap(
+    state: GEPAState,
+    *,
+    active_program_indices: Sequence[int],
+    program_idx: int,
+    minibatch_ids: Sequence[DataId],
+) -> float:
+    """Return the canonical relaxed observed repairable gap ``H(s, b)``.
+
+    Missing program-instance observations are unknown, not zero.  They add a
+    zero term to the full-minibatch average instead of an imputed score.
+    """
+
+    _active, observations = _observed_scores_for_minibatch(
+        state,
+        active_program_indices=active_program_indices,
+        program_idx=program_idx,
+        minibatch_ids=minibatch_ids,
+    )
+    return _repairable_gap_from_observations(
+        program_idx=program_idx,
+        observations=observations,
+    )
+
+
 def observed_arm_context(
     state: GEPAState,
     *,
@@ -115,6 +140,45 @@ def observed_arm_context(
     full minibatch, so unknown positions add no imputed reward or deficit.
     """
 
+    active, observations = _observed_scores_for_minibatch(
+        state,
+        active_program_indices=active_program_indices,
+        program_idx=program_idx,
+        minibatch_ids=minibatch_ids,
+    )
+    target = _finite_float(perfect_score, label="perfect_score")
+
+    residual_terms: list[float] = []
+    incomplete_positions = 0
+    for observed in observations:
+        if len(observed) != len(active):
+            incomplete_positions += 1
+        if not observed:
+            residual_terms.append(0.0)
+            continue
+
+        best_observed = max(observed.values())
+        residual_terms.append(max(0.0, target - best_observed))
+
+    denominator = len(minibatch_ids)
+    return ObservedArmContext(
+        bias=1.0,
+        repairable_gap=_repairable_gap_from_observations(
+            program_idx=program_idx,
+            observations=observations,
+        ),
+        residual_gap=math.fsum(residual_terms) / denominator,
+        observation_incompleteness=incomplete_positions / denominator,
+    )
+
+
+def _observed_scores_for_minibatch(
+    state: GEPAState,
+    *,
+    active_program_indices: Sequence[int],
+    program_idx: int,
+    minibatch_ids: Sequence[DataId],
+) -> tuple[tuple[int, ...], tuple[dict[int, float], ...]]:
     active = tuple(dict.fromkeys(int(idx) for idx in active_program_indices))
     if not active:
         raise ValueError("active_program_indices must not be empty")
@@ -122,11 +186,8 @@ def observed_arm_context(
         raise ValueError("program_idx must belong to active_program_indices")
     if not minibatch_ids:
         raise ValueError("minibatch_ids must not be empty")
-    target = _finite_float(perfect_score, label="perfect_score")
 
-    repairable_terms: list[float] = []
-    residual_terms: list[float] = []
-    incomplete_positions = 0
+    observations: list[dict[int, float]] = []
     for instance_id in minibatch_ids:
         observed: dict[int, float] = {}
         for active_idx in active:
@@ -138,14 +199,20 @@ def observed_arm_context(
             score = float(raw_score)
             if math.isfinite(score):
                 observed[active_idx] = score
+        observations.append(observed)
+    return active, tuple(observations)
 
-        if len(observed) != len(active):
-            incomplete_positions += 1
+
+def _repairable_gap_from_observations(
+    *,
+    program_idx: int,
+    observations: Sequence[Mapping[int, float]],
+) -> float:
+    repairable_terms: list[float] = []
+    for observed in observations:
         if not observed:
             repairable_terms.append(0.0)
-            residual_terms.append(0.0)
             continue
-
         best_observed = max(observed.values())
         program_score = observed.get(program_idx)
         repairable_terms.append(
@@ -153,15 +220,7 @@ def observed_arm_context(
             if program_score is not None
             else 0.0
         )
-        residual_terms.append(max(0.0, target - best_observed))
-
-    denominator = len(minibatch_ids)
-    return ObservedArmContext(
-        bias=1.0,
-        repairable_gap=math.fsum(repairable_terms) / denominator,
-        residual_gap=math.fsum(residual_terms) / denominator,
-        observation_incompleteness=incomplete_positions / denominator,
-    )
+    return math.fsum(repairable_terms) / len(observations)
 
 
 def linucb_score(
@@ -223,6 +282,55 @@ def rectangular_hungarian_assignment(
     """
 
     programs = tuple(sorted(dict.fromkeys(int(idx) for idx in program_indices)))
+    counts: dict[int, int] = {}
+    for program_idx in programs:
+        count = completed_arm_counts.get(program_idx, 0)
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError("completed arm counts must be non-negative integers")
+        counts[program_idx] = count
+    return _rectangular_exact_assignment(
+        program_indices=programs,
+        minibatch_positions=minibatch_positions,
+        scores=scores,
+        total_minibatches=total_minibatches,
+        secondary_program_values={
+            program_idx: -count for program_idx, count in counts.items()
+        },
+    )
+
+
+def rectangular_max_weight_assignment(
+    *,
+    program_indices: Sequence[int],
+    minibatch_positions: Sequence[int],
+    weights: Mapping[tuple[int, int], float],
+    total_minibatches: int,
+) -> tuple[JointAssignment, ...]:
+    """Maximize only total edge weight, then stably break exact ties.
+
+    No capacity, exposure count, exploration bonus, or other policy term is
+    present.  The stable tie objective prefers earlier minibatch positions and
+    then lower program indices without scalarizing it into the edge weights.
+    """
+
+    return _rectangular_exact_assignment(
+        program_indices=program_indices,
+        minibatch_positions=minibatch_positions,
+        scores=weights,
+        total_minibatches=total_minibatches,
+        secondary_program_values=None,
+    )
+
+
+def _rectangular_exact_assignment(
+    *,
+    program_indices: Sequence[int],
+    minibatch_positions: Sequence[int],
+    scores: Mapping[tuple[int, int], float],
+    total_minibatches: int,
+    secondary_program_values: Mapping[int, int] | None,
+) -> tuple[JointAssignment, ...]:
+    programs = tuple(sorted(dict.fromkeys(int(idx) for idx in program_indices)))
     positions = tuple(
         sorted(dict.fromkeys(int(position) for position in minibatch_positions))
     )
@@ -233,14 +341,11 @@ def rectangular_hungarian_assignment(
     if any(position < 0 or position >= total_minibatches for position in positions):
         raise ValueError("minibatch position is outside the wave")
 
-    counts: dict[int, int] = {}
-    for program_idx in programs:
-        count = completed_arm_counts.get(program_idx, 0)
-        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-            raise ValueError("completed arm counts must be non-negative integers")
-        counts[program_idx] = count
-
-    vector_dimension = 2 + 2 * total_minibatches
+    vector_dimension = (
+        1
+        + (1 if secondary_program_values is not None else 0)
+        + 2 * total_minibatches
+    )
 
     def edge_cost(program_idx: int, position: int) -> _LexCost:
         score = _finite_float(
@@ -253,9 +358,14 @@ def rectangular_hungarian_assignment(
         # Preserve the exact binary value of each finite float throughout all
         # Hungarian potential arithmetic. This makes a score tie an exact tie,
         # rather than a by-product of an intermediate summation order.
+        secondary = (
+            (secondary_program_values[program_idx],)
+            if secondary_program_values is not None
+            else ()
+        )
         maximization_value: tuple[Fraction | int, ...] = (
             Fraction.from_float(score),
-            -counts[program_idx],
+            *secondary,
             *assignment_key,
         )
         assert len(maximization_value) == vector_dimension

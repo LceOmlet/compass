@@ -14,6 +14,7 @@ from experiments.mechanism.generate_mechanism_matrix import (
     METHOD_CELLS,
     OPTIMIZATION_METRIC_CALL_CAP,
     PROPOSAL_MINIBATCH_SIZE,
+    SOURCE_FILES,
     TASK_PROTOCOLS,
     build_matrix,
     metric_call_accounting,
@@ -43,6 +44,8 @@ def test_matrix_has_exact_frozen_44_run_factorial() -> None:
 
     assert len(records) == 44
     assert len({record["slug"] for record in records}) == 44
+    assert "bridge/b21_joint_linucb_scheduler.py" in SOURCE_FILES
+    assert "bridge/b22_repairable_gap_sampling.py" in SOURCE_FILES
     assert Counter(record["task_id"] for record in records) == {
         "hitab": 4,
         "chartqa": 4,

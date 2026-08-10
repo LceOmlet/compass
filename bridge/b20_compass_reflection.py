@@ -49,6 +49,7 @@ from bridge.b19_reversible_parent_selection import (
     frontier_rate,
 )
 from bridge.b21_joint_linucb_scheduler import JointLinUCBSamplingStrategy
+from bridge.b22_repairable_gap_sampling import RepairableGapSamplingStrategy
 from bridge.minibatch_config import minibatch_config_kwargs
 from bridge.request_deadline import remaining_request_seconds, request_deadline
 
@@ -68,6 +69,7 @@ AcceptanceMode = Literal[
 ProposalSamplingMode = Literal[
     "independent",
     "joint_linucb",
+    "repairable_gap",
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -1284,6 +1286,7 @@ class _CompassEngineSetup:
         SingleMutationSampling
         | IndependentSampling
         | JointLinUCBSamplingStrategy[int, Any]
+        | RepairableGapSamplingStrategy[int, Any]
     )
     sampler: EpochShuffledBatchSampler
     proposal_minibatch_size: int
@@ -1344,16 +1347,24 @@ def proposal_sampling_strategy(
     SingleMutationSampling
     | IndependentSampling
     | JointLinUCBSamplingStrategy[int, Any]
+    | RepairableGapSamplingStrategy[int, Any]
 ):
     """Use one proposal task or a bounded window of epoch minibatches."""
 
-    if proposal_sampling_mode not in ("independent", "joint_linucb"):
+    if proposal_sampling_mode not in (
+        "independent",
+        "joint_linucb",
+        "repairable_gap",
+    ):
         raise ValueError(
             f"unsupported proposal sampling mode: {proposal_sampling_mode!r}"
         )
-    if proposal_sampling_mode == "joint_linucb" and not epoch_parallel_enabled:
+    if (
+        proposal_sampling_mode in {"joint_linucb", "repairable_gap"}
+        and not epoch_parallel_enabled
+    ):
         raise ValueError(
-            "joint_linucb requires epoch_parallel_enabled=true"
+            f"{proposal_sampling_mode} requires epoch_parallel_enabled=true"
         )
     if not epoch_parallel_enabled:
         return SingleMutationSampling()
@@ -1371,7 +1382,12 @@ def proposal_sampling_strategy(
     if proposal_sampling_mode == "independent":
         return IndependentSampling(epoch_tasks)
     if parent_top_n is None:
-        raise ValueError("joint_linucb requires parent_top_n")
+        raise ValueError(f"{proposal_sampling_mode} requires parent_top_n")
+    if proposal_sampling_mode == "repairable_gap":
+        return RepairableGapSamplingStrategy(
+            top_n=parent_top_n,
+            minibatches_per_wave=epoch_tasks,
+        )
     if perfect_score is None:
         raise ValueError("joint_linucb requires perfect_score")
     return JointLinUCBSamplingStrategy(
@@ -1392,14 +1408,15 @@ def _prepare_compass_engine(
         "compass_reflection",
     ):
         raise ValueError(f"unsupported reflection condition: {config.condition!r}")
-    if config.proposal_sampling_mode == "joint_linucb":
+    if config.proposal_sampling_mode in {"joint_linucb", "repairable_gap"}:
         if config.condition != "compass_reflection":
             raise ValueError(
-                "joint_linucb requires condition='compass_reflection'"
+                f"{config.proposal_sampling_mode} requires "
+                "condition='compass_reflection'"
             )
         if config.parent_selection_score_mode != "high_resolution_lexicographic":
             raise ValueError(
-                "joint_linucb requires "
+                f"{config.proposal_sampling_mode} requires "
                 "parent_selection_score_mode='high_resolution_lexicographic'"
             )
     if config.max_candidate_proposals is not None:
@@ -1438,7 +1455,10 @@ def _prepare_compass_engine(
     )
     if isinstance(sampling_strategy, IndependentSampling):
         tasks_per_iteration = sampling_strategy.n
-    elif isinstance(sampling_strategy, JointLinUCBSamplingStrategy):
+    elif isinstance(
+        sampling_strategy,
+        (JointLinUCBSamplingStrategy, RepairableGapSamplingStrategy),
+    ):
         tasks_per_iteration = sampling_strategy.minibatches_per_wave
     else:
         tasks_per_iteration = 1

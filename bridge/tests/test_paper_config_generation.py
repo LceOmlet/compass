@@ -4,10 +4,13 @@ from pathlib import Path
 
 import pytest
 
+from bridge.paper_source_snapshot import verify_project_source_snapshot
 from experiments.paper.generate_reflection_configs import (
+    PROJECT_ROOT,
     TASK_BUDGETS,
     build_run_config,
     load_model_profiles,
+    source_snapshot,
 )
 
 
@@ -50,6 +53,12 @@ def test_generated_config_preserves_frozen_batch_and_budget() -> None:
     assert config["cache_dir"].endswith(f"cache_{slug}")
 
 
+def test_generated_source_snapshot_round_trips_through_formal_verifier() -> None:
+    snapshot = source_snapshot()
+
+    verify_project_source_snapshot(PROJECT_ROOT, snapshot)
+
+
 def test_generated_config_can_explicitly_enable_lexicographic_high_resolution() -> None:
     slug, config = build_run_config(
         task_id="hover",
@@ -87,6 +96,26 @@ def test_generated_config_can_explicitly_enable_joint_linucb() -> None:
     assert config["optimizer"]["proposal_sampling_mode"] == "joint_linucb"
     assert config["optimizer"]["epoch_parallel_enabled"] is True
     assert slug.endswith("_joint_linucb")
+
+
+def test_generated_config_can_explicitly_enable_repairable_gap_matching() -> None:
+    slug, config = build_run_config(
+        task_id="hover",
+        condition="compass_reflection",
+        seed=2,
+        tag="20260810_repairable_gap_v1",
+        model_profile_name="qwen3_8b_local_vllm",
+        model_profile=_profile(),
+        remote_root=Path("/shared/reflection-bridge"),
+        snapshot={"root_head": "abc"},
+        parent_selection_score_mode="high_resolution_lexicographic",
+        proposal_sampling_mode="repairable_gap",
+        epoch_parallel_enabled=True,
+    )
+
+    assert config["optimizer"]["proposal_sampling_mode"] == "repairable_gap"
+    assert config["optimizer"]["epoch_parallel_enabled"] is True
+    assert slug.endswith("_repairable_gap")
 
 
 def test_qwen35_profile_uses_supported_long_context_without_changing_dci_output() -> None:

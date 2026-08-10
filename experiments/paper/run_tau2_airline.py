@@ -247,6 +247,9 @@ def _build_run_identity(
                 "b21_joint_linucb_scheduler.py": (
                     source_root / "bridge" / "b21_joint_linucb_scheduler.py"
                 ),
+                "b22_repairable_gap_sampling.py": (
+                    source_root / "bridge" / "b22_repairable_gap_sampling.py"
+                ),
                 "minibatch_config.py": (source_root / "bridge" / "minibatch_config.py"),
             }
         )

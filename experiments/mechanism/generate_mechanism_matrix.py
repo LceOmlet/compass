@@ -87,6 +87,8 @@ METHOD_CELLS: Final[tuple[tuple[str, str, str], ...]] = (
 SOURCE_FILES: Final[tuple[str, ...]] = (
     "bridge/b19_reversible_parent_selection.py",
     "bridge/b20_compass_reflection.py",
+    "bridge/b21_joint_linucb_scheduler.py",
+    "bridge/b22_repairable_gap_sampling.py",
     "bridge/minibatch_config.py",
     "bridge/mechanism_benchmark_registry.py",
     "bridge/mechanism_chartqa.py",

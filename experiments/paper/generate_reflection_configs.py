@@ -7,7 +7,7 @@ import math
 import re
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from bridge.minibatch_config import minibatch_config_kwargs  # noqa: E402
+from bridge.paper_source_snapshot import (  # noqa: E402
+    build_frozen_upstream_snapshot,
+)
 
 DEFAULT_REMOTE_ROOT = Path(
     "/mnt/geogpt-doc-new/deepresearch/gepa-multi-skill/reflection-bridge"
@@ -36,11 +39,14 @@ SNAPSHOT_FILES = (
     "bridge/b16_official_gepa_ifbench.py",
     "bridge/b19_reversible_parent_selection.py",
     "bridge/b20_compass_reflection.py",
+    "bridge/b21_joint_linucb_scheduler.py",
+    "bridge/b22_repairable_gap_sampling.py",
     "bridge/dci_agent_lite.py",
     "bridge/dci_compass.py",
     "bridge/dci_docker_isolation.py",
     "bridge/minibatch_config.py",
     "bridge/paper_benchmark_registry.py",
+    "bridge/paper_source_snapshot.py",
     "bridge/prompts/dci_subproblem_free_text.txt",
     "bridge/request_deadline.py",
     "docker/dci-sandbox/Dockerfile",
@@ -53,28 +59,16 @@ SNAPSHOT_FILES = (
     "scripts/start_aime_v47_v50_gepa_parity_local.ps1",
     "scripts/start_aime_v51_v54_window1_timeout6000_local.ps1",
 )
-SUBMODULES = (
-    "upstreams/dci-agent-lite",
-    "upstreams/dspy",
-    "upstreams/gepa",
-    "upstreams/gepa-artifact",
-    "upstreams/pi-mono",
-)
 TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
-def _run_git(*args: str, cwd: Path = PROJECT_ROOT, input_bytes: bytes | None = None) -> bytes:
+def _run_git(*args: str, cwd: Path = PROJECT_ROOT) -> bytes:
     return subprocess.run(
         ("git", *args),
         cwd=cwd,
-        input=input_bytes,
         check=True,
         capture_output=True,
     ).stdout
-
-
-def _git_blob_hash(payload: bytes) -> str:
-    return _run_git("hash-object", "--stdin", input_bytes=payload).decode().strip()
 
 
 def source_snapshot() -> dict[str, Any]:
@@ -83,22 +77,9 @@ def source_snapshot() -> dict[str, Any]:
         path = PROJECT_ROOT / relative
         file_hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
 
-    submodules: dict[str, dict[str, str]] = {}
-    for relative in SUBMODULES:
-        path = PROJECT_ROOT / relative
-        submodules[relative] = {
-            "head": _run_git("rev-parse", "HEAD", cwd=path).decode().strip(),
-            "diff_git_blob": _git_blob_hash(
-                _run_git("diff", "--binary", cwd=path)
-            ),
-        }
-
     return {
         "root_head": _run_git("rev-parse", "HEAD").decode().strip(),
-        "root_diff_git_blob": _git_blob_hash(
-            _run_git("diff", "--binary")
-        ),
-        "submodules": submodules,
+        "submodules": build_frozen_upstream_snapshot(PROJECT_ROOT),
         "file_sha256": file_hashes,
     }
 
@@ -155,18 +136,22 @@ def build_run_config(
         "high_resolution_lexicographic",
     }:
         raise ValueError("unknown parent-selection score mode")
-    if proposal_sampling_mode not in {"independent", "joint_linucb"}:
+    if proposal_sampling_mode not in {
+        "independent",
+        "joint_linucb",
+        "repairable_gap",
+    }:
         raise ValueError("unknown proposal-sampling mode")
     if not isinstance(epoch_parallel_enabled, bool):
         raise TypeError("epoch_parallel_enabled must be a boolean")
-    if proposal_sampling_mode == "joint_linucb":
+    if proposal_sampling_mode in {"joint_linucb", "repairable_gap"}:
         if not epoch_parallel_enabled:
             raise ValueError(
-                "joint_linucb requires epoch_parallel_enabled=true"
+                f"{proposal_sampling_mode} requires epoch_parallel_enabled=true"
             )
         if parent_selection_score_mode != "high_resolution_lexicographic":
             raise ValueError(
-                "joint_linucb requires "
+                f"{proposal_sampling_mode} requires "
                 "parent_selection_score_mode='high_resolution_lexicographic'"
             )
     for name, value in (
@@ -226,9 +211,11 @@ def build_run_config(
         if value is not None
     }
 
-    sampling_suffix = (
-        "" if proposal_sampling_mode == "independent" else "_joint_linucb"
-    )
+    sampling_suffix = {
+        "independent": "",
+        "joint_linucb": "_joint_linucb",
+        "repairable_gap": "_repairable_gap",
+    }[proposal_sampling_mode]
     slug = (
         f"paper_{model_profile_name}_{condition}_{task_id}_"
         f"seed{seed}_{tag}{sampling_suffix}"
@@ -331,7 +318,7 @@ def main() -> int:
     parser.add_argument("--epoch-parallel-enabled", action="store_true")
     parser.add_argument(
         "--proposal-sampling-mode",
-        choices=("independent", "joint_linucb"),
+        choices=("independent", "joint_linucb", "repairable_gap"),
         default="independent",
     )
     parser.add_argument("--proposal-tasks-per-iteration", type=int)

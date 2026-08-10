@@ -208,10 +208,14 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
         "proposal_sampling_mode",
         "independent",
     )
-    if proposal_sampling_mode not in {"independent", "joint_linucb"}:
+    if proposal_sampling_mode not in {
+        "independent",
+        "joint_linucb",
+        "repairable_gap",
+    }:
         raise ValueError(
             "optimizer.proposal_sampling_mode must be "
-            "'independent' or 'joint_linucb'"
+            "'independent', 'joint_linucb', or 'repairable_gap'"
         )
     epoch_parallel_enabled = optimizer.get(
         "epoch_parallel_enabled",
@@ -219,15 +223,17 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
     )
     if not isinstance(epoch_parallel_enabled, bool):
         raise TypeError("optimizer.epoch_parallel_enabled must be a JSON boolean")
-    if proposal_sampling_mode == "joint_linucb":
+    if proposal_sampling_mode in {"joint_linucb", "repairable_gap"}:
         if not epoch_parallel_enabled:
             raise ValueError(
-                "optimizer.proposal_sampling_mode='joint_linucb' requires "
+                f"optimizer.proposal_sampling_mode={proposal_sampling_mode!r} "
+                "requires "
                 "optimizer.epoch_parallel_enabled=true"
             )
         if score_mode != "high_resolution_lexicographic":
             raise ValueError(
-                "optimizer.proposal_sampling_mode='joint_linucb' requires "
+                f"optimizer.proposal_sampling_mode={proposal_sampling_mode!r} "
+                "requires "
                 "optimizer.parent_selection_score_mode="
                 "'high_resolution_lexicographic'"
             )

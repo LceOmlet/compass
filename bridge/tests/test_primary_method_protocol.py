@@ -16,7 +16,7 @@ from bridge.primary_method_protocol import (
     mipro_protocol,
     validate_primary_cell,
 )
-from experiments.paper.generate_primary_matrix import build_matrix
+from experiments.paper.generate_primary_matrix import SOURCE_FILES, build_matrix
 from experiments.paper.run_primary_method import (
     _compile_gepa,
     _compile_mipro,
@@ -263,6 +263,7 @@ def test_formal_matrix_delegates_without_copying_compass_engine(tmp_path: Path) 
     assert m0_optimizer["reflection_minibatch_size"] == 3
     assert "proposal_minibatch_size" not in m0_optimizer
     assert "admission_minibatch_size" not in m0_optimizer
+    assert "bridge/b22_repairable_gap_sampling.py" in SOURCE_FILES
 
 
 def test_preflight_matrix_fails_closed_when_text_runner_has_no_pilot_seam(

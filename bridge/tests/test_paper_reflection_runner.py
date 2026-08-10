@@ -347,6 +347,31 @@ def test_runner_requires_joint_linucb_to_be_explicit_and_lexicographic(
         load_run_config(path)
 
 
+def test_runner_forwards_explicit_repairable_gap_matching(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    config["optimizer"].update(
+        {
+            "epoch_parallel_enabled": True,
+            "parent_selection_score_mode": "high_resolution_lexicographic",
+            "proposal_sampling_mode": "repairable_gap",
+        }
+    )
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+    loaded = load_run_config(path)
+    assert _method_config_kwargs(loaded["optimizer"])[
+        "proposal_sampling_mode"
+    ] == "repairable_gap"
+
+    config["optimizer"]["parent_selection_score_mode"] = "high_resolution"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="high_resolution_lexicographic"):
+        load_run_config(path)
+
+
 def test_final_selection_delegates_to_owner_evaluation_policy() -> None:
     state = object()
     policy = Mock()

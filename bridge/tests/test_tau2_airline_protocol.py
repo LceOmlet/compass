@@ -265,9 +265,11 @@ def test_compass_family_uses_same_adapter_engine(
     evaluation_policy.get_best_program.assert_called_once_with("state")
 
 
-def test_tau2_compass_can_explicitly_bind_joint_linucb_without_changing_defaults(
+@pytest.mark.parametrize("proposal_sampling_mode", ["joint_linucb", "repairable_gap"])
+def test_tau2_compass_can_explicitly_bind_proposal_scheduler_without_changing_defaults(
     monkeypatch,
     tmp_path,
+    proposal_sampling_mode,
 ):
     view = subject.Tau2AirlineOptimizationView(
         proposal=fake_tasks(subject.TAU2_AIRLINE_TRAIN_IDS[:-6]),
@@ -299,12 +301,12 @@ def test_tau2_compass_can_explicitly_bind_joint_linucb_without_changing_defaults
         run_dir=tmp_path,
         settings=subject.Tau2AirlineOptimizationSettings(
             parent_selection_score_mode="high_resolution_lexicographic",
-            proposal_sampling_mode="joint_linucb",
+            proposal_sampling_mode=proposal_sampling_mode,
             epoch_parallel_enabled=True,
         ),
     )
 
-    assert captured["config"].proposal_sampling_mode == "joint_linucb"
+    assert captured["config"].proposal_sampling_mode == proposal_sampling_mode
     assert captured["config"].epoch_parallel_enabled is True
 
 

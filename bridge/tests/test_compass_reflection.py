@@ -294,6 +294,24 @@ def test_joint_linucb_sampling_is_explicit_and_uses_the_same_epoch_window() -> N
     assert strategy.perfect_score == 1.0
 
 
+def test_repairable_gap_matching_is_explicit_and_uses_the_same_epoch_window() -> None:
+    strategy = compass_reflection.proposal_sampling_strategy(
+        trainset_size=150,
+        minibatch_size=3,
+        epoch_parallel_enabled=True,
+        proposal_tasks_per_iteration=5,
+        proposal_sampling_mode="repairable_gap",
+        parent_top_n=7,
+    )
+
+    assert isinstance(
+        strategy,
+        compass_reflection.RepairableGapSamplingStrategy,
+    )
+    assert strategy.minibatches_per_wave == 5
+    assert strategy.top_n == 7
+
+
 def test_joint_linucb_rejects_an_implicit_single_task_or_scalar_parent_mode(
     tmp_path: Path,
 ) -> None:
@@ -314,6 +332,36 @@ def test_joint_linucb_rejects_an_implicit_single_task_or_scalar_parent_mode(
             admission_minibatch_size=3,
         ),
         proposal_sampling_mode="joint_linucb",
+        epoch_parallel_enabled=True,
+        parent_selection_score_mode="high_resolution",
+    )
+    with pytest.raises(ValueError, match="high_resolution_lexicographic"):
+        compass_reflection._prepare_compass_engine(
+            trainset=[object() for _ in range(6)],
+            validation_set=[object() for _ in range(3)],
+            config=config,
+        )
+
+
+def test_repairable_gap_rejects_an_implicit_single_task_or_scalar_parent_mode(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="epoch_parallel_enabled=true"):
+        compass_reflection.proposal_sampling_strategy(
+            trainset_size=6,
+            minibatch_size=3,
+            epoch_parallel_enabled=False,
+            proposal_sampling_mode="repairable_gap",
+            parent_top_n=5,
+        )
+
+    config = replace(
+        _engine_config(
+            tmp_path,
+            proposal_minibatch_size=3,
+            admission_minibatch_size=3,
+        ),
+        proposal_sampling_mode="repairable_gap",
         epoch_parallel_enabled=True,
         parent_selection_score_mode="high_resolution",
     )
@@ -583,6 +631,62 @@ def test_split_engine_wires_joint_linucb_as_the_only_proposal_scheduler(
     strategy = captured["sampling_strategy"]
     sampler = captured["batch_sampler"]
     assert isinstance(strategy, compass_reflection.JointLinUCBSamplingStrategy)
+    assert strategy.minibatches_per_wave == 5
+    assert sampler.minibatches_per_iteration == 5
+    assert sampler.iteration_is_epoch is False
+
+
+def test_split_engine_wires_repairable_gap_as_the_only_proposal_scheduler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    program = SimpleNamespace(
+        named_predictors=lambda: [
+            (
+                "prompt",
+                SimpleNamespace(signature=SimpleNamespace(instructions="seed")),
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        compass_reflection,
+        "SparseObservationDspyAdapter",
+        lambda **_kwargs: object(),
+    )
+
+    def optimize_stub(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(compass_reflection, "optimize", optimize_stub)
+
+    run_compass_reflection_engine(
+        program=program,
+        metric_fn=lambda *_args, **_kwargs: 0.0,
+        feedback_map={},
+        trainset=[object() for _ in range(30)],
+        validation_set=[object() for _ in range(10)],
+        reflection_lm=object(),
+        config=replace(
+            _engine_config(
+                tmp_path,
+                proposal_minibatch_size=3,
+                admission_minibatch_size=3,
+            ),
+            parent_selection_score_mode="high_resolution_lexicographic",
+            proposal_sampling_mode="repairable_gap",
+            epoch_parallel_enabled=True,
+            proposal_tasks_per_iteration=5,
+        ),
+    )
+
+    strategy = captured["sampling_strategy"]
+    sampler = captured["batch_sampler"]
+    assert isinstance(
+        strategy,
+        compass_reflection.RepairableGapSamplingStrategy,
+    )
     assert strategy.minibatches_per_wave == 5
     assert sampler.minibatches_per_iteration == 5
     assert sampler.iteration_is_epoch is False

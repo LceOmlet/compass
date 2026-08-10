@@ -203,18 +203,22 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
         "proposal_sampling_mode",
         "independent",
     )
-    if proposal_sampling_mode not in {"independent", "joint_linucb"}:
+    if proposal_sampling_mode not in {
+        "independent",
+        "joint_linucb",
+        "repairable_gap",
+    }:
         raise ValueError(
             "epoch_parallel.proposal_sampling_mode must be "
-            "'independent' or 'joint_linucb'"
+            "'independent', 'joint_linucb', or 'repairable_gap'"
         )
     if (
-        proposal_sampling_mode == "joint_linucb"
+        proposal_sampling_mode in {"joint_linucb", "repairable_gap"}
         and parent_selection.get("mode", "high_resolution")
         != "high_resolution_lexicographic"
     ):
         raise ValueError(
-            "joint_linucb requires parent_selection.mode="
+            f"{proposal_sampling_mode} requires parent_selection.mode="
             "'high_resolution_lexicographic'"
         )
     for name in ("max_candidate_workers", "max_reflection_workers"):
