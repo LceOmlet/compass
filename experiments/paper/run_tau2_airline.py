@@ -195,7 +195,11 @@ def _budget_for(method: Tau2PaperMethod, phase: Tau2ExperimentPhase) -> int:
 
 
 def _selection_mode(method: Tau2PaperMethod) -> str:
-    return "high_resolution" if method == "compass" else "raw_frontier_rate"
+    return (
+        "high_resolution_lexicographic"
+        if method == "compass"
+        else "raw_frontier_rate"
+    )
 
 
 def _build_run_identity(

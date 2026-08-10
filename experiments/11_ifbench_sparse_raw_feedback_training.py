@@ -187,10 +187,12 @@ def _require_configuration(config: dict[str, dict[str, Any]]) -> None:
     if parent_selection.get("mode", "high_resolution") not in {
         "raw_frontier_rate",
         "high_resolution",
+        "high_resolution_lexicographic",
     }:
         raise ValueError(
             "parent_selection.mode must be "
-            "'raw_frontier_rate' or 'high_resolution'"
+            "'raw_frontier_rate', 'high_resolution', or "
+            "'high_resolution_lexicographic'"
         )
     if epoch_parallel["enabled"] is not True:
         raise ValueError("epoch_parallel.enabled must be true")

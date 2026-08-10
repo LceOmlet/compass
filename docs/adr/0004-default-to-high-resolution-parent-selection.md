@@ -1,5 +1,6 @@
 ---
-status: accepted
+status: superseded
+superseded_by: 0013-use-lexicographic-high-resolution-parent-selection
 ---
 
 # Default to high-resolution proposal-parent selection

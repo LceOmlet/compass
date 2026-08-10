@@ -53,7 +53,15 @@ def build_frozen_upstream_snapshot(project_root: Path) -> dict[str, dict[str, st
         patch = (root / patch_relative).resolve()
         if not patch.is_file():
             raise FileNotFoundError(f"missing committed upstream patch: {patch}")
-        diff = _git_output(upstream, "diff", "--binary", "--no-ext-diff", "HEAD")
+        diff = _git_output(
+            upstream,
+            "-c",
+            "core.abbrev=7",
+            "diff",
+            "--binary",
+            "--no-ext-diff",
+            "HEAD",
+        )
         patch_payload = patch.read_bytes()
         if diff != patch_payload:
             raise RuntimeError(

@@ -213,7 +213,11 @@ def _compass_config(
         "max_metric_calls": budget,
         "max_reflection_workers": max_reflection_workers,
         "num_threads": num_threads,
-        "parent_selection_score_mode": "high_resolution",
+        "parent_selection_score_mode": (
+            "high_resolution_lexicographic"
+            if method == "compass"
+            else "high_resolution"
+        ),
         "parent_top_n": 5,
         "perfect_score": 1,
         "raise_on_exception": True,

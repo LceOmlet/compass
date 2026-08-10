@@ -24,7 +24,7 @@ apply_source() {
     if git -C "$repo_root/$source_path" apply --reverse --check "$repo_root/$patch_path" 2>/dev/null; then
         echo "$source_path: patch already applied"
     elif git -C "$repo_root/$source_path" apply --check "$repo_root/$patch_path"; then
-        git -C "$repo_root/$source_path" apply "$repo_root/$patch_path"
+        git -C "$repo_root/$source_path" apply --index "$repo_root/$patch_path"
         echo "$source_path: patch applied"
     else
         echo "$source_path: patch conflicts with the working tree" >&2

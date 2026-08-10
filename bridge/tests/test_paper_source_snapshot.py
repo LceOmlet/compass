@@ -30,3 +30,15 @@ def test_upstream_snapshot_rejects_tampered_expected_identity() -> None:
 
     with pytest.raises(RuntimeError, match="HEAD or tracked patch changed"):
         verify_frozen_upstream_snapshot(PROJECT_ROOT, tampered)
+
+
+@pytest.mark.parametrize(
+    "script_relative",
+    ("scripts/prepare-upstreams.sh", "scripts/prepare-upstreams.ps1"),
+)
+def test_prepare_upstreams_indexes_patch_created_files_for_diff_identity(
+    script_relative: str,
+) -> None:
+    script = (PROJECT_ROOT / script_relative).read_text(encoding="utf-8")
+
+    assert "apply --index" in script

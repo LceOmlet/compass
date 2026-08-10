@@ -58,7 +58,7 @@ foreach ($source in $sources) {
     if ($LASTEXITCODE -ne 0) {
         throw "$($source.Path): patch conflicts with the working tree"
     }
-    git -C $sourcePath apply $patchPath
+    git -C $sourcePath apply --index $patchPath
     if ($LASTEXITCODE -ne 0) {
         throw "$($source.Path): patch application failed"
     }

@@ -43,9 +43,29 @@ def test_generated_config_preserves_frozen_batch_and_budget() -> None:
     assert config["optimizer"]["max_metric_calls"] == TASK_BUDGETS["hover"]
     assert config["optimizer"]["reflection_minibatch_size"] == 3
     assert config["optimizer"]["max_candidate_workers"] == 3
+    assert config["optimizer"]["parent_selection_score_mode"] == "high_resolution"
     assert config["optimizer_seed"] == 2
     assert config["run_dir"].endswith(slug)
     assert config["cache_dir"].endswith(f"cache_{slug}")
+
+
+def test_generated_config_can_explicitly_enable_lexicographic_high_resolution() -> None:
+    slug, config = build_run_config(
+        task_id="hover",
+        condition="compass_reflection",
+        seed=2,
+        tag="20260810_lexicographic_high_resolution_v1",
+        model_profile_name="qwen3_8b_local_vllm",
+        model_profile=_profile(),
+        remote_root=Path("/shared/reflection-bridge"),
+        snapshot={"root_head": "abc"},
+        parent_selection_score_mode="high_resolution_lexicographic",
+    )
+
+    assert "lexicographic_high_resolution" in slug
+    assert config["optimizer"]["parent_selection_score_mode"] == (
+        "high_resolution_lexicographic"
+    )
 
 
 def test_qwen35_profile_uses_supported_long_context_without_changing_dci_output() -> None:

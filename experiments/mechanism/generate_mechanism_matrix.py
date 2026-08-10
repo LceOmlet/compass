@@ -300,7 +300,11 @@ def build_run_config(
         raise ValueError("matrix_id must be path-safe")
     if not _SAFE_NAME.fullmatch(cell_slug):
         raise ValueError("cell_slug must be path-safe")
-    if selection_mode not in {"raw_frontier_rate", "high_resolution"}:
+    if selection_mode not in {
+        "raw_frontier_rate",
+        "high_resolution",
+        "high_resolution_lexicographic",
+    }:
         raise ValueError("unsupported parent-selection score mode")
     if acceptance_mode not in {"strict_improvement", "always_accept"}:
         raise ValueError("unsupported admission mode")

@@ -178,7 +178,7 @@ def test_v36_unconditional_admission_only_changes_acceptance_and_run_dir() -> No
     } == v35["official_gepa"]
 
 
-def test_high_resolution_parent_selection_is_the_engine_default() -> None:
+def test_missing_parent_selection_mode_preserves_legacy_default() -> None:
     namespace = runpy.run_path(str(_RAW_ENTRY))
     config = namespace["load_config"](
         _ROOT
@@ -196,6 +196,18 @@ def test_high_resolution_parent_selection_is_the_engine_default() -> None:
         ].default
         == "high_resolution"
     )
+
+
+def test_lexicographic_high_resolution_mode_is_accepted() -> None:
+    namespace = runpy.run_path(str(_RAW_ENTRY))
+    config = namespace["load_config"](
+        _ROOT
+        / "experiments"
+        / "11_ifbench_siliconflow_v35_dual_account_rate_limit_failover.json"
+    )
+    config["parent_selection"]["mode"] = "high_resolution_lexicographic"
+
+    namespace["_require_configuration"](config)
 
 
 def test_v37_and_v38_only_add_high_resolution_mode_and_acceptance_choice() -> None:

@@ -7,14 +7,19 @@ from typing import Any
 import pytest
 
 from bridge.b19_reversible_parent_selection import (
+    LexicographicHighResolutionScore,
     ReversibleMaskedExposureCorrectedCandidateSelector,
+    candidate_selection_rate,
+    common_clean_high_resolution_lexicographic_scores,
     common_clean_high_resolution_rates,
     evaluation_count,
     frontier_count,
     frontier_rate,
     high_resolution_frontier_credits,
+    high_resolution_lexicographic_score,
     high_resolution_selection_rate,
     parent_selection_snapshot,
+    select_top_candidate_idx,
     selection_active_parent_rates,
 )
 from gepa.core.state import GEPAState, ValsetEvaluation
@@ -370,6 +375,11 @@ class _RecordingRandom:
         self.weights = list(weights)
         return [population[-1]]
 
+    def choice(self, population: list[int]) -> int:
+        self.population = list(population)
+        self.weights = None
+        return population[-1]
+
 
 class _Observer:
     def __init__(self) -> None:
@@ -521,7 +531,7 @@ def test_high_resolution_is_default_and_raw_rate_remains_available() -> None:
     assert raw_snapshot.high_resolution_credits == {}
 
 
-def test_default_selector_samples_proportional_to_high_resolution_rate() -> None:
+def test_legacy_high_resolution_selector_samples_proportional_to_shared_rate() -> None:
     state = _state(
         [(4, 4), (3, 4), (2, 4)],
         [[None], [0], [0]],
@@ -550,6 +560,7 @@ def test_default_selector_samples_proportional_to_high_resolution_rate() -> None
         _Observer(),  # type: ignore[arg-type]
         logger,
         top_n=5,
+        score_mode="high_resolution",
     )
 
     selected = selector.select_candidate_idx(state)
@@ -639,3 +650,176 @@ def test_high_resolution_top_five_keeps_exact_boundary_ties() -> None:
     assert shared_snapshot.rates[7] == Fraction(1, 18)
     assert raw_snapshot.top_n_cutoff == Fraction(1, 6)
     assert raw_snapshot.selection_active == tuple(range(1, 10))
+
+
+def test_lexicographic_high_resolution_does_not_multiply_hit_rate_and_resolution() -> None:
+    state = _state_with_fronts(
+        [
+            {0, 2, 3, 4, 5},
+            {0, 2, 3, 4, 5},
+            {0, 2, 3, 4, 5},
+            {1},
+            {1},
+        ],
+        candidate_count=6,
+        parents=[[None], *([[0]] * 5)],
+    )
+    for candidate_idx in range(1, 6):
+        state.parent_program_for_candidate[candidate_idx] = [None]
+        state.program_birth_propose_ids[candidate_idx] = None
+    assert state.is_consistent()
+
+    assert high_resolution_selection_rate(state, 0) == Fraction(3, 25)
+    assert high_resolution_selection_rate(state, 1) == Fraction(2, 5)
+    assert select_top_candidate_idx(state, score_mode="high_resolution") == 1
+
+    assert high_resolution_lexicographic_score(
+        state,
+        0,
+    ) == LexicographicHighResolutionScore(
+        frontier_rate=Fraction(3, 5),
+        tie_resolution=Fraction(1, 5),
+    )
+    assert high_resolution_lexicographic_score(
+        state,
+        1,
+    ) == LexicographicHighResolutionScore(
+        frontier_rate=Fraction(2, 5),
+        tie_resolution=Fraction(1),
+    )
+    assert (
+        select_top_candidate_idx(
+            state,
+            score_mode="high_resolution_lexicographic",
+        )
+        == 0
+    )
+
+
+def test_lexicographic_high_resolution_never_exposes_a_scalar_rate() -> None:
+    state = _state([(0, 0)], [[None]])
+
+    with pytest.raises(ValueError, match="no scalar selection rate"):
+        candidate_selection_rate(
+            state,
+            0,
+            score_mode="high_resolution_lexicographic",
+        )
+
+
+def test_lexicographic_high_resolution_uses_resolution_only_after_equal_hit_rate() -> None:
+    state = _state_with_fronts(
+        [{0, 2}, {0, 2}, {1}, {1}],
+        candidate_count=3,
+        parents=[[None], [0], [0]],
+    )
+    for candidate_idx in (1, 2):
+        state.parent_program_for_candidate[candidate_idx] = [None]
+        state.program_birth_propose_ids[candidate_idx] = None
+    assert state.is_consistent()
+
+    assert high_resolution_lexicographic_score(
+        state,
+        0,
+    ) == LexicographicHighResolutionScore(
+        frontier_rate=Fraction(1, 2),
+        tie_resolution=Fraction(1, 2),
+    )
+    assert high_resolution_lexicographic_score(
+        state,
+        1,
+    ) == LexicographicHighResolutionScore(
+        frontier_rate=Fraction(1, 2),
+        tie_resolution=Fraction(1),
+    )
+    assert (
+        select_top_candidate_idx(
+            state,
+            score_mode="high_resolution_lexicographic",
+        )
+        == 1
+    )
+
+
+def test_lexicographic_high_resolution_masks_on_common_domain_tuple() -> None:
+    state = _state_with_fronts(
+        [{0, 2}, {0, 2}, {1}, {1}],
+        candidate_count=3,
+        parents=[[None], [0], [0]],
+    )
+    state.parent_program_for_candidate[2] = [None]
+    state.program_birth_propose_ids[2] = None
+    assert state.is_consistent()
+
+    assert common_clean_high_resolution_lexicographic_scores(
+        state,
+        0,
+        1,
+    ) == (
+        LexicographicHighResolutionScore(
+            frontier_rate=Fraction(1, 2),
+            tie_resolution=Fraction(1, 2),
+        ),
+        LexicographicHighResolutionScore(
+            frontier_rate=Fraction(1, 2),
+            tie_resolution=Fraction(1),
+        ),
+    )
+    assert parent_selection_snapshot(
+        state,
+        top_n=5,
+        score_mode="high_resolution_lexicographic",
+    ).lineage_active == (1, 2)
+
+
+def test_lexicographic_high_resolution_keeps_full_key_boundary_ties_and_samples_uniformly() -> None:
+    state = _state_with_fronts(
+        [{0}, {1}, {2, 3}, {2, 3}, {4, 5, 6}, {4, 5, 6}],
+        candidate_count=7,
+        parents=[[None], *([[0]] * 6)],
+    )
+    for candidate_idx in range(1, 7):
+        state.parent_program_for_candidate[candidate_idx] = [None]
+        state.program_birth_propose_ids[candidate_idx] = None
+    assert state.is_consistent()
+    state.full_program_trace.append({"i": 0})
+
+    snapshot = parent_selection_snapshot(
+        state,
+        top_n=3,
+        score_mode="high_resolution_lexicographic",
+    )
+
+    assert snapshot.selection_active == (2, 3, 4, 5, 6)
+    assert snapshot.top_n_cutoff_score == LexicographicHighResolutionScore(
+        frontier_rate=Fraction(1, 3),
+        tie_resolution=Fraction(1, 3),
+    )
+    assert snapshot.selection_scores[4] == snapshot.selection_scores[5]
+    assert snapshot.selection_scores[5] == snapshot.selection_scores[6]
+
+    rng = _RecordingRandom()
+    logger = _Logger()
+    selector = ReversibleMaskedExposureCorrectedCandidateSelector(
+        rng,  # type: ignore[arg-type]
+        _Observer(),  # type: ignore[arg-type]
+        logger,
+        top_n=3,
+        score_mode="high_resolution_lexicographic",
+    )
+    selected = selector.select_candidate_idx(state)
+
+    assert selected == 6
+    assert rng.population == [2, 3, 4, 5, 6]
+    assert rng.weights is None
+    assert "sampling_mode=uniform_over_lexicographic_top_n" in logger.messages[-1]
+    trace = state.full_program_trace[-1]["parent_selection"]
+    assert trace["sampling_mode"] == "uniform_over_lexicographic_top_n"
+    assert trace["sampling_probabilities"] == {
+        candidate_idx: {"numerator": 1, "denominator": 5}
+        for candidate_idx in (2, 3, 4, 5, 6)
+    }
+    assert trace["selection_scores"][4] == {
+        "frontier_rate": {"numerator": 1, "denominator": 3},
+        "tie_resolution": {"numerator": 1, "denominator": 3},
+    }

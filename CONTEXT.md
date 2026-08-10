@@ -85,12 +85,12 @@ _Avoid_: admission exclusion, direct-parent exclusion
 The share of a skill's clean exposures on which it is an official instance-frontier owner, with every frontier membership counted in full.
 _Avoid_: shared frontier rate, unique coverage
 
-**High-resolution selection**:
-Proposal-parent scoring that conserves one selection-credit unit per clean instance by sharing it equally among all official clean frontier owners. Global top-N and proportional sampling normalize over each skill's global clean domain; ancestor masking applies the same credit convention on a pair-specific common clean domain.
-_Avoid_: unbiased Pareto, task-difficulty weighting, semantic deduplication
+**Lexicographic high-resolution selection (`high_resolution_lexicographic`)**:
+Proposal-parent ordering by the exact tuple `(F/E, C/F)`, where `F/E` is the clean frontier hit rate and `C/F` is average shared credit conditional on a frontier hit. The second coordinate refines only exact hit-rate ties. Global top-N is tie inclusive on the complete tuple and the retained set is sampled uniformly, because a tuple has no proportional scalar weight. The historical `high_resolution` label and missing mode fields remain the legacy scalar `C/E` behavior for clean reruns and result interpretation; lexicographic mode requires explicit opt-in and a distinct run identity.
+_Avoid_: weighted sum, product score, epsilon scalarization, task-difficulty weighting
 
 **Common-exposure ancestor mask**:
-A reversible high-resolution proposal-parent eligibility rule that compares a strict descendant with an ancestor only on clean instance IDs exposed to both, using official shared frontier credit. The descendant masks the ancestor when its score on that shared domain is no lower; with no shared clean exposure, the ancestor remains lineage-active, while explicit raw `F/E` mode retains the legacy global-score mask.
+A reversible proposal-parent eligibility rule that compares a strict descendant with an ancestor only on clean instance IDs exposed to both. Lexicographic high-resolution mode compares `(F/E, C/F)` on that shared domain; the descendant masks the ancestor when its complete tuple is no lower. With no shared clean exposure, the ancestor remains lineage-active, while explicit raw `F/E` and legacy scalar `C/E` modes retain their historical comparisons.
 _Avoid_: global-score ancestor mask, age penalty, confidence gate, optimism-corrected score
 
 **Final proposal candidate**:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import random
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -21,7 +20,19 @@ class CandidatePoolObserver(Protocol):
 SelectionScoreMode = Literal[
     "raw_frontier_rate",
     "high_resolution",
+    "high_resolution_lexicographic",
 ]
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class LexicographicHighResolutionScore:
+    """Ordinal parent score that keeps hit rate and tie resolution separate."""
+
+    frontier_rate: Fraction
+    tie_resolution: Fraction
+
+
+SelectionScore = Fraction | LexicographicHighResolutionScore
 
 
 def _high_resolution_frontier_credit(
@@ -83,6 +94,28 @@ def high_resolution_selection_rate(
     return high_resolution_frontier_credits(state)[candidate_idx] / exposure
 
 
+def high_resolution_lexicographic_score(
+    state: GEPAState,
+    candidate_idx: int,
+) -> LexicographicHighResolutionScore:
+    """Return ``(F/E, C/F)`` without multiplying the two dimensions.
+
+    ``F/E`` is the clean frontier hit rate. ``C/F`` is the average shared
+    credit conditional on a frontier hit, so it refines rather than reverses
+    the primary hit-rate ordering.
+    """
+
+    exposure = evaluation_count(state, candidate_idx)
+    frontiers = frontier_count(state, candidate_idx)
+    if exposure == 0 or frontiers == 0:
+        return LexicographicHighResolutionScore(Fraction(0), Fraction(0))
+    credit = high_resolution_frontier_credits(state)[candidate_idx]
+    return LexicographicHighResolutionScore(
+        frontier_rate=Fraction(frontiers, exposure),
+        tie_resolution=credit / frontiers,
+    )
+
+
 def candidate_selection_rate(
     state: GEPAState,
     candidate_idx: int,
@@ -91,6 +124,11 @@ def candidate_selection_rate(
 ) -> Fraction:
     """Return the configured exact selection score on unchanged clean evidence."""
 
+    if score_mode == "high_resolution_lexicographic":
+        raise ValueError(
+            "high_resolution_lexicographic has no scalar selection rate; "
+            "use candidate_selection_score"
+        )
     exposure = evaluation_count(state, candidate_idx)
     if exposure == 0:
         return Fraction(0)
@@ -99,6 +137,23 @@ def candidate_selection_rate(
     if score_mode == "high_resolution":
         return high_resolution_selection_rate(state, candidate_idx)
     raise ValueError(f"unsupported selection score mode: {score_mode!r}")
+
+
+def candidate_selection_score(
+    state: GEPAState,
+    candidate_idx: int,
+    *,
+    score_mode: SelectionScoreMode,
+) -> SelectionScore:
+    """Return the exact configured scalar or lexicographic parent score."""
+
+    if score_mode == "high_resolution_lexicographic":
+        return high_resolution_lexicographic_score(state, candidate_idx)
+    return candidate_selection_rate(
+        state,
+        candidate_idx,
+        score_mode=score_mode,
+    )
 
 
 def select_top_candidate_idx(
@@ -118,7 +173,7 @@ def select_top_candidate_idx(
     return max(
         eligible,
         key=lambda candidate_idx: (
-            candidate_selection_rate(
+            candidate_selection_score(
                 state,
                 candidate_idx,
                 score_mode=score_mode,
@@ -176,17 +231,62 @@ def common_clean_high_resolution_rates(
     )
 
 
+def common_clean_high_resolution_lexicographic_scores(
+    state: GEPAState,
+    ancestor_idx: int,
+    descendant_idx: int,
+) -> tuple[
+    LexicographicHighResolutionScore,
+    LexicographicHighResolutionScore,
+] | None:
+    """Return lineage scores on the pair's common clean exposure domain."""
+
+    clean_ancestor_ids = {
+        data_id
+        for data_id in state.prog_candidate_val_subscores[ancestor_idx]
+        if state.is_program_frontier_eligible(ancestor_idx, data_id)
+    }
+    clean_descendant_ids = {
+        data_id
+        for data_id in state.prog_candidate_val_subscores[descendant_idx]
+        if state.is_program_frontier_eligible(descendant_idx, data_id)
+    }
+    common_ids = clean_ancestor_ids.intersection(clean_descendant_ids)
+    if not common_ids:
+        return None
+
+    def score(candidate_idx: int) -> LexicographicHighResolutionScore:
+        frontiers = 0
+        credit = Fraction(0)
+        for data_id in common_ids:
+            front = state.program_at_pareto_front_valset.get(data_id, set())
+            if candidate_idx in front:
+                frontiers += 1
+                credit += _high_resolution_frontier_credit(front, candidate_idx)
+        return LexicographicHighResolutionScore(
+            frontier_rate=Fraction(frontiers, len(common_ids)),
+            tie_resolution=(credit / frontiers if frontiers else Fraction(0)),
+        )
+
+    return score(ancestor_idx), score(descendant_idx)
+
+
 @dataclass(frozen=True, slots=True)
 class ParentSelectionSnapshot:
     """Reporting view of the two recomputed reversible masks."""
 
     score_mode: SelectionScoreMode
     rates: Mapping[int, Fraction]
+    selection_scores: Mapping[int, SelectionScore]
     raw_rates: Mapping[int, Fraction]
     high_resolution_credits: Mapping[int, Fraction]
+    tie_resolutions: Mapping[int, Fraction]
     lineage_active: tuple[int, ...]
     selection_active: tuple[int, ...]
     top_n_cutoff: Fraction | None
+    top_n_cutoff_score: SelectionScore | None
+    sampling_mode: str
+    sampling_probabilities: Mapping[int, Fraction]
 
 
 def parent_selection_snapshot(
@@ -199,7 +299,11 @@ def parent_selection_snapshot(
 
     if top_n <= 0:
         raise ValueError("top_n must be positive")
-    if score_mode not in ("raw_frontier_rate", "high_resolution"):
+    if score_mode not in (
+        "raw_frontier_rate",
+        "high_resolution",
+        "high_resolution_lexicographic",
+    ):
         raise ValueError(f"unsupported selection score mode: {score_mode!r}")
     raw_rates = {
         candidate_idx: Fraction(frontiers, exposure)
@@ -209,20 +313,51 @@ def parent_selection_snapshot(
     }
     high_resolution_credits = (
         high_resolution_frontier_credits(state)
-        if score_mode == "high_resolution"
+        if score_mode in (
+            "high_resolution",
+            "high_resolution_lexicographic",
+        )
         else {}
     )
-    rates = (
+    shared_rates = (
         {
             candidate_idx: high_resolution_credits[candidate_idx]
             / evaluation_count(state, candidate_idx)
             for candidate_idx in raw_rates
         }
-        if score_mode == "high_resolution"
-        else raw_rates
+        if high_resolution_credits
+        else {}
     )
-    lineage_active = set(rates)
-    for descendant_idx, descendant_rate in rates.items():
+    tie_resolutions = (
+        {
+            candidate_idx: high_resolution_credits[candidate_idx]
+            / frontier_count(state, candidate_idx)
+            for candidate_idx in raw_rates
+        }
+        if high_resolution_credits
+        else {}
+    )
+    if score_mode == "raw_frontier_rate":
+        rates = raw_rates
+        selection_scores: dict[int, SelectionScore] = dict(raw_rates)
+        sampling_mode = "proportional_to_raw_frontier_rate"
+    elif score_mode == "high_resolution":
+        rates = shared_rates
+        selection_scores = dict(shared_rates)
+        sampling_mode = "proportional_to_shared_credit_rate"
+    else:
+        rates = {}
+        selection_scores = {
+            candidate_idx: LexicographicHighResolutionScore(
+                frontier_rate=raw_rates[candidate_idx],
+                tie_resolution=tie_resolutions[candidate_idx],
+            )
+            for candidate_idx in raw_rates
+        }
+        sampling_mode = "uniform_over_lexicographic_top_n"
+
+    lineage_active = set(selection_scores)
+    for descendant_idx, descendant_score in selection_scores.items():
         seen: set[int] = set()
         pending = [
             parent_idx
@@ -234,7 +369,7 @@ def parent_selection_snapshot(
             if ancestor_idx in seen:
                 continue
             seen.add(ancestor_idx)
-            if ancestor_idx in rates:
+            if ancestor_idx in selection_scores:
                 if score_mode == "high_resolution":
                     common_rates = common_clean_high_resolution_rates(
                         state,
@@ -245,8 +380,22 @@ def parent_selection_snapshot(
                         common_rates is not None
                         and common_rates[1] >= common_rates[0]
                     )
+                elif score_mode == "high_resolution_lexicographic":
+                    common_scores = (
+                        common_clean_high_resolution_lexicographic_scores(
+                            state,
+                            ancestor_idx,
+                            descendant_idx,
+                        )
+                    )
+                    masks_ancestor = (
+                        common_scores is not None
+                        and common_scores[1] >= common_scores[0]
+                    )
                 else:
-                    masks_ancestor = descendant_rate >= rates[ancestor_idx]
+                    masks_ancestor = (
+                        descendant_score >= selection_scores[ancestor_idx]
+                    )
                 if masks_ancestor:
                     lineage_active.discard(ancestor_idx)
             pending.extend(
@@ -256,25 +405,51 @@ def parent_selection_snapshot(
             )
 
     lineage_active_ids = tuple(sorted(lineage_active))
-    cutoff: Fraction | None = None
+    cutoff_score: SelectionScore | None = None
     if len(lineage_active) > top_n:
-        cutoff = sorted(
-            (rates[candidate_idx] for candidate_idx in lineage_active),
+        cutoff_score = sorted(
+            (
+                selection_scores[candidate_idx]
+                for candidate_idx in lineage_active
+            ),
             reverse=True,
         )[top_n - 1]
         lineage_active = {
             candidate_idx
             for candidate_idx in lineage_active
-            if rates[candidate_idx] >= cutoff
+            if selection_scores[candidate_idx] >= cutoff_score
         }
+    selection_active_ids = tuple(sorted(lineage_active))
+    if not selection_active_ids:
+        sampling_probabilities: dict[int, Fraction] = {}
+    elif score_mode == "high_resolution_lexicographic":
+        uniform_probability = Fraction(1, len(selection_active_ids))
+        sampling_probabilities = {
+            candidate_idx: uniform_probability
+            for candidate_idx in selection_active_ids
+        }
+    else:
+        total_rate = sum(
+            rates[candidate_idx] for candidate_idx in selection_active_ids
+        )
+        sampling_probabilities = {
+            candidate_idx: rates[candidate_idx] / total_rate
+            for candidate_idx in selection_active_ids
+        }
+    cutoff = cutoff_score if isinstance(cutoff_score, Fraction) else None
     return ParentSelectionSnapshot(
         score_mode=score_mode,
         rates=rates,
+        selection_scores=selection_scores,
         raw_rates=raw_rates,
         high_resolution_credits=high_resolution_credits,
+        tie_resolutions=tie_resolutions,
         lineage_active=lineage_active_ids,
-        selection_active=tuple(sorted(lineage_active)),
+        selection_active=selection_active_ids,
         top_n_cutoff=cutoff,
+        top_n_cutoff_score=cutoff_score,
+        sampling_mode=sampling_mode,
+        sampling_probabilities=sampling_probabilities,
     )
 
 
@@ -285,6 +460,12 @@ def selection_active_parent_rates(
     score_mode: SelectionScoreMode = "high_resolution",
 ) -> dict[int, Fraction]:
     """Return the final tie-inclusive proposal-parent sampling set."""
+
+    if score_mode == "high_resolution_lexicographic":
+        raise ValueError(
+            "high_resolution_lexicographic has no scalar parent rate; "
+            "use selection_active_parent_scores"
+        )
 
     snapshot = parent_selection_snapshot(
         state,
@@ -297,8 +478,27 @@ def selection_active_parent_rates(
     }
 
 
+def selection_active_parent_scores(
+    state: GEPAState,
+    *,
+    top_n: int,
+    score_mode: SelectionScoreMode = "high_resolution_lexicographic",
+) -> dict[int, SelectionScore]:
+    """Return the final tie-inclusive scalar or lexicographic parent scores."""
+
+    snapshot = parent_selection_snapshot(
+        state,
+        top_n=top_n,
+        score_mode=score_mode,
+    )
+    return {
+        candidate_idx: snapshot.selection_scores[candidate_idx]
+        for candidate_idx in snapshot.selection_active
+    }
+
+
 class ReversibleMaskedExposureCorrectedCandidateSelector:
-    """Apply reversible masks, then sample by the configured exposure rate."""
+    """Apply reversible masks, then use the configured parent allocation."""
 
     def __init__(
         self,
@@ -311,7 +511,11 @@ class ReversibleMaskedExposureCorrectedCandidateSelector:
     ) -> None:
         if top_n <= 0:
             raise ValueError("top_n must be positive")
-        if score_mode not in ("raw_frontier_rate", "high_resolution"):
+        if score_mode not in (
+            "raw_frontier_rate",
+            "high_resolution",
+            "high_resolution_lexicographic",
+        ):
             raise ValueError(f"unsupported selection score mode: {score_mode!r}")
         self.rng = rng
         self.candidate_pool_observer = candidate_pool_observer
@@ -326,11 +530,11 @@ class ReversibleMaskedExposureCorrectedCandidateSelector:
             top_n=self.top_n,
             score_mode=self.score_mode,
         )
-        active_rates = {
-            candidate_idx: snapshot.rates[candidate_idx]
+        active_scores = {
+            candidate_idx: snapshot.selection_scores[candidate_idx]
             for candidate_idx in snapshot.selection_active
         }
-        if not active_rates:
+        if not active_scores:
             if state.full_program_trace:
                 state.full_program_trace[-1]["parent_selection"] = (
                     _snapshot_record(snapshot, selected=0)
@@ -341,11 +545,19 @@ class ReversibleMaskedExposureCorrectedCandidateSelector:
                 f"top_n={self.top_n},active=[],selected=0"
             )
             return 0
-        eligible = list(active_rates)
-        weights = [float(active_rates[candidate_idx]) for candidate_idx in eligible]
-        total = math.fsum(weights)
-        probabilities = tuple(weight / total for weight in weights)
-        selected = self.rng.choices(eligible, weights=weights, k=1)[0]
+        eligible = list(active_scores)
+        if self.score_mode == "high_resolution_lexicographic":
+            selected = self.rng.choice(eligible)
+        else:
+            weights = [
+                float(snapshot.rates[candidate_idx])
+                for candidate_idx in eligible
+            ]
+            selected = self.rng.choices(eligible, weights=weights, k=1)[0]
+        probabilities = tuple(
+            float(snapshot.sampling_probabilities[candidate_idx])
+            for candidate_idx in eligible
+        )
         if state.full_program_trace:
             state.full_program_trace[-1]["parent_selection"] = _snapshot_record(
                 snapshot,
@@ -359,14 +571,25 @@ class ReversibleMaskedExposureCorrectedCandidateSelector:
             + (
                 "shared_credit="
                 f"{float(snapshot.high_resolution_credits[candidate_idx]):.17g},"
-                f"high_resolution_rate={weight:.17g},"
+                "high_resolution_rate="
+                f"{float(snapshot.rates[candidate_idx]):.17g},"
                 if snapshot.score_mode == "high_resolution"
                 else ""
             )
+            + (
+                "shared_credit="
+                f"{float(snapshot.high_resolution_credits[candidate_idx]):.17g},"
+                "tie_resolution="
+                f"{float(snapshot.tie_resolutions[candidate_idx]):.17g},"
+                "lexicographic_key=("
+                f"{float(snapshot.raw_rates[candidate_idx]):.17g},"
+                f"{float(snapshot.tie_resolutions[candidate_idx]):.17g}),"
+                if snapshot.score_mode == "high_resolution_lexicographic"
+                else ""
+            )
             + f"p={probability:.17g}"
-            for candidate_idx, weight, probability in zip(
+            for candidate_idx, probability in zip(
                 eligible,
-                weights,
                 probabilities,
                 strict=True,
             )
@@ -374,6 +597,7 @@ class ReversibleMaskedExposureCorrectedCandidateSelector:
         self.logger.log(
             "Reversible masked parent sampling: "
             f"score_mode={self.score_mode},"
+            f"sampling_mode={snapshot.sampling_mode},"
             f"top_n={self.top_n},active={eligible}; {entries}; selected={selected}"
         )
         return selected
@@ -388,12 +612,26 @@ def _snapshot_record(
 
     return {
         "score_mode": snapshot.score_mode,
+        "sampling_mode": snapshot.sampling_mode,
+        "sampling_probabilities": {
+            candidate_idx: {
+                "numerator": probability.numerator,
+                "denominator": probability.denominator,
+            }
+            for candidate_idx, probability in (
+                snapshot.sampling_probabilities.items()
+            )
+        },
         "rates": {
             candidate_idx: {
                 "numerator": rate.numerator,
                 "denominator": rate.denominator,
             }
             for candidate_idx, rate in snapshot.rates.items()
+        },
+        "selection_scores": {
+            candidate_idx: _selection_score_record(score)
+            for candidate_idx, score in snapshot.selection_scores.items()
         },
         "raw_rates": {
             candidate_idx: {
@@ -409,6 +647,13 @@ def _snapshot_record(
             }
             for candidate_idx, credit in snapshot.high_resolution_credits.items()
         },
+        "tie_resolutions": {
+            candidate_idx: {
+                "numerator": resolution.numerator,
+                "denominator": resolution.denominator,
+            }
+            for candidate_idx, resolution in snapshot.tie_resolutions.items()
+        },
         "lineage_active": list(snapshot.lineage_active),
         "selection_active": list(snapshot.selection_active),
         "top_n_cutoff": (
@@ -419,5 +664,30 @@ def _snapshot_record(
             if snapshot.top_n_cutoff is not None
             else None
         ),
+        "top_n_cutoff_score": (
+            _selection_score_record(snapshot.top_n_cutoff_score)
+            if snapshot.top_n_cutoff_score is not None
+            else None
+        ),
         "selected": selected,
+    }
+
+
+def _selection_score_record(score: SelectionScore) -> dict[str, object]:
+    if isinstance(score, LexicographicHighResolutionScore):
+        return {
+            "frontier_rate": {
+                "numerator": score.frontier_rate.numerator,
+                "denominator": score.frontier_rate.denominator,
+            },
+            "tie_resolution": {
+                "numerator": score.tie_resolution.numerator,
+                "denominator": score.tie_resolution.denominator,
+            },
+        }
+    return {
+        "scalar_rate": {
+            "numerator": score.numerator,
+            "denominator": score.denominator,
+        }
     }

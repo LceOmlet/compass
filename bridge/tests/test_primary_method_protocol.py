@@ -247,7 +247,14 @@ def test_formal_matrix_delegates_without_copying_compass_engine(tmp_path: Path) 
         by_key[("chartqa", "compass")]["config"]["optimizer"]["max_metric_calls"]
         == 1152
     )
+    assert (
+        by_key[("chartqa", "compass")]["config"]["optimizer"][
+            "parent_selection_score_mode"
+        ]
+        == "high_resolution_lexicographic"
+    )
     m0_optimizer = by_key[("ifbench", "m0")]["config"]["optimizer"]
+    assert m0_optimizer["parent_selection_score_mode"] == "high_resolution"
     assert m0_optimizer["reflection_minibatch_size"] == 3
     assert "proposal_minibatch_size" not in m0_optimizer
     assert "admission_minibatch_size" not in m0_optimizer

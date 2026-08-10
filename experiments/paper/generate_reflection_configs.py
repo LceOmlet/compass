@@ -151,6 +151,7 @@ def build_run_config(
     if parent_selection_score_mode not in {
         "raw_frontier_rate",
         "high_resolution",
+        "high_resolution_lexicographic",
     }:
         raise ValueError("unknown parent-selection score mode")
     if not isinstance(epoch_parallel_enabled, bool):
@@ -299,7 +300,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--parent-selection-score-mode",
-        choices=("raw_frontier_rate", "high_resolution"),
+        choices=(
+            "raw_frontier_rate",
+            "high_resolution",
+            "high_resolution_lexicographic",
+        ),
         default="high_resolution",
     )
     parser.add_argument("--epoch-parallel-enabled", action="store_true")

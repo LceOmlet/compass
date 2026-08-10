@@ -193,10 +193,15 @@ def _optimizer_mapping(value: Any) -> dict[str, Any]:
         "parent_selection_score_mode",
         "high_resolution",
     )
-    if score_mode not in {"raw_frontier_rate", "high_resolution"}:
+    if score_mode not in {
+        "raw_frontier_rate",
+        "high_resolution",
+        "high_resolution_lexicographic",
+    }:
         raise ValueError(
             "optimizer.parent_selection_score_mode must be "
-            "'raw_frontier_rate' or 'high_resolution'"
+            "'raw_frontier_rate', 'high_resolution', or "
+            "'high_resolution_lexicographic'"
         )
     epoch_parallel_enabled = optimizer.get(
         "epoch_parallel_enabled",

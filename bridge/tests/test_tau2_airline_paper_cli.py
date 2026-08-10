@@ -64,7 +64,9 @@ def test_identity_freezes_partition_budget_and_never_serializes_secret(
     ]
     assert len(identity["task"]["proposal_ids"]) == 24
     assert identity["optimizer"]["logical_rollout_budget"] == 600
-    assert identity["optimizer"]["parent_selection_score_mode"] == ("high_resolution")
+    assert identity["optimizer"]["parent_selection_score_mode"] == (
+        "high_resolution_lexicographic"
+    )
 
 
 def test_preflight_uses_official_96_soft_threshold_and_does_not_touch_test(
