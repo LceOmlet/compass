@@ -134,8 +134,8 @@ refreshed whenever new outcomes change the frontier.  COMPASS retains the
 tie-inclusive Top-$\rho$ candidates without ancestor masking and places them in
 a persistent queue.  A maximum-weight one-to-one allocation sends the resulting
 slot identities to different repair opportunities.  Each fixed child receives
-an owner-sampled legal admission batch and a paired reference gate; there is no
-cross-child admission matching stage.  Figure~\ref{fig:overview} shows how these
+an owner-sampled legal admission batch and a paired reference gate.
+Figure~\ref{fig:overview} shows how these
 decisions create non-redundant routing opportunities while keeping
 limited-support decisions comparable, revisable, and separate from direct
 leakage.
@@ -398,7 +398,7 @@ $A_i$ satisfying
 \[
 A_i\cap X(s_i,P_i)=\varnothing.
 \]
-There is no cross-task admission assignment.  The owner freezes $A_i$ and, for
+The owner freezes $A_i$ and, for
 each $x\in A_i$, selects a reference from the current frontier owners with
 defined $G$, preferring the largest $G$ and using frozen randomness for an
 exact tie.  If no such comparable owner exists, the sampled parent $s_i$ is the
@@ -810,9 +810,8 @@ left-side slot vertices, and the operation never fills missing cache entries.
 
 For each of the $m\le w$ surviving proposal tasks, the owner directly samples
 one batch $A_i$ from that task's admission sampler after removing every
-instance in $X(s_i,P_i)$.  No bipartite graph, cross-task matching, cached
-distance, or admission permutation is constructed.  For each instance in the
-sampled batch, the owner selects the defined-$G$ frontier owner with largest
+instance in $X(s_i,P_i)$.  For each instance in the sampled batch, the owner
+selects the defined-$G$ frontier owner with largest
 $G$ as reference, using frozen randomness for an exact tie and the sampled
 parent when no comparable owner exists.  The resulting plan is hidden from the
 generator, required missing reference observations are filled on the existing
