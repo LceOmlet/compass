@@ -1,0 +1,284 @@
+% Figure 1 -- COMPASS: credit-aware routing of legal evidence.
+%
+% COMPOSITION.  Wide and shallow, 13.97 x 8.10 cm.  Mechanisms are DEMONSTRATED
+% with chips, gates and paired rows rather than described in prose.
+%
+% LIFECYCLE the drawing must close correctly.
+%  * The accepted child commits: a dedicated arrow runs from "accepted" into the
+%    committed cache, so child evidence visibly enters committed state.
+%  * Lineage eligibility comes BEFORE credit.  The gate filters this
+%    candidate's items out of the cache first; candidate routing credit L_s is
+%    computed from the surviving eligible subset and is drawn downstream of the
+%    gate, never upstream of it.
+%  * Both workload decisions are demonstrated.  Panel 1 assigns distinct
+%    proposal minibatches to slots.  Panel 2 assigns distinct legal admission
+%    batches to surviving tasks and shows a third task whose batch meets the
+%    exclusion set and is therefore refused.
+%  * The credit path descends to the terminal program and stops there.  The
+%    terminal program is the sole object reaching the budget boundary and
+%    nothing else crosses it.
+%
+% SEMANTICS the drawing must not distort.
+%  * Eq. (1) appears verbatim as the recursive exclusion set definition; the
+%    admission side condition is a separately labelled consequence, and both
+%    live in panel 2 because the rule governs admission legality only.
+%  * The cache is not lineage-filtered: it holds accepted outcomes plus
+%    eligible maximum-bound parent-proposal and admission-reference items.
+%  * Cardinalities are illustrative: open indices and trailing ellipses only.
+%
+% Vertical grid (cm):
+%   7.84  batch letters P and A
+%   7.48  wave row
+%   7.00  barred link, accepted-to-cache commit
+%   6.58  committed cache
+%   5.72  eligibility gate then credit L_s
+%   5.08  fork to the two workload decisions
+%   4.90-1.02  mirrored workload panels
+%   0.80  return lanes
+%   0.52  budget boundary, straddled by the terminal program
+
+\begingroup
+\definecolor{cInk}{HTML}{1B2733}
+\definecolor{cMute}{HTML}{5A6775}
+\definecolor{cLine}{HTML}{B4BEC8}
+\definecolor{cFaint}{HTML}{DCE2E8}
+\definecolor{cGen}{HTML}{1F7A6B}
+\definecolor{cGenT}{HTML}{EAF3F0}
+\definecolor{cCert}{HTML}{3B5A7A}
+\definecolor{cCertT}{HTML}{EBF0F6}
+\definecolor{cCand}{HTML}{B0761A}
+\definecolor{cCandT}{HTML}{FBEFD6}
+\definecolor{cStop}{HTML}{A3322C}
+\hyphenpenalty=10000\exhyphenpenalty=10000\tolerance=9999
+
+\begin{tikzpicture}[
+  x=1cm, y=1cm, line cap=round, line join=round,
+  font=\sffamily,
+  lab/.style   ={font=\sffamily\fontsize{8}{9.6}\selectfont, text=cInk,
+                 inner sep=0pt, align=center},
+  glo/.style   ={font=\sffamily\fontsize{8}{9.6}\selectfont, text=cMute,
+                 inner sep=0pt, align=center},
+  ttl/.style   ={font=\sffamily\bfseries\fontsize{8.5}{10}\selectfont,
+                 text=white, inner sep=0pt, anchor=west},
+  sub/.style   ={font=\sffamily\fontsize{8}{9.6}\selectfont, inner sep=0pt,
+                 anchor=east},
+  badge/.style ={circle, inner sep=0pt, minimum size=0.36cm, fill=white,
+                 text=cGen, font=\sffamily\bfseries\fontsize{8}{8.5}\selectfont},
+  card/.style  ={rounded corners=1.8pt, draw=cLine, line width=0.6pt, fill=white},
+  flow/.style  ={-{Latex[length=1.5mm,width=1.1mm]}, draw=cInk, line width=0.7pt},
+  gflow/.style ={flow, draw=cGen},
+  cflow/.style ={flow, draw=cCert},
+  aflow/.style ={flow, draw=cCand},
+  stop/.style  ={-{Latex[length=1.4mm,width=1.05mm]}, draw=cStop, line width=0.7pt,
+                 dash pattern=on 1.0mm off 0.7mm},
+  kAcc/.style  ={rounded corners=0.7pt, draw=cCert, fill=cCert, line width=0.5pt,
+                 minimum width=0.36cm, minimum height=0.40cm, inner sep=0pt},
+  kPP/.style   ={rounded corners=0.7pt, draw=cGen, fill=cGenT, line width=0.6pt,
+                 minimum width=0.36cm, minimum height=0.40cm, inner sep=0pt},
+  kAR/.style   ={rounded corners=0.7pt, draw=cMute, fill=white, line width=0.6pt,
+                 dash pattern=on 0.6mm off 0.5mm,
+                 minimum width=0.36cm, minimum height=0.40cm, inner sep=0pt},
+  chipP/.style ={rounded corners=0.7pt, draw=cGen, fill=cGen, line width=0.5pt,
+                 minimum width=0.40cm, minimum height=0.42cm, inner sep=0pt},
+  chipA/.style ={rounded corners=0.7pt, draw=cCert, fill=white, line width=0.7pt,
+                 minimum width=0.40cm, minimum height=0.42cm, inner sep=0pt},
+  chipX/.style ={rounded corners=0.7pt, draw=cGen, fill=cGenT, line width=0.5pt,
+                 minimum width=0.40cm, minimum height=0.42cm, inner sep=0pt},
+  chipBad/.style={rounded corners=0.7pt, draw=cStop, fill=white, line width=0.8pt,
+                 minimum width=0.40cm, minimum height=0.42cm, inner sep=0pt},
+  slot/.style  ={rounded corners=0.7pt, draw=cCand, fill=cCandT, line width=0.6pt,
+                 minimum width=0.58cm, minimum height=0.44cm, inner sep=0pt},
+]
+
+\path (0,0) rectangle (13.97,8.10);
+% ---- wave row ------------------------------------------------------------
+\node[card, minimum width=2.10cm, minimum height=0.52cm, inner sep=0pt] at (2.685,7.58) {};
+\node[lab] at (2.685,7.58) {parent $s$};
+\draw[gflow] (3.785,7.58) -- (4.155,7.58);
+\node[glo, text=cGen] at (4.885,7.94) {$P$};
+\node[chipP, minimum width=0.44cm] at (4.455,7.58) {};
+\node[lab, text=white] at (4.455,7.58) {$b_1$};
+\node[chipP, minimum width=0.44cm] at (4.955,7.58) {};
+\node[lab, text=white] at (4.955,7.58) {$b_2$};
+\node[lab, text=cGen] at (5.395,7.56) {$\cdots$};
+\draw[gflow] (5.615,7.58) -- (5.985,7.58);
+\node[card, draw=cCand, fill=cCandT, line width=0.8pt, minimum width=1.90cm,
+      minimum height=0.52cm, inner sep=0pt] at (6.985,7.58) {};
+\node[lab] at (6.985,7.58) {child $p$ fixed};
+\draw[cflow] (7.985,7.58) -- (8.355,7.58);
+\node[glo, text=cCert] at (9.085,7.94) {$A$};
+\node[chipA, minimum width=0.44cm] at (8.655,7.58) {};
+\node[lab, text=cCert] at (8.655,7.58) {$r_1$};
+\node[chipA, minimum width=0.44cm] at (9.155,7.58) {};
+\node[lab, text=cCert] at (9.155,7.58) {$r_2$};
+\node[lab, text=cCert] at (9.595,7.56) {$\cdots$};
+\draw[cflow] (9.815,7.58) -- (10.185,7.58);
+\node[card, draw=cCert, minimum width=2.10cm, minimum height=0.52cm,
+      inner sep=0pt] at (11.285,7.58) {};
+\node[lab] at (11.285,7.58) {accepted};
+
+% ---- proposal evidence never certifies its own child ---------------------
+\draw[cStop, line width=0.7pt, dash pattern=on 1.0mm off 0.7mm]
+      (4.455,7.32) -- (4.455,7.15) -- (4.745,7.15);
+\draw[cStop, line width=0.85pt, fill=white] (4.885,7.15) circle (0.130);
+\draw[cStop, line width=0.85pt] (4.800,7.065) -- (4.970,7.235);
+\node[glo, text=cStop, anchor=west] at (5.06,7.15) {never certifies the child};
+
+% ---- the accepted child commits its evidence ------------------------------
+\draw[cflow] (11.285,7.32) -- (11.285,6.96);
+\node[glo, text=cCert, anchor=west] at (11.42,7.15) {commits};
+
+% ---- committed evidence, filtered per item, converging into credit -------
+%  The region is a MECHANISM, not a legend.  The cache is drawn as the actual
+%  committed items, using the same chip grammar the wave row and both workload
+%  panels already use: green filled b-chips are proposals, blue outlined
+%  r-chips are admission references, dark a-chips are accepted outcomes.  So a
+%  reader recognises the tokens without reading any label.
+%
+%  Lineage eligibility then acts VISIBLY AND PER ITEM on those same tokens:
+%  every item that lies in this candidate's lineage emits an amber line, and
+%  the items that do not are struck through and emit nothing.  The surviving
+%  lines converge to a single point and enter the credit pill, so the many-to-one
+%  transformation, the candidate-specific filtering, and the reason the result
+%  is one routing quantity are all readable as geometry.
+%
+%  Semantics unchanged.  The cache itself is NOT lineage-filtered: it holds all
+%  three admissible kinds.  Eligibility is the candidate-specific test applied
+%  downstream of the cache and upstream of the credit, and the item count is
+%  open (trailing ellipsis).
+\fill[cCertT] (0.66,6.92) -- (0.66,6.30) -- (5.90,5.86) -- (8.07,5.86)
+              -- (13.31,6.30) -- (13.31,6.92) -- cycle;
+\draw[cCert, line width=0.7pt] (0.66,6.92) -- (0.66,6.30) -- (5.90,5.86);
+\draw[cCert, line width=0.7pt] (13.31,6.92) -- (13.31,6.30) -- (8.07,5.86);
+\draw[cCert, line width=0.7pt] (5.90,5.86) -- (8.07,5.86);
+
+\node[lab, text=cCert, anchor=east] at (4.895,6.60) {committed cache:};
+
+%  eligible items: each drops a short vertical stub onto a single collector
+%  rail.  Orthogonal stubs plus one rail replace the earlier diagonal fan, so
+%  the connectors match the return-lane grammar used elsewhere in the figure
+%  and the many-to-one gathering is legible instead of tangled.
+\foreach \x/\st/\lb/\tc in {5.235/kAcc/$a_1$/white, 5.935/chipP/$b_1$/white,
+                            7.335/chipP/$b_2$/white, 8.735/chipA/$r_2$/cCert}{
+  \node[\st, minimum width=0.46cm] at (\x,6.60) {};
+  \node[lab, text=\tc] at (\x,6.60) {\lb};
+  \draw[cCand, line width=0.6pt] (\x,6.39) -- (\x,6.06);
+  \fill[cCand] (\x,6.06) circle (0.035);}
+\draw[cCand, line width=0.7pt] (5.235,6.06) -- (8.735,6.06);
+
+%  ineligible items: red border, and the descending line is stopped at a bar
+%  instead of reaching the convergence point, so filtering is visible per item
+%  while each token stays legible.
+\foreach \x/\st/\lb/\tc in {6.635/kAR/$r_1$/cCert, 8.035/kAcc/$a_2$/white}{
+  \node[\st, minimum width=0.46cm, draw=cStop, line width=0.9pt] at (\x,6.60) {};
+  \node[lab, text=\tc] at (\x,6.60) {\lb};
+  \draw[cStop, line width=0.6pt, dash pattern=on 0.7mm off 0.5mm]
+        (\x,6.39) -- (\x,6.27);
+  \draw[cStop, line width=0.9pt] (\x-0.13,6.25) -- (\x+0.13,6.25);}
+\node[lab, text=cCert] at (9.375,6.58) {$\cdots$};
+\node[glo, text=cStop, anchor=west] at (9.78,6.36) {ineligible};
+
+% ---- candidate routing credit: what the surviving evidence becomes -------
+\draw[aflow] (6.985,6.06) -- (6.985,5.60);
+\node[glo, text=cCand, anchor=west] at (9.78,6.74) {lineage-eligible for $s$};
+\node[rounded corners=0.26cm, draw=cCand, fill=cCandT, line width=1.0pt,
+      minimum width=5.20cm, minimum height=0.52cm, inner sep=0pt]
+      at (6.985,5.34) {};
+\node[lab] at (6.985,5.34) {candidate routing credit $L_s$};
+
+% ---- fork to the two credit-aware workload decisions ---------------------
+\draw[cCand, line width=0.7pt] (6.985,4.96) -- (6.985,4.74);
+\draw[aflow] (6.985,4.74) -- (3.755,4.74) -- (3.755,4.54);
+\draw[aflow] (6.985,4.74) -- (10.215,4.74) -- (10.215,4.54);
+% ---- panel 1: proposal workload -----------------------------------------
+\node[card, minimum width=6.28cm, minimum height=3.30cm, inner sep=0pt] at (3.755,2.89) {};
+\fill[cGen, rounded corners=1.8pt] (0.615,4.12) rectangle (6.895,4.54);
+\fill[cGen] (0.615,4.12) rectangle (6.895,4.34);
+\node[badge] at (0.955,4.33) {1};
+\node[ttl] at (1.225,4.33) {Proposal workload};
+\node[sub, text=cGenT] at (6.745,4.33) {slot $\to$ minibatch};
+\node[glo, text=cGen] at (3.755,3.84) {each slot draws a distinct minibatch};
+\foreach \y/\s/\a/\b/\c in {3.30/1/1/2/3, 2.86/2/4/5/6}{
+  \node[slot] at (2.185,\y) {};
+  \node[lab, text=cCand] at (2.185,\y) {$z_\s$};
+  \draw[gflow] (2.615,\y) -- (3.575,\y);
+  \node[chipP, minimum width=0.46cm] at (3.945,\y) {};
+  \node[lab, text=white] at (3.945,\y) {$b_\a$};
+  \node[chipP, minimum width=0.46cm] at (4.455,\y) {};
+  \node[lab, text=white] at (4.455,\y) {$b_\b$};
+  \node[chipP, minimum width=0.46cm] at (4.965,\y) {};
+  \node[lab, text=white] at (4.965,\y) {$b_\c$};
+  \node[lab, text=cGen] at (5.445,\y) {$\cdots$};}
+\foreach \dy in {-0.10,0,0.10}{
+  \fill[cCand] (2.185,2.52+\dy) circle (0.022);
+  \fill[cGen]  (4.455,2.52+\dy) circle (0.022);}
+\node[slot] at (2.185,2.18) {};
+\node[lab, text=cCand] at (2.185,2.18) {$z_k$};
+\draw[gflow] (2.615,2.18) -- (3.575,2.18);
+\node[chipP, minimum width=0.46cm] at (3.945,2.18) {};
+\node[lab, text=white] at (3.945,2.18) {$b_u$};
+\node[chipP, minimum width=0.46cm] at (4.455,2.18) {};
+\node[lab, text=white] at (4.455,2.18) {$b_v$};
+\node[chipP, minimum width=0.46cm] at (4.965,2.18) {};
+\node[lab, text=white] at (4.965,2.18) {$b_w$};
+\node[lab, text=cGen] at (5.445,2.18) {$\cdots$};
+\node[glo] at (3.755,1.68) {no minibatch is assigned twice};
+% ---- panel 2: admission workload ----------------------------------------
+%  Eq. (1) is the recursive exclusion set itself.  The side condition below it
+%  is the consequence drawn from it and is labelled separately, never as Eq. (1).
+%  The three rows demonstrate the second workload decision: surviving tasks are
+%  assigned distinct owner-sampled admission batches, and a task whose batch
+%  meets the exclusion set is refused.
+\node[card, minimum width=6.28cm, minimum height=3.30cm, inner sep=0pt] at (10.215,2.89) {};
+\fill[cCert, rounded corners=1.8pt] (7.075,4.12) rectangle (13.355,4.54);
+\fill[cCert] (7.075,4.12) rectangle (13.355,4.34);
+\node[badge, text=cCert] at (7.415,4.33) {2};
+\node[ttl] at (7.685,4.33) {Admission workload};
+\node[sub, text=cCertT] at (13.205,4.33) {task $\to$ legal batch};
+\node[glo, text=cCert] at (10.215,3.88) {Eq.~(1) recursive exclusion set};
+\node[font=\fontsize{8}{9.6}\selectfont, text=cInk, inner sep=0pt] at (10.215,3.32)
+  {$X(s,P)=P\cup\bigcup\nolimits_{a\in\operatorname{Anc}(s)\cup\{s\}}P_a^{\mathrm{birth}}$};
+\node[glo] at (10.215,2.88) {legal iff $A\cap X(s,P)=\varnothing$};
+\foreach \y/\s/\a/\b in {2.44/1/1/2, 2.00/2/3/4}{
+  \node[slot] at (8.645,\y) {};
+  \node[lab, text=cCand] at (8.645,\y) {$t_\s$};
+  \draw[cflow] (9.075,\y) -- (10.035,\y);
+  \node[chipA, minimum width=0.46cm] at (10.405,\y) {};
+  \node[lab, text=cCert] at (10.405,\y) {$r_\a$};
+  \node[chipA, minimum width=0.46cm] at (10.915,\y) {};
+  \node[lab, text=cCert] at (10.915,\y) {$r_\b$};
+  \node[lab, text=cCert] at (11.395,\y) {$\cdots$};
+  \draw[cGen, line width=0.9pt] (11.72,\y-0.02) -- (11.85,\y-0.13) -- (12.10,\y+0.13);
+  \node[glo, text=cGen, anchor=west] at (12.22,\y) {legal};}
+\node[slot] at (8.645,1.56) {};
+\node[lab, text=cCand] at (8.645,1.56) {$t_m$};
+\draw[stop] (9.075,1.56) -- (10.035,1.56);
+\node[chipA, minimum width=0.46cm] at (10.405,1.56) {};
+\node[lab, text=cCert] at (10.405,1.56) {$r_5$};
+\node[chipBad, minimum width=0.46cm] at (10.915,1.56) {};
+\node[lab, text=cStop] at (10.915,1.56) {$b_2$};
+\draw[cStop, line width=0.85pt, fill=white] (11.60,1.56) circle (0.130);
+\draw[cStop, line width=0.85pt] (11.515,1.475) -- (11.685,1.645);
+\node[glo, text=cStop, anchor=west] at (11.80,1.56) {in $X(s,P)$};
+% ---- return lanes: both decisions return observations to the cache -------
+\draw[cGen, line width=0.7pt] (3.755,1.24) -- (3.755,0.86) -- (0.30,0.86);
+\draw[cCert, line width=0.7pt] (10.215,1.24) -- (10.215,0.86) -- (13.67,0.86);
+\draw[gflow] (0.30,0.86) -- (0.30,6.50) -- (0.615,6.50);
+\draw[cflow] (13.67,0.86) -- (13.67,6.50) -- (13.355,6.50);
+
+% ---- the credit path ends at the terminal program ------------------------
+%  The terminal program is the endpoint of the optimization-internal credit
+%  path and the only object that reaches the budget boundary.  It straddles the
+%  boundary, which is why the dashed line breaks around it; nothing else
+%  crosses, and nothing returns from below.
+\draw[aflow] (6.985,4.74) -- (6.985,0.74);
+\node[card, draw=cCand, fill=cCandT, line width=0.8pt, minimum width=2.90cm,
+      minimum height=0.44cm, inner sep=0pt] at (6.985,0.52) {};
+\node[lab] at (6.985,0.52) {terminal program};
+\draw[cLine, line width=0.6pt, dash pattern=on 1.2mm off 0.9mm]
+      (0.55,0.52) -- (5.28,0.52);
+\draw[cLine, line width=0.6pt, dash pattern=on 1.2mm off 0.9mm]
+      (8.69,0.52) -- (13.42,0.52);
+\node[glo, text=cCand, anchor=east] at (5.28,0.26) {budget boundary};
+\end{tikzpicture}
+\endgroup

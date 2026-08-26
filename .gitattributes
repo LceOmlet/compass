@@ -5,4 +5,8 @@
 *.patch text eol=lf
 *.ps1 text eol=crlf
 *.sh text eol=lf
+*.tex text eol=lf
+*.bib text eol=lf
+*.sty text eol=lf
+*.bst text eol=lf
 *.bin binary

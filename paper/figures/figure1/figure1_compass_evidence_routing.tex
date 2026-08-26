@@ -1,0 +1,27 @@
+% Figure 1 -- standalone wrapper.  Canvas is exactly \linewidth (397.485pt),
+% so the exported PDF is placed 1:1 by main.tex and label point sizes on the
+% page equal the point sizes in the source.
+%   PDF : pdflatex figure1_compass_evidence_routing.tex
+%   SVG : latex figure1_compass_evidence_routing.tex
+%         dvisvgm --font-format=woff2 --exact --bbox=papersize \
+%                 figure1_compass_evidence_routing.dvi
+%   PNG : pdftoppm -png -r 600 -singlefile figure1_compass_evidence_routing.pdf \
+%                 figure1_compass_evidence_routing
+\documentclass[tikz,border=0pt]{standalone}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usetikzlibrary{arrows.meta,positioning,fit,calc,decorations.pathreplacing}
+
+% Publication floor: no visible run below 8pt at 1:1 inclusion.  Pin the math
+% script/scriptscript sizes for every text size the figure uses so subscripts
+% and superscripts cannot fall under the floor.
+\DeclareMathSizes{8}{8}{8}{8}
+\DeclareMathSizes{9}{9}{8}{8}
+\DeclareMathSizes{10}{10}{8}{8}
+\DeclareMathSizes{12}{12}{9}{9}
+
+\begin{document}
+\input{figure1_compass_evidence_routing_body.tex}
+\end{document}

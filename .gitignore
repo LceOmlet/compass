@@ -8,20 +8,58 @@ htmlcov/
 
 .venv/
 venv/
+.codex-tmp/
+secrets/
 .env
 .env.*
+*.key
+*.pem
 
 cache/
 cache_*/
 cache-*/
 runs/
 .local-runs/
+outputs/
+artifacts/
+checkpoints/
+datasets/
+data/
+
+*.jsonl
+*.csv
+*.tsv
+*.parquet
+*.arrow
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.tar
+*.tar.gz
+*.zip
 
 *.log
 *.bin
 *.pt
 *.pth
 *.safetensors
+
+# Generated paper artifacts. Source LaTeX, BibTeX, style, and TikZ files stay
+# tracked; compiled documents and previews remain local.
+paper/**/*.aux
+paper/**/*.bbl
+paper/**/*.blg
+paper/**/*.dvi
+paper/**/*.fdb_latexmk
+paper/**/*.fls
+paper/**/*.log
+paper/**/*.out
+paper/**/*.pdf
+paper/**/*.png
+paper/**/*.svg
+paper/tmp/
+paper/output/
 
 .DS_Store
 Thumbs.db

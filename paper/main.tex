@@ -1,0 +1,1087 @@
+\documentclass{article}
+\usepackage{style/iclr2026_conference,times}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{cleveref}
+
+\hypersetup{hidelinks}
+
+\newcommand{\method}{\textsc{Compass}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\A}{\mathcal{A}}
+\newcommand{\B}{\mathcal{B}}
+\newcommand{\C}{\mathcal{C}}
+\newcommand{\F}{\mathcal{F}}
+\newcommand{\K}{\mathcal{K}}
+\newcommand{\Pcal}{\mathcal{P}}
+\newcommand{\Q}{\mathcal{Q}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\ind}{\mathbf{1}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{definition}{Definition}
+\newtheorem{corollary}{Corollary}
+
+\title{\resizebox{0.96\textwidth}{!}{How Can Every Rollout Count for Skill Seekers?}\\[-0.10em]
+{\large \method{} for Skill Proposers}}
+
+% Keep author identities hidden for anonymous ICLR submission.
+\author{Anonymous authors}
+
+% \iclrfinalcopy
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Textual-program optimizers use execution traces to revise prompts,
+instructions, and agent skills.  A fixed rollout budget creates a three-way
+tension.  Broad fresh evaluation reduces decision variance but permits fewer
+revisions; minibatching increases search bandwidth but makes selection noisier;
+and direct reuse lets a lineage certify itself on the examples that shaped it.
+We formulate \emph{provenance-constrained evidence routing}: minimizing the
+simple regret of the terminal program by extracting more useful search information
+from each rollout without crossing the generation--certification boundary.  We
+introduce \method{}, which recursively excludes current and inherited proposal
+batches from admission and reuses the remaining legal evidence throughout the
+search.  Each candidate is compared with the other legally observed candidates
+on the same instance, and the comparison is refreshed whenever the frontier
+changes.  A persistent queue walks a tie-inclusive active envelope, while a
+maximum-weight proposal allocation directs its slots to distinct repair
+opportunities.  Each fixed child receives an independently sampled legal
+admission batch.  The analysis makes the bandwidth--variance tradeoff explicit:
+more independently proposed-and-certified candidates can reduce the search gap,
+whereas more fresh support per candidate reduces selection regret.  Recursive
+exclusion keeps the latter evidence non-anticipatory.
+Across completed held-out owner evaluations, task-specific COMPASS-family
+variants reach $57.3\%$ on AIME-2025, $43.4\%$ on IFBench, $66.7\%$ on
+LiveBench-Math, and $51.3\%$ on HoVer with Qwen3-8B.  The corresponding
+published GEPA scores are $32.0\%$, $38.6\%$, $52.0\%$, and $52.3\%$.
+These results show
+that governing how evidence is created, reused, and routed can materially
+affect sample-efficient textual-program evolution.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+Feedback-driven optimizers can revise an instruction, prompt, or agent skill
+after observing only a few execution traces.  Reflection, textual gradients,
+and evolutionary prompt search use the diagnostic content of language feedback
+to make large behavioral updates without changing model weights
+\citep{reflexion,self_refine,textgrad,
+cheng2024traceautodiffgenerativeoptimization,gepa}.  This makes rollouts the
+scarce resource.  A rollout can diagnose a failure and shape a revision, or it
+can evaluate a revision that is already fixed.  An optimizer must decide
+\emph{what} to generate and how much independent information to allocate to
+each role.  For example, three instruction-following cases may
+expose a constraint-ordering error and inspire a new rule.  Those cases are
+high-value proposal evidence, but replaying them as the child's admission test
+would measure the edit on the evidence that produced it.
+
+A fixed budget therefore creates an information tradeoff.  Evaluating every
+candidate on broad fresh support lowers selection variance but leaves fewer
+chances to discover a better program.  Small minibatches permit more
+proposal--admission attempts but amplify noise in a partial and uneven reward
+table.  Reusing the same evidence for both roles appears to recover both
+benefits, but it certifies a candidate on observations that already influenced
+its text.  A growing lineage can inherit that information for many generations,
+turning adaptive fit into apparent progress.
+
+We identify the underlying problem as \emph{provenance-constrained evidence
+routing}.  Given a rollout budget, a growing program lineage, and a committed
+partial reward table, the router must maximize the number and quality of
+independently proposed-and-certified search attempts while keeping their
+decisions statistically credible.  Its objective is the held-out owner utility
+of the terminal program, equivalently low terminal simple regret.  The central
+constraint is lineage-level non-anticipation: evidence that helped create a
+program cannot certify that program's future lineage.
+
+This problem requires more than holding out one minibatch.  Birth
+provenance must be propagated recursively without discarding diagnostic traces.
+Evidence collected on different candidates and tasks must be combined without
+turning missingness or an unusually easy observed subset into candidate
+strength.  Parents and descendants must remain directly comparable as the
+partial table changes.  Concurrent search paths must also explore distinct
+repair opportunities rather than repeat the same parent--task pairing.
+Together, these requirements define one routing problem: every accepted
+observation changes both the uncertainty of the current lineage and the
+opportunity cost of the next rollout.
+
+\method{} (\textbf{C}redit-Aware \textbf{O}ptimization with \textbf{M}ini-batch
+\textbf{P}roposal and \textbf{A}dmission for \textbf{S}kill \textbf{S}earch)
+implements this routing principle.  A recursive exclusion operator separates
+generation from certification.  On each instance, the remaining legal evidence
+measures whether a candidate reaches the current frontier relative to the other
+legally observed candidates.  An instance that is easy for every observed
+candidate cannot raise all routing priorities together.  The comparison is
+refreshed whenever new outcomes change the frontier.  COMPASS retains the
+tie-inclusive Top-$\rho$ candidates without ancestor masking and places them in
+a persistent queue.  A maximum-weight one-to-one allocation sends the resulting
+slot identities to different repair opportunities.  Each fixed child receives
+an owner-sampled legal admission batch and a paired reference gate; there is no
+cross-child admission matching stage.  Figure~\ref{fig:overview} shows how these
+decisions create non-redundant routing opportunities while keeping
+limited-support decisions comparable, revisable, and separate from direct
+leakage.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/figure1/figure1_compass_evidence_routing.pdf}
+\caption{\textbf{Provenance-constrained evidence routing in \method{}.}  Under
+a fixed budget, broad fresh evaluation lowers variance but reduces search
+bandwidth, whereas direct reuse leaks generation evidence into certification.
+The recursive exclusion set in \Cref{eq:recursive_exclusion} separates these
+roles.  COMPASS then reuses legal committed evidence to compute candidate
+credit and coordinate parallel proposal work; held-out
+owner evaluation measures the utility of the terminal program.}
+\label{fig:overview}
+\end{figure}
+
+Completed owner evaluations span model families and task types.  On Qwen3-8B,
+task-specific COMPASS-family variants reach $57.33\%$ on AIME-2025,
+$43.37\%$ on IFBench, $66.67\%$ on LiveBench-Math, and $51.33\%$ on HoVer.
+The first three exceed published GEPA by $25.33$, $4.76$, and $14.72$
+percentage points; HoVer is $1.00$ point lower.  Each endpoint has an exact
+rollout, candidate, token, and cost ledger.  The frozen checkpoints retain
+lineage, queue, allocation, and cache-activation state for mechanism analysis.
+
+Our contributions are as follows:
+\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=3pt]
+  \item We formulate \emph{provenance-constrained evidence routing} for
+  textual-program evolution, exposing the fixed-budget tradeoff among search
+  bandwidth, certification precision, and direct adaptive leakage.
+
+  \item We introduce \method{}, an optimizer that recursively
+  separates generation from certification and turns committed legal evidence
+  into a routing signal based on how each candidate compares with its peers on
+  the same instance.  The signal is recomputed as the partial observation state
+  changes.
+
+  \item We route the tie-inclusive Top-$\rho$ candidates without ancestor
+  masking, then use an exact maximum-weight integer assignment to couple
+  persistent parent slots to repairable proposal batches.  Admission remains a
+  direct owner operation: each fixed child receives its own provenance-legal
+  batch and paired reference gate.
+
+  \item We evaluate frozen COMPASS-family identities under fixed published
+  budgets across models and tasks, including mathematical reasoning,
+  instruction following, and multi-hop fact verification.
+\end{enumerate}
+
+\section{Provenance-Constrained Evidence Routing}
+\label{sec:setting}
+
+\subsection{Fixed-budget search as an information problem}
+
+At optimization step $t$, let $\Pcal_t=\{p_0,\ldots,p_{m_t-1}\}$ be the
+accepted textual programs.  Candidate $p_0$ is the seed; every later candidate
+records a parent, inducing a directed acyclic lineage.  We call the
+benchmark-authoritative data, execution, metric, and aggregation contract the
+\emph{owner}.  Executing
+program $p_s$ on optimization instance $x$ yields a bounded reward in $[0,1]$,
+an output, and an execution trace.  The committed cache is a partial table
+$q_t(s,x)$ containing the best finite owner-accepted observation for evaluated
+pairs.  A missing entry means unevaluated, not reward zero.  Let
+$P_a^{\mathrm{birth}}$ be the proposal batch that created candidate $a$, with
+$P_0^{\mathrm{birth}}=\varnothing$, and let $\operatorname{Anc}(s)$ contain
+the transitive ancestors of $s$.  Define the
+lineage birth set
+\[
+\mathcal B_s=\bigcup_{a\in\operatorname{Anc}(s)\cup\{s\}}
+P_a^{\mathrm{birth}}
+\]
+and the routing-eligible evidence set
+$\Omega_t(s)=\{x:q_t(s,x)\text{ exists and }x\notin\mathcal B_s\}$.
+Thus an observation may guide later routing for an existing program, but it
+cannot earn frontier credit for a lineage whose text was adapted to that
+observation.
+
+The owner supplies the optimization observations accepted into the cache and,
+after selection, an independent frozen test.
+
+The optimizer has a logical rollout budget $B$.  Let
+$b_P,b_A\in\mathbb N_+$ denote the proposal and admission minibatch sizes, so
+$|P|=b_P$ and $|A|=b_A$.  A
+proposal minibatch exposes failures to the program generator; an admission
+minibatch tests a child whose text is already fixed.  We call the number of
+independently proposed-and-certified children supported by $B$ the search's operational
+\emph{information bandwidth}.  Increasing fresh support per child lowers the
+variance of each admission decision, but consumes budget that could have
+created another search attempt.  Reusing proposal evidence for admission does
+not provide legitimate bandwidth: it makes the decision depend on the same
+observations that shaped the candidate.
+
+Let $R(p)$ denote the utility of program $p$ under the frozen owner
+distribution and let $R^\star$ denote the best reachable utility under the
+search model.  A budget-$B$ router returns $p_{\hat s_B}$, with realized
+terminal simple regret $r_B=R^\star-R(p_{\hat s_B})$ and expected regret
+$\bar r_B=\E[r_B]$ over routing, generation, and rollout randomness.  The routing problem
+is to reduce this regret by balancing three coupled quantities: how many
+independent search attempts the budget supports, how much evidence stabilizes
+each decision, and how adaptively that evidence has influenced the program
+being judged.
+
+\subsection{Recursive generation--certification boundary}
+
+For a child proposed from parent $s$ on batch $P$, define
+\begin{equation}
+X(s,P)=P\cup
+\bigcup_{a\in\operatorname{Anc}(s)\cup\{s\}}P_a^{\mathrm{birth}}
+\label{eq:recursive_exclusion}
+\end{equation}
+A legal admission batch satisfies $A\cap X(s,P)=\varnothing$.  Proposal traces
+remain available for diagnosis, but neither the current proposal batch nor an
+inherited birth-proposal batch can certify the lineage it shaped.
+In the running example, the three diagnostic cases remain available to explain
+the error, while a disjoint admission batch decides whether the new rule earns
+future search budget.
+
+\subsection{Routing legal evidence}
+
+Let $\mathcal H_t$ contain the lineage, birth provenance, committed cache,
+remaining budget, and persistent routing state.  A routing action
+  $a_t=(\A_t,\mathbf z_t,Y_t)$ chooses active candidates, persistent parent
+  slots, and a one-to-one proposal assignment from $\mathcal H_t$; the frozen owner test
+never enters this history.  The three information problems now imply the
+method directly.  Direct leakage requires recursive exclusion and a
+  generation--certification boundary.  Uneven partial evidence requires
+  instance-relative credit that is revised as frontiers change.  Redundant
+  parallel attempts require persistent proposal slots and a coupled one-to-one
+  proposal assignment; admission is sampled independently for each fixed child.
+
+This formulation is independent of a particular program generator.  A valid
+router must respect the recursive boundary, operate under the logical budget
+$B$, commit an
+eligible observation once, and keep the owner test outside $\mathcal H_t$.
+Within those constraints, it seeks the routing policy whose terminal artifact
+has the smallest expected simple regret.
+
+\section{\method{}: Routing Legal Evidence Through Search}
+\label{sec:method}
+
+One \method{} wave carries evidence through a complete lifecycle.  A proposal
+batch reveals a failure pattern and shapes a child.  Equation
+\eqref{eq:recursive_exclusion} removes the evidence that shaped its lineage
+from the child's legal admission pool.  A legal admission batch then judges the
+fixed child, eligible outcomes enter the committed cache once, and the new
+state determines which lineages and tasks receive the next budget.  The method
+therefore couples provenance, reuse, and allocation rather than treating them
+as separate heuristics.
+
+\subsection{From provenance to committed evidence}
+\label{sec:global_credit}
+
+For parent $s$ and proposal batch $P$, \method{} samples admission instances
+only outside $X(s,P)$.  The admission identities, references, and
+outcomes remain hidden from the generator until the child text is fixed.
+The proposal rollout may update the existing parent, but $P$ becomes the
+child's birth provenance and is therefore excluded from that child's
+routing-eligible set together with all inherited birth batches.  At birth, the child
+enters the committed table only through its legal admission evaluation.
+Later owner-accepted executions may enlarge its routing evidence whenever
+their instances remain outside the same lineage birth set.  This lets proposal
+traces retain their high-bandwidth diagnostic role while admission supplies a
+new observation that can certify the revision.
+
+Let $\F_t(x)$ be the owner frontier among candidates for which
+$x\in\Omega_t(s)$.  Every current frontier owner counts as a frontier outcome,
+irrespective of the frontier's raw score.  Define the legally observed
+comparison set and its frontier count by
+\[
+\mathcal C_t(x)=\{u:x\in\Omega_t(u)\},\qquad
+N_x=|\mathcal C_t(x)|,\qquad
+y_{sx}=\ind\{s\in\F_t(x)\},\qquad
+K_x=\sum_{u\in\mathcal C_t(x)}y_{ux}.
+\]
+When $N_x\ge2$, candidate $s$ receives the leave-one-skill-out frontier
+residual
+\[
+r_{sx}=y_{sx}-\frac{K_x-y_{sx}}{N_x-1}
+=\frac{N_xy_{sx}-K_x}{N_x-1}.
+\]
+Only comparable exposures enter the aggregate:
+\begin{equation}
+\begin{aligned}
+\Omega_t^{\mathrm{cmp}}(s)&=\{x\in\Omega_t(s):N_x\ge2\},
+&E_s^{\mathrm{cmp}}&=|\Omega_t^{\mathrm{cmp}}(s)|,\\
+R_s&=\sum_{x\in\Omega_t^{\mathrm{cmp}}(s)}r_{sx},
+&G_s&=\frac{R_s}{E_s^{\mathrm{cmp}}}.
+\end{aligned}
+\label{eq:global_key}
+\end{equation}
+Thus $G_s$ records how often $s$ reaches the current frontier relative to the
+other legally observed candidates on the same instances.  An observation with
+$N_x=1$ remains in the committed table but contributes no relative credit until
+another candidate is legally observed on $x$.  Missing entries remain missing,
+and $G_s$ is undefined when $E_s^{\mathrm{cmp}}=0$ rather than being set to
+zero.  Whenever a commit changes an observation or an owner frontier, COMPASS
+recomputes $N_x$, $K_x$, all affected residuals, and the resulting $G_s$ values.
+
+\subsection{A credit-ranked search frontier}
+\label{sec:lineage_compression}
+
+Let $\mathcal R_t=\{s:E_s^{\mathrm{cmp}}>0\}$ be the candidates with defined
+credit.  Parent--descendant relations do not remove candidates from this
+domain.  Let $\rho\in\mathbb N_+$ be the active-rank cutoff.  If
+$|\mathcal R_t|\ge\rho$, let $g_\rho$ be the $\rho$-th largest $G_s$ and retain
+every candidate with $G_s\ge g_\rho$; otherwise retain all of
+$\mathcal R_t$.  The active set $\A_t$ can therefore contain more than $\rho$
+programs at a boundary tie, and a parent and its descendant may remain active
+simultaneously.  If no candidate has defined credit, COMPASS falls back to the
+seed.
+
+The resulting active set is sorted by decreasing $G_s$, with earlier candidate
+index as the deterministic exact-tie order.  Let $w\in\mathbb N_+$ be the wave
+width.  A persistent cyclic cursor draws $w$ \emph{slot identities} from this
+order.  If $|\A_t|<w$, parent labels repeat but slot identities do not.  The
+queue therefore preserves coverage across waves while allowing the current
+frontier to concentrate work.
+
+\subsection{Turning credit into proposal work and legal admission}
+\label{sec:proposal_allocation}
+\label{sec:admission_allocation}
+\label{sec:commit}
+
+Candidate credit decides which candidates own the wave's persistent slot
+rights; it is not reused as a batch score.  For candidate $s$ and proposal
+minibatch $P$, define the
+recorded repair opportunity
+\begin{equation}
+H(s,P)=\frac{1}{|P|}\sum_{x\in P}
+\begin{cases}
+\left[\max_{r\in\A_t:q_t(r,x)\ \mathrm{finite}}q_t(r,x)-q_t(s,x)\right]_+,
+& q_t(s,x)\ \mathrm{finite},\\
+0,&\text{otherwise}.
+\end{cases}
+\label{eq:repairable_gap}
+\end{equation}
+The zero branch is an opportunity weight, not an imputed failure.  Let
+$\mathcal I_w=\{0,\ldots,w-1\}$ index the drawn slots $z_i$ and proposal
+minibatches $P_j$.  \method{} allocates them by the maximum-weight binary
+program
+\begin{equation}
+\begin{aligned}
+Y^\star\in\argmax_{Y\in\{0,1\}^{w\times w}}\quad
+&\sum_{i,j\in\mathcal I_w}H(z_i,P_j)y_{ij}\\
+\text{s.t.}\quad
+&\sum_{j\in\mathcal I_w}y_{ij}=1\ \ \forall i,
+\qquad
+\sum_{i\in\mathcal I_w}y_{ij}=1\ \ \forall j.
+\end{aligned}
+\label{eq:proposal_assignment}
+\end{equation}
+Thus distinct slots receive distinct proposal rights even when two slots carry
+the same parent label, and the wave realizes the largest recorded repair
+opportunity available to those slots and batches.
+
+Proposal evaluation can update the existing parent and leaves a set of
+surviving proposal tasks.  After these parent observations are committed, write
+$m\le w$ for the number of surviving tasks, with parent $s_i$ and proposal
+batch $P_i$.  For each task independently, the owner samples an admission batch
+$A_i$ satisfying
+\[
+A_i\cap X(s_i,P_i)=\varnothing.
+\]
+There is no cross-task admission assignment.  The owner freezes $A_i$ and, for
+each $x\in A_i$, selects a reference from the current frontier owners with
+defined $G$, preferring the largest $G$ and using frozen randomness for an
+exact tie.  If no such comparable owner exists, the sampled parent $s_i$ is the
+reference.  Denote this choice by $r_i(x)$.  Missing reference observations are
+evaluated and maximum-bound on their existing programs before the child is
+generated, while admission identities, references, and outcomes remain hidden
+from the generator.
+
+After the generator fixes child $p_i$ from $(s_i,P_i)$, the owner evaluates the
+child and its references on the same batch and applies the paired aggregate
+gate
+\begin{equation}
+\Delta_i=\sum_{x\in A_i}\left[q(p_i,x)-q(r_i(x),x)\right],
+\qquad
+\operatorname{admit}(p_i)\iff\Delta_i>0.
+\label{eq:admission_gate}
+\end{equation}
+Maximum-bound proposal and admission-reference observations update existing
+programs, while only lineage-eligible entries affect their credit; a child's
+own admission evidence enters the cache only with an owner-accepted child.
+COMPASS then recomputes every affected $G_s$, the tie-inclusive active envelope,
+and the queue.  At the budget boundary, the maximal defined $G_s$ is returned,
+with earliest index breaking an exact tie; if every $G_s$ is undefined, the
+seed is returned.  The terminal
+artifact alone enters independent owner evaluation.  Expanded execution and
+fallback details appear in \Cref{app:algorithm}.
+
+\section{How \method{} Turns Evidence into Search}
+\label{sec:mechanism}
+
+To see how the components fit together, follow one revision through the search
+loop.  A proposal batch reveals a parent's failures and shapes a child.  Since
+those examples helped create the child, different evidence must establish that
+the revision is useful.  The resulting fresh outcomes are compared with other
+candidates on the same instances, converted into routing credit, and spent on
+the next set of proposal opportunities.  The formal statements below support
+three intuitions needed to read this loop: admission tests a fixed revision,
+credit records relative distinctions rather than raw successes, and a fixed
+rollout budget must trade search breadth against decision precision.
+
+\subsection{A revision is judged on fresh paired evidence}
+
+A revision can look perfect on the examples it was written to solve while
+changing nothing elsewhere.  This makes a generation--certification boundary
+essential rather than cosmetic.
+
+\begin{proposition}[Self-certification can be arbitrarily optimistic]
+\label{prop:self_cert_leakage}
+For every admission size $n\ge1$ and $\epsilon>0$, there is a task
+distribution and a proposal rule that observes $n$ examples, constructs a
+program, and scores one when those examples are reused for certification,
+although the program's population utility is at most $\epsilon$.
+\end{proposition}
+
+The construction in \Cref{app:proofs} memorizes the observed examples.
+COMPASS prevents that evidence from returning as certification for either the
+child that used it or later descendants that can inherit the resulting
+behavior.
+
+\paragraph{Fresh-pair principle.}
+The proposal batch explains how to change the parent; a disjoint admission
+batch decides whether that change helps.  Before generation, the owner freezes
+the legal admission batch and its per-instance references and hides both from
+the generator.  The gate in \Cref{eq:admission_gate} then compares the fixed
+child and its references on the same fresh instances.  With $n$ bounded pairs,
+the uncertainty of this paired advantage shrinks proportionally to
+$1/\sqrt n$.  Thus additional admission evidence makes the decision less
+sensitive to a lucky minibatch.  The exact non-anticipation statement and
+concentration bound appear in \Cref{thm:recursive_fresh}.
+
+\subsection{Fresh outcomes become instance-relative credit}
+
+Admission decides whether a particular child enters the pool.  Routing asks a
+different question: which accepted candidates have shown distinctions worth
+pursuing further?  COMPASS answers it by comparing candidates on the same
+instance before aggregating across the partial cache.
+
+\begin{proposition}[Instance-wise credit conservation]
+\label{prop:credit_conservation}
+For every instance $x$ with $N_x\ge2$, the residuals defined immediately
+before \Cref{eq:global_key} satisfy
+\[
+\sum_{s\in\mathcal C_t(x)}r_{sx}=0.
+\]
+\end{proposition}
+
+This conservation law makes the score a contrast rather than a count.  If all
+$N_x$ compared candidates share the current frontier, every residual is zero:
+an instance that separates nobody raises nobody's routing priority.  If one
+candidate uniquely owns the frontier, it receives residual one and each of the
+other $N_x-1$ candidates receives $-1/(N_x-1)$.  Thus the same frontier event
+means more when it distinguishes a candidate from its observed peers.
+
+These residuals are not immutable rewards.  When a new committed observation
+changes $\mathcal F_t(x)$, COMPASS recomputes $K_x$, every affected $r_{sx}$,
+and the corresponding $G_s$.  An instance with only one legal observation
+remains cached but begins contributing relative credit only after another
+candidate becomes comparable there.
+
+Ancestry imposes no separate survival mask; it determines which observations a
+candidate may claim.  Once $G_s$ is defined, the tie-inclusive Top-$\rho$ rule
+ranks every candidate in one pool, so a parent and its descendant can remain
+active together.  A persistent cursor then converts this credit order into
+proposal-slot rights without repeatedly resetting attention to the first
+candidate.
+
+\subsection{Credit directs the next wave}
+
+Three signals play different roles in the next wave.  First, $G_s$ determines
+which candidates receive the $w$ persistent slots.  Second, the recorded
+repair opportunity $H(s,P)$ chooses which distinct proposal batch each slot
+receives through the exact binary assignment in
+\Cref{eq:proposal_assignment}.  Credit therefore chooses \emph{whose} search
+continues, while $H$ chooses \emph{where} each proposal attempt is spent.
+
+Admission is not a second allocation problem.  Each surviving child receives
+its own independently sampled legal batch and frozen references, and the
+paired gate in \Cref{eq:admission_gate} decides whether it joins the pool.
+Accepted evidence can change the frontiers on its instances, which redistributes
+the corresponding residuals and updates the next credit order.  The resulting
+feedback loop is
+\[
+\begin{aligned}
+\text{fresh outcomes}
+&\longrightarrow G_s
+\longrightarrow \text{proposal-slot rights}\\
+&\longrightarrow H\text{-matched proposals}
+\longrightarrow \text{fresh paired admission}.
+\end{aligned}
+\]
+At the budget boundary, the maximal defined $G_s$ is returned, with the seed
+used only when every credit remains undefined.  The appendix records cyclic
+slot coverage and exact optimality of the proposal assignment.
+
+\subsection{Why breadth and confidence compete}
+
+Let $\Pcal_B$ be the candidates discovered within budget $B$ and let
+$\hat p_B$ be COMPASS's actual $G_s$-selected terminal program.  Its regret
+has the exact decomposition
+\begin{equation}
+R^\star-R(\hat p_B)
+=
+\underbrace{R^\star-\max_{p\in\Pcal_B}R(p)}_{\text{search gap}}
++
+\underbrace{\max_{p\in\Pcal_B}R(p)-R(\hat p_B)}_{\text{selection gap}}.
+\label{eq:terminal_regret_decomposition}
+\end{equation}
+The first term falls only when search discovers stronger candidates; the
+second falls only when the available evidence identifies a strong discovered
+candidate.  A fixed rollout budget must support both.
+
+The following calculation exposes the design law behind this
+breadth--confidence tradeoff.
+
+\begin{proposition}[Fresh-evidence breadth--confidence tradeoff]
+\label{prop:bandwidth_precision}
+For any $M,n\in\mathbb N_+$ and $\delta\in(0,1)$, let
+$p_1,\ldots,p_M$ be adaptively generated candidates.  After $p_i$ is fixed,
+suppose it receives $n$ conditionally iid owner rewards in $[0,1]$ from one
+common owner law with mean $R(p_i)$.  Let $\widehat R_n(p_i)$ be their mean and
+define
+\[
+\widetilde p_{M,n}\in\argmax_{i\le M}\widehat R_n(p_i).
+\]
+Then, with probability at least $1-\delta$,
+\begin{equation}
+R^\star-R(\widetilde p_{M,n})
+\le
+\underbrace{R^\star-\max_{i\le M}R(p_i)}_{\text{search gap}}
++
+\underbrace{2\sqrt{\frac{\log(2M/\delta)}{2n}}}_{\text{selection noise}}.
+\label{eq:bandwidth_variance_regret}
+\end{equation}
+\end{proposition}
+
+The bound yields a direct design principle: more distinct proposal attempts can
+reduce the search gap, while more fresh support for each candidate shrinks the
+uncertainty of choosing among them.  COMPASS addresses both demands explicitly:
+credit-ranked slots and exact proposal matching spend budget on search breadth,
+while provenance-legal paired admission spends evidence on each decision.  The
+resulting $G_s$ order directs both continued search and terminal selection.
+
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Evaluation questions}
+
+We evaluate whether provenance-constrained routing improves held-out owner
+utility under a fixed budget and whether the result persists across models and
+tasks.
+
+\subsection{Tasks, models, and owner evaluation}
+
+Our study spans AIME-2025 and LiveBench-Math mathematical reasoning, IFBench
+instruction following with unseen constraint types, HotPotQA question
+answering, HoVer multi-hop fact verification, PUPA privacy-conscious
+delegation
+\citep{ifbench_bench,aime_2025,livebench,hotpotqa_bench,hover_bench,
+papillon_bench}.  We evaluate Qwen3-8B~\citep{qwen3_technical_report} and
+GPT-5.4-nano.  PUPA retains its benchmark-owned GPT-4.1-mini judge for response
+quality and PII leakage; this fixed scorer is not an optimized task or
+reflection model.
+
+Official evaluation is separated from optimization.  The Qwen3-8B AIME variant
+is evaluated on all 150 owner problems.  HoVer uses 150/300/300 train,
+validation, and test instances with a 7,051-call budget; LiveBench-Math uses its
+frozen 126-problem test with a 1,839-call budget.  No official test result feeds
+optimization.
+
+\subsection{Qwen3-8B: comparison across six tasks}
+
+Table~\ref{tab:qwen_results} compares completed Qwen3-8B owner evaluations on
+all six shared tasks.  The comparison rows reproduce the published GEPA study;
+the COMPASS row uses the frozen task-specific endpoint for each task.  COMPASS
+has the highest six-task aggregate and the highest score on five tasks.  GEPA
+remains higher on PUPA.
+
+\begin{table}[H]
+\centering
+\caption{\textbf{Qwen3-8B owner evaluation across all shared tasks (\%).}
+Each cell reports the official task aggregate.  Aggregate is the unweighted
+mean over the six tasks, and $\Delta$ Seed is the aggregate improvement in
+percentage points.  Comparison rows are published GEPA-study results;
+TextGrad and Trace were not reported for Qwen3-8B.}
+\label{tab:qwen_results}
+\small
+\setlength{\tabcolsep}{3.3pt}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Method & HotPotQA & IFBench & HoVer & PUPA & AIME-2025 & LiveBench-Math & Aggregate & $\Delta$ Seed \\
+\midrule
+Seed & 42.33 & 36.90 & 35.33 & 80.82 & 27.33 & 48.70 & 45.23 & -- \\
+GRPO & 43.33 & 35.88 & 38.67 & 86.66 & 38.00 & 51.26 & 48.91 & +3.68 \\
+MIPROv2 & 55.33 & 36.22 & 47.33 & 81.55 & 20.00 & 46.60 & 47.84 & +2.61 \\
+GEPA & 62.33 & 38.61 & 52.33 & \textbf{91.85} & 32.00 & 51.95 & 54.85 & +9.62 \\
+GEPA+Merge & 64.33 & 28.23 & 51.67 & 86.26 & 32.00 & 51.95 & 52.40 & +7.17 \\
+\method{} & \textbf{64.67} & \textbf{43.37} & \textbf{54.00} & 86.91 & \textbf{57.33} & \textbf{66.67} & \textbf{62.16} & \textbf{+16.93} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Qwen3-8B COMPASS endpoints select candidates 55, 78, 76, 34, 15, and
+30 for HotPotQA, IFBench, HoVer, PUPA, AIME-2025, and LiveBench-Math,
+respectively.  Their owner evaluations cover 300, 294, 300, 221, 150, and 126
+test instances.  In every case, the official test split is frozen before
+evaluation and does not participate in candidate selection.
+
+\subsection{GPT-5.4-nano: same-model comparison}
+
+Table~\ref{tab:nano_results} reports the completed GPT-5.4-nano matrix.  Every
+optimized task and reflection model uses GPT-5.4-nano; PUPA keeps the fixed
+benchmark scorer described above.  COMPASS has the highest six-task aggregate
+and the highest score on four tasks.  MIPROv2 is higher on HotPotQA, and GEPA is
+higher on HoVer.
+
+\begin{table}[H]
+\centering
+\caption{\textbf{GPT-5.4-nano owner evaluation across all shared tasks (\%).}
+Each cell reports the official task aggregate.  Aggregate is the unweighted
+mean over the six tasks, and $\Delta$ Seed is the aggregate improvement in
+percentage points.  GEPA's AIME-2025 cell uses its first completed owner
+evaluation.  Methods without a completed same-model result are omitted.}
+\label{tab:nano_results}
+\small
+\setlength{\tabcolsep}{3.3pt}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Method & HotPotQA & IFBench & HoVer & PUPA & AIME-2025 & LiveBench-Math & Aggregate & $\Delta$ Seed \\
+\midrule
+Seed & 31.33 & 48.98 & 45.33 & 74.86 & 15.33 & 35.09 & 41.82 & -- \\
+MIPROv2 & \textbf{61.67} & 47.79 & 53.00 & 75.45 & 30.00 & 43.66 & 51.93 & +10.11 \\
+GEPA & 57.33 & 48.30 & \textbf{61.33} & 81.09 & 34.00 & 35.03 & 52.85 & +11.03 \\
+\method{} & 60.00 & \textbf{51.36} & 60.33 & \textbf{84.14} & \textbf{42.00} & \textbf{45.03} & \textbf{57.14} & \textbf{+15.32} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Reflective textual-program optimization.}
+Reflexion and Self-Refine use language feedback to revise behavior, while
+TextGrad, Trace/OptoPrime, MIPROv2, and GEPA optimize textual components from
+execution evidence
+\citep{reflexion,self_refine,textgrad,
+cheng2024traceautodiffgenerativeoptimization,miprov2,gepa}.  COMPASS focuses on
+evidence routing: which observations may certify a lineage, how a candidate's
+frontier contribution should be measured against other legally observed
+candidates on the same instance, and where the next proposal budget should
+flow.
+
+\paragraph{Evolution, illumination, and skill search.}
+Evolutionary prompt and skill methods maintain multiple candidates to avoid a
+single greedy trajectory~\citep{gepa,skillpro,grasp,evoskills,metaskillevolve}.
+COMPASS differs by keeping parents and descendants in one credit-ranked
+candidate pool and using a tie-inclusive Top-$\rho$ envelope rather than an
+ancestry-based handoff.
+
+\paragraph{Adaptive evaluation and budget allocation.}
+TRIPLE, POES, and Bayesian-Agent allocate evaluation or retrieval effort under
+limited budgets~\citep{triple,poes,bayesianagent}; TextBO and APEX optimize
+evaluation efficiency and development-example choice
+\citep{kang2026textbo,wang2026apex}.  COMPASS couples instance-relative
+candidate credit, exact one-to-one proposal work, and independently sampled
+legality-first admission in one committed state.  Its credit is a
+within-instance frontier residual rather than a raw aggregate reward or
+frontier frequency.
+
+\paragraph{Generalization after adaptive search.}
+Repeated adaptive use of optimization data can widen the gap between selected
+validation performance and fresh test performance
+\citep{dwork2015generalization}.  GEPA addresses this empirically through
+reusable rules and branch diversity~\citep{gepa}.  COMPASS adds recursive
+certification separation and an instance-relative frontier residual that is
+recomputed as the committed comparison state changes.  Fixed owner tests
+measure the resulting endpoint.
+
+\section{Conclusion}
+
+We have treated textual-program evolution as a fixed-budget information
+problem.  Fresh support reduces decision noise, independent candidates increase
+search bandwidth, and provenance determines whether reused evidence may certify
+a lineage.  COMPASS operationalizes this tradeoff through recursive exclusion,
+dynamically recomputed instance-relative credit, a tie-inclusive candidate
+envelope, exact proposal assignment, and direct legal admission.  Completed
+Qwen3-8B owner evaluations span IFBench, AIME-2025, HoVer, and LiveBench-Math;
+the GPT-5.4-nano matrix spans all six shared tasks.  COMPASS contributes the
+routing state rather than a new text generator.  This state determines which
+evidence creates credit and which proposal work that credit may purchase.
+
+\bibliography{references,style/iclr2026_conference}
+\bibliographystyle{style/iclr2026_conference}
+
+\clearpage
+\appendix
+\small
+
+\section{Notation and Exact State}
+\label{app:state}
+
+\subsection{Eligible exposure and frontiers}
+
+At a fixed routing state $t$, reuse the lineage-eligible set
+$\Omega_t(s)=\{x:q_t(s,x)\text{ exists and }x\notin\mathcal B_s\}$ from
+\Cref{sec:setting}.  The owner frontier is
+\[
+\F_t(x)=\argmax_{s:x\in\Omega_t(s)}q_t(s,x),
+\]
+with all exact ties retained and every frontier owner counted, regardless of
+the frontier's raw score.  For each instance, define
+\[
+\mathcal C_t(x)=\{u:x\in\Omega_t(u)\},\quad N_x=|\mathcal C_t(x)|,\quad
+y_{sx}=\ind\{s\in\F_t(x)\},\quad K_x=\sum_{u\in\mathcal C_t(x)}y_{ux}.
+\]
+When $N_x\ge2$, the per-observation credit is
+\[
+r_{sx}=y_{sx}-\frac{K_x-y_{sx}}{N_x-1}.
+\]
+The candidate aggregate is
+\[
+\Omega_t^{\mathrm{cmp}}(s)=\{x\in\Omega_t(s):N_x\ge2\},\quad
+E_s^{\mathrm{cmp}}=|\Omega_t^{\mathrm{cmp}}(s)|,\quad
+R_s=\sum_{x\in\Omega_t^{\mathrm{cmp}}(s)}r_{sx},\quad
+G_s=R_s/E_s^{\mathrm{cmp}}.
+\]
+An $N_x=1$ observation remains committed but does not enter the aggregate.
+Whenever a new finite observation changes $\mathcal C_t(x)$ or $\F_t(x)$, the
+router recomputes $N_x$, $K_x$, and every affected candidate contribution on
+that instance.  Candidates with $E_s^{\mathrm{cmp}}=0$ have undefined credit;
+if every credit is undefined, routing and final selection fall back to the seed.
+
+\subsection{Recursive proposal-lineage exclusion}
+
+If parent $s$ is proposed on batch $P$, the prospective child cannot use its
+current proposal instances or any ancestor birth-proposal instances as
+admission evidence.  Let $P_a^{\mathrm{birth}}$ be the recorded proposal batch
+that created accepted candidate $a$, with $P_0^{\mathrm{birth}}=\varnothing$
+for the seed.  The excluded set is
+\[
+X(s,P)=P\cup\bigcup_{a\in\operatorname{Anc}(s)\cup\{s\}}
+P_a^{\mathrm{birth}}.
+\]
+Admission batches are not themselves added to this birth provenance.  This
+keeps proposal feedback recursively separate from the evidence that decides
+whether the next child is admitted.  The lineage birth set $\mathcal B_s$
+governs which committed observations may contribute to candidate $s$'s routing
+key; $X(s,P)$ extends that exclusion to the prospective child's admission.
+
+\subsection{Checkpoint state}
+
+The optimizer checkpoint records the accepted programs, parent relation,
+committed reward cache, frontier map, logical call count, active-queue cursor,
+proposal assignments, sampled admission batches, and seeded random states.  The
+queue cursor is interpreted modulo the current active order after every
+recomputation.
+
+\section{Algorithmic Details}
+\label{app:algorithm}
+
+\subsection{Proposal allocation implementation}
+
+\Cref{eq:repairable_gap,eq:proposal_assignment} define the scientific
+proposal objective.  The implementation builds the complete slot--batch
+weight matrix from the committed cache and solves the resulting
+maximum-weight assignment exactly.  Duplicate parent labels remain distinct
+left-side slot vertices, and the operation never fills missing cache entries.
+
+\subsection{Direct legal admission implementation}
+
+For each of the $m\le w$ surviving proposal tasks, the owner directly samples
+one batch $A_i$ from that task's admission sampler after removing every
+instance in $X(s_i,P_i)$.  No bipartite graph, cross-task matching, cached
+distance, or admission permutation is constructed.  For each instance in the
+sampled batch, the owner selects the defined-$G$ frontier owner with largest
+$G$ as reference, using frozen randomness for an exact tie and the sampled
+parent when no comparable owner exists.  The resulting plan is hidden from the
+generator, required missing reference observations are filled on the existing
+reference programs, and the fixed child is admitted exactly when the paired
+aggregate in \Cref{eq:admission_gate} is positive.
+
+\subsection{Wave execution}
+
+One COMPASS wave executes the following sequence:
+\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=3pt]
+  \item compute every defined $G_s$ from committed evidence;
+  \item apply the tie-inclusive Top-$\rho$ cutoff directly to all candidates
+  with defined $G_s$ and sort the active set;
+  \item draw $w$ persistent cyclic queue slots, retaining duplicate parent
+  labels;
+  \item draw $w$ proposal minibatches, form the $w\times w$ $H$ matrix, and
+  solve one maximum-weight linear assignment;
+  \item execute the $w$ parent--proposal evaluations and build their
+  reflective datasets, committing their maximum-bound parent observations;
+  \item keep the $m\le w$ surviving proposal tasks and independently draw one
+  owner admission batch per task after removing its recursive-lineage-ineligible
+  instances;
+  \item bind admission references and fill missing owner-reference observations
+  when required, then generate at most $m$ reflected children without exposing
+  admission data to the reflection model and execute the child evaluations;
+  \item apply the owner-defined admission rule, maximum-bound eligible existing-program
+  observations, commit owner-accepted children with their admission evidence,
+  update the budget, and persist the routing state; and
+  \item repeat from the newly committed state until the owner budget boundary.
+\end{enumerate}
+
+The logical budget is checked at wave boundaries.  An indivisible final wave
+can therefore overshoot the nominal target; both target and actual calls are
+reported.  Request-level retries do not count as new logical task results.
+
+\section{Proofs for Evidence, Credit, and Regret}
+\label{app:proofs}
+
+The results below formalize three parts of the mechanism: recursive separation
+creates a conditionally fresh paired admission channel, relative credit is
+conserved within each comparable instance, and a canonical reference selector
+exposes the fixed-budget pressure between search breadth and decision precision.
+
+\subsection{Why generation and certification must separate}
+
+\begin{proof}[Proof of \Cref{prop:self_cert_leakage}]
+Let the task distribution be uniform on a domain of size $K\ge n/\epsilon$.
+After observing $S=(x_1,\ldots,x_n)$, let the proposal rule construct a program
+whose reward is one exactly on the distinct elements appearing in $S$ and zero
+elsewhere.  Every reused certification example belongs to that set, so the
+empirical reward on $S$ is one.  The population reward is the fraction of the
+domain covered by the observed set, at most $n/K\le\epsilon$.
+\end{proof}
+
+The construction captures the mechanism in its simplest form: certification
+is informative only when it contributes evidence beyond what already shaped
+the candidate.  Recursive birth provenance extends this separation through the
+lineage, because a descendant can retain behavior adapted to an ancestor's
+proposal batch.
+
+\subsection{Recursive exclusion creates a paired certification channel}
+
+\begin{theorem}[Fresh paired admission]
+\label{thm:recursive_fresh}
+Let $\mathcal V$ be the information visible to the generator when child $p$ is
+fixed from parent $s$ and proposal batch $P$, and suppose that $p$ is
+$\mathcal V$-measurable.  Before generation, the owner binds an admission batch
+$A=(X_1,\ldots,X_n)$ outside $X(s,P)$ and binds each reference $r(X_j)$ from
+the committed pre-child state and frozen tie-breaking randomness.  Admission
+identities, references, and outcomes are not visible in $\mathcal V$.  Then
+\[
+A\cap P=\varnothing,
+\qquad
+A\cap P_a^{\mathrm{birth}}=\varnothing
+\quad\text{for every }a\in\operatorname{Anc}(s)\cup\{s\}.
+\]
+After $p$ is fixed, reveal the paired outcomes sequentially.  Let
+$\mathcal H_{j-1}$ contain the fixed child, the owner binding state, and the
+first $j-1$ revealed pairs, and define
+\[
+Z_j=q(p,X_j)-q(r(X_j),X_j),
+\qquad
+\mu_j=\E[Z_j\mid\mathcal H_{j-1}],
+\]
+\[
+\widehat\mu_A(p;r)=\frac1n\sum_{j=1}^n Z_j,
+\qquad
+\overline\mu_A(p;r)=\frac1n\sum_{j=1}^n\mu_j.
+\]
+Because $Z_j\in[-1,1]$, for every $\delta\in(0,1)$, with probability at
+least $1-\delta$,
+\begin{equation}
+\left|\widehat\mu_A(p;r)-\overline\mu_A(p;r)\right|
+\le
+\sqrt{\frac{2\log(2/\delta)}{n}}.
+\label{eq:conditional_fresh}
+\end{equation}
+For the $i$th task, the implemented gate is equivalently
+$\operatorname{admit}(p_i)\iff
+\widehat\mu_{A_i}(p_i;r_i)>0$.
+\end{theorem}
+
+\begin{proof}[Proof of \Cref{thm:recursive_fresh}]
+Because $X(s,P)$ contains both $P$ and every
+$P_a^{\mathrm{birth}}$ for $a\in\operatorname{Anc}(s)\cup\{s\}$, legality
+$A\cap X(s,P)=\varnothing$ gives the displayed disjointness relations.
+After the child is fixed, each paired difference $Z_j$ lies in an interval of
+length two.  Conditional Hoeffding--Azuma applied to
+$Z_j-\E[Z_j\mid\mathcal H_{j-1}]$ gives
+\[
+\Pr\!\left(
+\left|\widehat\mu_A(p;r)-\overline\mu_A(p;r)\right|\ge\epsilon
+\right)
+\le 2\exp\!\left(-\frac{n\epsilon^2}{2}\right).
+\]
+Setting the right-hand side to $\delta$ proves
+\Cref{eq:conditional_fresh}.
+\end{proof}
+
+Equation~\eqref{eq:recursive_exclusion} supplies this separation through the
+entire birth lineage.  COMPASS binds admission before child generation and
+hides admission identities and references from the generator.  The resulting
+paired contrast is therefore a conditionally fresh information channel for the
+implemented owner gate.
+
+\subsection{Relative credit is conserved instance-wise}
+
+\begin{proof}[Proof of \Cref{prop:credit_conservation}]
+For a fixed comparable instance $x$, use
+$\sum_{s\in\mathcal C_t(x)}y_{sx}=K_x$ to obtain
+\[
+\begin{aligned}
+\sum_{s\in\mathcal C_t(x)}r_{sx}
+&=K_x-
+\frac{\sum_{s\in\mathcal C_t(x)}(K_x-y_{sx})}{N_x-1}\\
+&=K_x-\frac{N_xK_x-K_x}{N_x-1}=0.
+\end{aligned}
+\]
+The statement is per instance; the candidate averages $G_s$ need not sum to
+zero because their comparable exposure sets and denominators can differ.
+\end{proof}
+
+\subsection{The bandwidth--variance regret envelope}
+
+To isolate the breadth--precision mechanism, consider a canonical
+fresh-certification reference model.  Let $c_{\mathrm{prop}}$ denote the
+rollout cost of producing one candidate before certification, and let $n\ge1$ be its fresh
+admission support.  A budget $B$ can support
+\[
+M_B(n)=\left\lfloor\frac{B}{c_{\mathrm{prop}}+n}\right\rfloor
+\]
+distinct proposal-and-certification attempts.
+
+For \Cref{prop:bandwidth_precision}, let $\mathcal F_{i-1}$ contain the
+complete adaptive search history before candidate $p_i$ is certified and let
+$p_i$ be measurable with respect to that history.  Conditional on
+$\mathcal F_{i-1}$, its $n$ certification rewards are iid from the same owner
+law and are hidden until $p_i$ is fixed.  The fresh-mean reference selector is
+$\widetilde p_{M,n}\in\argmax_i\widehat R_n(p_i)$.
+
+\begin{proof}[Proof of \Cref{prop:bandwidth_precision}]
+Conditional on $\mathcal F_{i-1}$ and $p_i$, Hoeffding's inequality bounds
+candidate $i$'s empirical error by $\epsilon$ with failure probability
+$2e^{-2n\epsilon^2}$.  Taking expectations over the history preserves this
+bound, and a union bound over $M$ candidates yields simultaneous error at most
+$\epsilon=\sqrt{\log(2M/\delta)/(2n)}$.  Let $p^\star_M$ maximize population
+utility among the generated candidates.  On this event,
+$R(p^\star_M)-R(\widetilde p_{M,n})\le2\epsilon$.  Adding
+$R^\star-R(p^\star_M)$ gives \Cref{eq:bandwidth_variance_regret}.
+\end{proof}
+
+Because rewards lie in $[0,1]$, taking expectations and bounding the complement
+of the concentration event by one also gives
+\[
+\E\!\left[R^\star-R(\widetilde p_{M,n})\right]
+\le
+\E\!\left[R^\star-\max_{i\le M}R(p_i)\right]
++2\sqrt{\frac{\log(2M/\delta)}{2n}}+\delta.
+\]
+The two terms isolate the reference tradeoff.  Increasing $n$ tightens each
+certification decision but lowers $M_B(n)$; increasing bandwidth raises the
+chance of discovering a strong program but leaves less fresh support per
+candidate.  Along a growing candidate sequence, the expected search-regret
+term is nonincreasing in $M$, whereas the displayed selection term decreases
+with $n$.  In COMPASS, recursive exclusion, instance-relative candidate
+ranking, cyclic slots, and $H$-based proposal matching route the corresponding
+budget across fresh decisions and new proposal attempts.
+
+\subsection{Structural properties of the router}
+
+\begin{proposition}[Cyclic slot coverage]
+For a fixed ordered active set of size $m$, every block of $m$ consecutive
+queue draws contains each active candidate exactly once, including when a
+width-$w$ wave wraps around the queue.
+\end{proposition}
+
+\begin{proof}[Proof of cyclic slot coverage]
+Index the fixed active order by $0,\ldots,m-1$ and let the persistent cursor
+be $c$.  Consecutive draws are $(c+r)\bmod m$.  For
+$r=0,\ldots,m-1$, these residues are pairwise distinct and cover every index.
+Grouping the same sequence into blocks of width $w$ does not alter the argument,
+including a block that wraps around the end of the queue.
+\end{proof}
+
+\begin{proposition}[Wave-optimal proposal matching]
+Conditional on the $w$ drawn parent slots and $w$ proposal minibatches,
+\Cref{eq:proposal_assignment} maximizes total recorded repairable gap over all
+one-to-one slot--minibatch assignments.
+\end{proposition}
+
+\begin{proof}[Proof of wave-optimal proposal matching]
+The $w$ parent slots and $w$ minibatches define a complete bipartite graph
+with edge weight $H(z_i,P_j)$.  A feasible binary matrix in
+\Cref{eq:proposal_assignment} is exactly a perfect matching, or equivalently a
+permutation matrix.  Selecting the maximum-weight feasible matrix therefore
+returns the maximum-weight matching.  Repeated parent labels do not change the graph because
+their slot vertices remain distinct.
+\end{proof}
+
+\section{Detailed Experimental Protocol}
+\label{app:protocol}
+
+\subsection{Method identity}
+\label{app:frozen_identities}
+
+The method in \Cref{sec:method} uses
+\texttt{leave\_one\_out\_frontier\_credit}, applies the tie-inclusive
+Top-$\rho$ cutoff without ancestor masking, preserves the exact proposal
+assignment in \Cref{eq:proposal_assignment}, and samples admission batches
+directly per surviving proposal.  If the final selector returns seed index
+zero, the protocol records a no-change
+endpoint and skips official evaluation; otherwise, it evaluates the selected
+artifact once.
+
+\subsection{Owner evaluation integrity}
+
+An endpoint enters a result table only when the optimization manifest is
+terminal, the exact selected candidate and its source/config/model identities
+are fixed, and the owner evaluation is complete.  IFBench requires 294 finite
+example scores whose mean equals the aggregate.  AIME requires all 150 owner
+problems.  HoVer requires 300 finite binary scores, and LiveBench-Math requires
+all 126 frozen test positions under its owner aggregation.
+
+Runs with an incorrect selected candidate, incompatible source identity, or
+provider exhaustion converted to score zero are not eligible evidence.
+Preflight results, intermediate checkpoints, and test-best oracle candidates
+are never substituted for the selected owner artifact.
+
+\subsection{Resource accounting}
+
+We report logical task calls and final-wave overshoot separately from physical
+language-model calls.  The latter include input/output tokens and route-priced
+cost.  A local task deadline can produce an aligned failure observation; other
+provider, schema, serialization, and engineering errors terminate the owner
+batch.  A resumable run must preserve the exact source, config, cache,
+checkpoint, and RNG identity.
+
+\section{Broader Impact}
+\label{app:impact}
+
+Evidence routing can reduce the number of expensive environment executions
+needed to discover a useful textual program and can make search decisions easier
+to audit.  The same efficiency can also optimize undesirable procedures or
+exploit imperfect rewards.  Strict admission and held-out tests do not replace
+secure tool policies, sandboxing, red-team evaluation, or human review.
+
+\paragraph{Use of large language models.}
+Language models assisted with literature review, editing, code, and figure
+design.  The authors verified every citation, algorithm, and artifact; model
+output was neither experimental evidence nor used to choose test candidates.
+
+\end{document}
