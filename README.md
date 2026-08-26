@@ -129,14 +129,15 @@ paper. Generated PDFs and LaTeX intermediates are intentionally ignored.
 
 ## Data and artifact policy
 
-This repository tracks **source only**:
+This repository tracks source plus the compiled manuscript:
 
 - code, tests, configuration, documentation, patches, and LaTeX/TikZ sources;
 - no API keys or local environment files;
 - no benchmark dataset copies;
 - no model weights or checkpoints;
 - no request/response caches, run directories, logs, or evaluation outputs;
-- no generated paper PDFs or raster previews.
+- `paper/main.pdf` is the only committed build artifact; generated figure PDFs,
+  raster previews, and LaTeX intermediates remain ignored.
 
 Official datasets remain with their benchmark owners. Local experimental state
 belongs under ignored directories such as `.local-runs/`, `runs/`, `outputs/`,

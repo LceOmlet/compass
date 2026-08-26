@@ -18,8 +18,8 @@ dataset or run artifact is required to compile the manuscript.
 - `figures/figure1/`: editable TikZ source for the method overview;
 - `scripts/`: deterministic build entry points for PowerShell and POSIX shells.
 
-Generated PDFs, auxiliary files, previews, and LaTeX logs are excluded from
-Git. The build creates them locally.
+The compiled `main.pdf` is committed for direct reading. Auxiliary files,
+standalone figure PDFs, previews, and LaTeX logs remain excluded from Git.
 
 ## Build
 
