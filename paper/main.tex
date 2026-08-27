@@ -70,10 +70,12 @@ admission batch.  The analysis makes the bandwidth--variance tradeoff explicit:
 more independently proposed-and-certified candidates can reduce the search gap,
 whereas more fresh support per candidate reduces selection regret.  Recursive
 exclusion keeps the latter evidence non-anticipatory.
-Across completed held-out owner evaluations, task-specific COMPASS-family
-variants reach $57.3\%$ on AIME-2025, $43.4\%$ on IFBench, $66.7\%$ on
-LiveBench-Math, and $51.3\%$ on HoVer with Qwen3-8B.  The corresponding
-published GEPA scores are $32.0\%$, $38.6\%$, $52.0\%$, and $52.3\%$.
+Completed Qwen3-8B held-out owner evaluations span mathematical reasoning
+(e.g., AIME-2025), instruction following (IFBench), multi-hop question answering
+and fact verification (HotPotQA and HoVer), and privacy-conscious delegation
+(PUPA).  Relative to
+published GEPA, the largest gain is $25.3$ percentage points on AIME-2025, and
+the mean gain across all six shared benchmarks is $7.3$ points.
 These results show
 that governing how evidence is created, reused, and routed can materially
 affect sample-efficient textual-program evolution.
