@@ -54,12 +54,12 @@
 Textual-program optimizers use execution traces to revise prompts,
 instructions, and agent skills.  A fixed rollout budget creates a three-way
 tension.  Broad fresh evaluation reduces decision variance but permits fewer
-revisions; minibatching increases search bandwidth but makes selection noisier;
-and direct reuse lets a lineage certify itself on the examples that shaped it.
-We formulate \emph{provenance-constrained evidence routing}: minimizing the
+revisions.  Minibatching increases search bandwidth but makes selection noisier.
+Direct reuse lets a lineage certify itself on the examples that shaped it.
+This paper formulates \emph{provenance-constrained evidence routing}: minimizing the
 simple regret of the terminal program by extracting more useful search information
-from each rollout without crossing the generation--certification boundary.  We
-introduce \method{}, which recursively excludes current and inherited proposal
+from each rollout without crossing the generation--certification boundary.
+\method{} recursively excludes current and inherited proposal
 batches from admission and reuses the remaining legal evidence throughout the
 search.  Each candidate is compared with the other legally observed candidates
 on the same instance, and the comparison is refreshed whenever the frontier
