@@ -52,24 +52,22 @@
 
 \begin{abstract}
 Textual-program optimizers use execution traces to revise prompts,
-instructions, and agent skills.  A fixed rollout budget creates a three-way
-tension.  Broad fresh evaluation reduces decision variance but permits fewer
-revisions.  Minibatching increases search bandwidth but makes selection noisier.
-Direct reuse lets a lineage certify itself on the examples that shaped it.
-This paper formulates \emph{provenance-constrained evidence routing}: minimizing the
-simple regret of the terminal program by extracting more useful search information
-from each rollout without crossing the generation--certification boundary.
-\method{} recursively excludes current and inherited proposal
-batches from admission and reuses the remaining legal evidence throughout the
-search.  Each candidate is compared with the other legally observed candidates
-on the same instance, and the comparison is refreshed whenever the frontier
-changes.  A persistent queue walks a tie-inclusive active envelope, while a
-maximum-weight proposal allocation directs its slots to distinct repair
-opportunities.  Each fixed child receives an independently sampled legal
-admission batch.  The analysis makes the bandwidth--variance tradeoff explicit:
-more independently proposed-and-certified candidates can reduce the search gap,
-whereas more fresh support per candidate reduces selection regret.  Recursive
-exclusion keeps the latter evidence non-anticipatory.
+instructions, and agent skills.  Under a fixed rollout budget, candidate
+generation and candidate verification draw from the same evidence supply.  The
+number of independent proposal--verification attempts determines search
+bandwidth, and fresh support for each fixed candidate determines verification
+precision.  Adaptive evidence reuse also makes provenance part of the
+optimization problem.  This paper formulates \emph{provenance-constrained
+evidence routing} with terminal simple regret as its objective.  \method{}
+allocates finite search bandwidth and verification support while preserving the
+generation--certification boundary across complete lineages.  Recursive
+exclusion assigns each candidate a legal evidence set.  Instance-relative credit
+compares legally observed candidates on the same instance and updates with the
+reward frontier.  A tie-inclusive persistent queue and maximum-weight proposal
+allocation distribute search slots across distinct repair opportunities.  Each
+fixed child then receives an independently sampled legal admission batch.  Under
+the shared budget, more independent attempts reduce the search gap, and more
+fresh support increases the precision of candidate selection.
 Completed Qwen3-8B held-out owner evaluations span mathematical reasoning
 (e.g., AIME-2025), instruction following (IFBench), multi-hop question answering
 and fact verification (HotPotQA and HoVer), and privacy-conscious delegation
@@ -84,65 +82,51 @@ affect sample-efficient textual-program evolution.
 \section{Introduction}
 \label{sec:introduction}
 
-Feedback-driven optimizers can revise an instruction, prompt, or agent skill
-after observing only a few execution traces.  Reflection, textual gradients,
-and evolutionary prompt search use the diagnostic content of language feedback
-to make large behavioral updates without changing model weights
-\citep{reflexion,self_refine,textgrad,
-cheng2024traceautodiffgenerativeoptimization,gepa}.  This makes rollouts the
-scarce resource.  A rollout can diagnose a failure and shape a revision, or it
-can evaluate a revision that is already fixed.  An optimizer must decide
-\emph{what} to generate and how much independent information to allocate to
-each role.  For example, three instruction-following cases may
-expose a constraint-ordering error and inspire a new rule.  Those cases are
-high-value proposal evidence, but replaying them as the child's admission test
-would measure the edit on the evidence that produced it.
+Feedback-driven optimizers revise instructions, prompts, and agent skills from
+execution traces.  Reflection, textual gradients, and evolutionary prompt
+search use language feedback to produce large behavioral updates with fixed
+model weights \citep{reflexion,self_refine,textgrad,
+cheng2024traceautodiffgenerativeoptimization,gepa}.  Their common optimization
+task is compact: given a seed textual program, an owner evaluator, and rollout
+budget $B$, the optimizer adaptively generates and evaluates candidates, then
+returns one terminal program.  Every rollout serves one of two statistical
+roles.  Proposal evidence diagnoses a failure and shapes a revision.
+Verification evidence evaluates a revision whose text is already fixed.  Three
+instruction-following cases, for example, may expose a constraint-ordering error
+and inspire a new rule.  Fresh owner cases then measure the fixed rule.
 
-A fixed budget therefore creates an information tradeoff.  Evaluating every
-candidate on broad fresh support lowers selection variance but leaves fewer
-chances to discover a better program.  Small minibatches permit more
-proposal--admission attempts but amplify noise in a partial and uneven reward
-table.  Reusing the same evidence for both roles appears to recover both
-benefits, but it certifies a candidate on observations that already influenced
-its text.  A growing lineage can inherit that information for many generations,
-turning adaptive fit into apparent progress.
+Independent proposal--verification attempts set search bandwidth, and fresh
+support per fixed candidate sets ranking precision.  Their shared budget trades
+broader search against sharper admission and terminal selection.  Lineage
+provenance governs the eligible evidence for verification: every batch that
+shapes a candidate becomes proposal history for its descendants.  The optimizer
+routes this finite budget under a recursive generation--certification boundary.
 
-We identify the underlying problem as \emph{provenance-constrained evidence
-routing}.  Given a rollout budget, a growing program lineage, and a committed
-partial reward table, the router must maximize the number and quality of
-independently proposed-and-certified search attempts while keeping their
-decisions statistically credible.  Its objective is the held-out owner utility
-of the terminal program, equivalently low terminal simple regret.  The central
-constraint is lineage-level non-anticipation: evidence that helped create a
-program cannot certify that program's future lineage.
+This paper studies this task as \emph{provenance-constrained evidence routing}.
+The routing policy minimizes expected terminal simple regret under a total
+rollout budget, finite search bandwidth, finite fresh verification support, and
+lineage-level provenance.  A committed partial reward table supplies legal
+routing evidence.  The single objective is to return the strongest terminal
+program supported by the budget and owner evaluation.
 
-This problem requires more than holding out one minibatch.  Birth
-provenance must be propagated recursively without discarding diagnostic traces.
-Evidence collected on different candidates and tasks must be combined without
-turning missingness or an unusually easy observed subset into candidate
-strength.  Parents and descendants must remain directly comparable as the
-partial table changes.  Concurrent search paths must also explore distinct
-repair opportunities rather than repeat the same parent--task pairing.
-Together, these requirements define one routing problem: every accepted
-observation changes both the uncertainty of the current lineage and the
-opportunity cost of the next rollout.
+Three challenges govern this objective.  First, birth provenance must propagate
+through the full lineage so that each fixed child receives fresh certification
+evidence.  Second, a partial and uneven reward table needs a candidate credit
+that remains comparable across instance difficulty and updates with new
+frontiers.  Third, finite proposal capacity must reach distinct, high-value
+repair opportunities across concurrent search paths.
 
 \method{} (\textbf{C}redit-Aware \textbf{O}ptimization with \textbf{M}ini-batch
 \textbf{P}roposal and \textbf{A}dmission for \textbf{S}kill \textbf{S}earch)
-implements this routing principle.  A recursive exclusion operator separates
-generation from certification.  On each instance, the remaining legal evidence
-measures whether a candidate reaches the current frontier relative to the other
-legally observed candidates.  An instance that is easy for every observed
-candidate cannot raise all routing priorities together.  The comparison is
-refreshed whenever new outcomes change the frontier.  COMPASS retains the
-tie-inclusive Top-$\rho$ candidates without ancestor masking and places them in
-a persistent queue.  A maximum-weight one-to-one allocation sends the resulting
-slot identities to different repair opportunities.  Each fixed child receives
-an owner-sampled legal admission batch and a paired reference gate.
-Figure~\ref{fig:overview} shows how these
-decisions create non-redundant routing opportunities while keeping
-limited-support decisions comparable, revisable, and separate from direct
-leakage.
+implements this routing principle through three aligned mechanisms.  Recursive
+exclusion propagates the generation--certification boundary and supplies each
+fixed child with an owner-sampled legal admission batch.  Instance-relative
+credit compares legally observed candidates on the same instance and refreshes
+their ordering whenever the reward frontier changes.  The tie-inclusive
+Top-$\rho$ envelope and persistent queue preserve candidate coverage, while a
+maximum-weight one-to-one allocation sends proposal slots to distinct repair
+opportunities.  Figure~\ref{fig:overview} shows how these mechanisms route
+limited evidence from candidate generation to terminal selection.
 
 \begin{figure}[t]
 \centering
@@ -165,81 +149,79 @@ percentage points; HoVer is $1.00$ point lower.  Each endpoint has an exact
 rollout, candidate, token, and cost ledger.  The frozen checkpoints retain
 lineage, queue, allocation, and cache-activation state for mechanism analysis.
 
-Our contributions are as follows:
+This paper makes four contributions:
 \begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=3pt]
-  \item We formulate \emph{provenance-constrained evidence routing} for
-  textual-program evolution, exposing the fixed-budget tradeoff among search
-  bandwidth, certification precision, and direct adaptive leakage.
+  \item \emph{Provenance-constrained evidence routing} casts textual-program
+  evolution as terminal simple-regret minimization under explicit constraints on
+  rollout budget, search bandwidth, verification support, and lineage
+  provenance (\Cref{sec:setting}).
 
-  \item We introduce \method{}, an optimizer that recursively
-  separates generation from certification and turns committed legal evidence
-  into a routing signal based on how each candidate compares with its peers on
-  the same instance.  The signal is recomputed as the partial observation state
-  changes.
+  \item \method{} recursively separates generation from certification and
+  turns committed legal evidence into a routing signal based on how each
+  candidate compares with its peers on the same instance.  The signal is
+  recomputed as the partial observation state changes
+  (\Cref{sec:global_credit,sec:lineage_compression}).
 
-  \item We route the tie-inclusive Top-$\rho$ candidates without ancestor
-  masking, then use an exact maximum-weight integer assignment to couple
-  persistent parent slots to repairable proposal batches.  Admission remains a
-  direct owner operation: each fixed child receives its own provenance-legal
-  batch and paired reference gate.
+  \item A tie-inclusive Top-$\rho$ envelope supplies persistent parent slots,
+  and an exact maximum-weight integer assignment couples those slots to
+  repairable proposal batches.  Each fixed child receives its own
+  provenance-legal owner batch and paired reference gate
+  (\Cref{sec:proposal_allocation}).
 
-  \item We evaluate frozen COMPASS-family identities under fixed published
+  \item Frozen COMPASS-family identities are evaluated under fixed published
   budgets across models and tasks, including mathematical reasoning,
-  instruction following, and multi-hop fact verification.
+  instruction following, and multi-hop fact verification
+  (\Cref{sec:experiments}).
 \end{enumerate}
 
 \section{Provenance-Constrained Evidence Routing}
 \label{sec:setting}
 
-\subsection{Fixed-budget search as an information problem}
+\subsection{Budgeted textual-program optimization}
 
-At optimization step $t$, let $\Pcal_t=\{p_0,\ldots,p_{m_t-1}\}$ be the
-accepted textual programs.  Candidate $p_0$ is the seed; every later candidate
-records a parent, inducing a directed acyclic lineage.  We call the
-benchmark-authoritative data, execution, metric, and aggregation contract the
-\emph{owner}.  Executing
-program $p_s$ on optimization instance $x$ yields a bounded reward in $[0,1]$,
-an output, and an execution trace.  The committed cache is a partial table
-$q_t(s,x)$ containing the best finite owner-accepted observation for evaluated
-pairs.  A missing entry means unevaluated, not reward zero.  Let
+Given a seed textual program $p_0$, an owner evaluator, and rollout budget $B$,
+a routing policy $\pi$ adaptively generates and evaluates candidates and returns
+a terminal program $p_{\hat s_\pi}$.  Let $R(p)$ denote owner utility and let
+$R^\star$ denote the best reachable utility under the search model.  The
+budgeted objective is
+\[
+\pi^\star\in\arg\min_{\pi\in\Pi(B,b_P,b_A)}
+\E\!\left[R^\star-R(p_{\hat s_\pi})\right],
+\]
+where $b_P,b_A\in\mathbb N_+$, with $|P|=b_P$ proposal observations and
+$|A|=b_A$ fresh verification observations per attempt.  Policies in
+$\Pi(B,b_P,b_A)$ divide their rollout expenditure as
+\[
+C_{\mathrm{proposal}}(\pi)+C_{\mathrm{verify}}(\pi)\le B.
+\]
+Proposal expenditure determines the number $M_B(\pi)$ of independently
+proposed-and-certified children, which is the search bandwidth.  Verification
+expenditure assigns $b_A$ fresh owner observations to each fixed child and
+controls the precision of admission and terminal selection.  Larger
+$M_B(\pi)$ lowers the search gap, and larger $b_A$ lowers selection uncertainty.
+
+At optimization step $t$, let $\Pcal_t=\{p_0,\ldots,p_{m_t-1}\}$ contain the
+accepted textual programs.  Every candidate after $p_0$ records a parent,
+inducing a directed acyclic lineage.  The \emph{owner} is the
+benchmark-authoritative data, execution, metric, and aggregation contract.
+Executing program $p_s$ on optimization instance $x$ yields a bounded reward in
+$[0,1]$, an output, and an execution trace.  The committed cache is a partial
+table $q_t(s,x)$ containing the best finite owner-accepted observation for each
+evaluated pair, with unevaluated pairs represented by missing entries.  Let
 $P_a^{\mathrm{birth}}$ be the proposal batch that created candidate $a$, with
-$P_0^{\mathrm{birth}}=\varnothing$, and let $\operatorname{Anc}(s)$ contain
-the transitive ancestors of $s$.  Define the
-lineage birth set
+$P_0^{\mathrm{birth}}=\varnothing$, and let $\operatorname{Anc}(s)$ contain the
+transitive ancestors of $s$.  The lineage birth set is
 \[
 \mathcal B_s=\bigcup_{a\in\operatorname{Anc}(s)\cup\{s\}}
 P_a^{\mathrm{birth}}
 \]
 and the routing-eligible evidence set
 $\Omega_t(s)=\{x:q_t(s,x)\text{ exists and }x\notin\mathcal B_s\}$.
-Thus an observation may guide later routing for an existing program, but it
-cannot earn frontier credit for a lineage whose text was adapted to that
-observation.
+Routing credit for candidate $s$ therefore draws exclusively from observations
+outside the batches that shaped its lineage.
 
 The owner supplies the optimization observations accepted into the cache and,
 after selection, an independent frozen test.
-
-The optimizer has a logical rollout budget $B$.  Let
-$b_P,b_A\in\mathbb N_+$ denote the proposal and admission minibatch sizes, so
-$|P|=b_P$ and $|A|=b_A$.  A
-proposal minibatch exposes failures to the program generator; an admission
-minibatch tests a child whose text is already fixed.  We call the number of
-independently proposed-and-certified children supported by $B$ the search's operational
-\emph{information bandwidth}.  Increasing fresh support per child lowers the
-variance of each admission decision, but consumes budget that could have
-created another search attempt.  Reusing proposal evidence for admission does
-not provide legitimate bandwidth: it makes the decision depend on the same
-observations that shaped the candidate.
-
-Let $R(p)$ denote the utility of program $p$ under the frozen owner
-distribution and let $R^\star$ denote the best reachable utility under the
-search model.  A budget-$B$ router returns $p_{\hat s_B}$, with realized
-terminal simple regret $r_B=R^\star-R(p_{\hat s_B})$ and expected regret
-$\bar r_B=\E[r_B]$ over routing, generation, and rollout randomness.  The routing problem
-is to reduce this regret by balancing three coupled quantities: how many
-independent search attempts the budget supports, how much evidence stabilizes
-each decision, and how adaptively that evidence has influenced the program
-being judged.
 
 \subsection{Recursive generation--certification boundary}
 
@@ -250,31 +232,27 @@ X(s,P)=P\cup
 \label{eq:recursive_exclusion}
 \end{equation}
 A legal admission batch satisfies $A\cap X(s,P)=\varnothing$.  Proposal traces
-remain available for diagnosis, but neither the current proposal batch nor an
-inherited birth-proposal batch can certify the lineage it shaped.
-In the running example, the three diagnostic cases remain available to explain
-the error, while a disjoint admission batch decides whether the new rule earns
-future search budget.
+remain available for diagnosis.  Certification for the child and its
+descendants uses batches disjoint from current and inherited birth provenance.
+In the running example, the three diagnostic cases explain the error, and a
+disjoint admission batch decides whether the new rule earns future search
+budget.
 
 \subsection{Routing legal evidence}
 
 Let $\mathcal H_t$ contain the lineage, birth provenance, committed cache,
 remaining budget, and persistent routing state.  A routing action
   $a_t=(\A_t,\mathbf z_t,Y_t)$ chooses active candidates, persistent parent
-  slots, and a one-to-one proposal assignment from $\mathcal H_t$; the frozen owner test
-never enters this history.  The three information problems now imply the
-method directly.  Direct leakage requires recursive exclusion and a
-  generation--certification boundary.  Uneven partial evidence requires
-  instance-relative credit that is revised as frontiers change.  Redundant
-  parallel attempts require persistent proposal slots and a coupled one-to-one
-  proposal assignment; admission is sampled independently for each fixed child.
+  slots, and a one-to-one proposal assignment from $\mathcal H_t$.  The frozen
+owner test is reserved for terminal evaluation.  Recursive exclusion supplies
+the generation--certification boundary.  Instance-relative credit organizes
+uneven partial evidence as frontiers change.  Persistent proposal slots and a
+coupled one-to-one assignment coordinate concurrent repair opportunities, and
+each fixed child receives an independently sampled admission batch.
 
-This formulation is independent of a particular program generator.  A valid
-router must respect the recursive boundary, operate under the logical budget
-$B$, commit an
-eligible observation once, and keep the owner test outside $\mathcal H_t$.
-Within those constraints, it seeks the routing policy whose terminal artifact
-has the smallest expected simple regret.
+A feasible router preserves the recursive boundary, the logical budget $B$,
+one-commit cache semantics, and terminal owner separation.  Its optimal policy
+minimizes expected simple regret for the returned program.
 
 \section{\method{}: Routing Legal Evidence Through Search}
 \label{sec:method}
