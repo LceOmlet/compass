@@ -52,8 +52,8 @@
 %   8.32  wave row
 %   7.86  provenance notes under P and A, commit label
 %   7.58  commit lane into the cache
-%   7.38-5.64  committed cache table (left); three credit steps (right)
-%   5.46-4.98  cell legend (left)
+%   7.38-5.48  committed cache table (left); three credit steps (right)
+%   5.28-4.80  cell legend (left)
 %   4.97  routing credit pill (right)
 %   4.44  fork to the two workload panels
 %   4.26-1.26  workload panels
@@ -166,7 +166,7 @@
 
 % ---- committed cache: the partial table q_t(u,x) ---------------------------
 \node[card, draw=cCert, line width=0.8pt, anchor=south west,
-      minimum width=3.70cm, minimum height=1.74cm, inner sep=0pt] at (0.85,5.64) {};
+      minimum width=3.87cm, minimum height=1.90cm, inner sep=0pt] at (0.85,5.48) {};
 \node[lab, text=cCert, anchor=west] at (1.00,7.22) {committed cache $q_t(u,x)$};
 \node[glo] at (1.18,6.92) {$u\backslash x$};
 \foreach \x/\l in {1.66/$x_1$, 2.10/$x_2$, 2.54/$x_3$, 2.98/$x_4$, 3.42/$x_5$, 3.86/$x_6$}{
@@ -193,15 +193,15 @@
   \node[lab, text=\tc] at (\x,5.84) {\v};}
 
 %  legend for the cell grammar (three rows under the table)
-\node[cellObs, swatch] at (1.00,5.44) {};
-\node[glo, anchor=west] at (1.22,5.44) {observed $q_t(u,x)$};
-\node[cell, swatch] at (3.95,5.44) {};
-\node[lab, text=cMute] at (3.95,5.44) {--};
-\node[glo, anchor=west] at (4.17,5.44) {missing};
-\node[cellBad, swatch] at (1.00,5.20) {};
-\node[glo, anchor=west, text=cStop] at (1.22,5.20) {$x\in\mathcal B_u$: never credited to $u$};
-\node[cellElig, swatch] at (1.00,4.96) {};
-\node[glo, anchor=west, text=cCand] at (1.22,4.96) {$\Omega_t(s)$: legal for candidate $s$};
+\node[cellObs, swatch] at (1.00,5.28) {};
+\node[glo, anchor=west] at (1.22,5.28) {observed $q_t(u,x)$};
+\node[cell, swatch] at (3.95,5.28) {};
+\node[lab, text=cMute] at (3.95,5.28) {--};
+\node[glo, anchor=west] at (4.17,5.28) {missing};
+\node[cellBad, swatch] at (1.00,5.04) {};
+\node[glo, anchor=west, text=cStop] at (1.22,5.04) {$x\in\mathcal B_u$: never credited to $u$};
+\node[cellElig, swatch] at (1.00,4.80) {};
+\node[glo, anchor=west, text=cCand] at (1.22,4.80) {$\Omega_t(s)$: legal for candidate $s$};
 
 % ---- credit chain: Omega_t(s) -> r_sx -> G_s ------------------------------
 %  Three steps, one style, one reading path: each box has a short title line
@@ -209,7 +209,7 @@
 %  the table on the left shows the objects, the boxes name the operations,
 %  and the arithmetic stays in Sec. 3.1.  The final step is filled amber
 %  because it is the quantity that leaves this region.
-\draw[aflow] (4.55,6.20) -- (4.98,6.20) -- (4.98,7.05) -- (5.25,7.05);
+\draw[aflow] (4.72,6.20) -- (4.98,6.20) -- (4.98,7.05) -- (5.25,7.05);
 \node[cstep, minimum height=0.62cm] at (8.90,7.05) {};
 \node[lab] at (8.90,7.17) {legal evidence $\Omega_t(s)$};
 \node[glo] at (8.90,6.92) {observed cells of row $s$ with $x\notin\mathcal B_s$};
