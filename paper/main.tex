@@ -131,13 +131,26 @@ limited evidence from candidate generation to terminal selection.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figures/figure1/figure1_compass_evidence_routing.pdf}
-\caption{\textbf{Provenance-constrained evidence routing in \method{}.}  Under
-a fixed budget, broad fresh evaluation lowers variance but reduces search
-bandwidth, whereas direct reuse leaks generation evidence into certification.
-The recursive exclusion set in \Cref{eq:recursive_exclusion} separates these
-roles.  COMPASS then reuses legal committed evidence to compute candidate
-credit and coordinate parallel proposal work; held-out
-owner evaluation measures the utility of the terminal program.}
+\caption{\textbf{Provenance-constrained evidence routing in \method{}.}
+Top: one attempt proposes child $p$ from parent $s$ on minibatch $P$
+(green chips are instances $x\in P$), certifies the fixed child on an
+admission batch $A$ (blue chips, $x\in A$) sampled outside the recursive
+exclusion set $X(s,P)$ of \Cref{eq:recursive_exclusion}, and commits the
+accepted child's admission observations into the cache.  Middle left: the
+committed cache is the partial table $q_t(u,x)$ of programs (rows) by
+instances (columns); a hatched red cell is an observation stored for $u$ but
+never credited to $u$ because $x$ lies in $u$'s lineage birth set
+$\mathcal B_u$, and the amber-framed cells of row $s$ form its legal evidence
+set $\Omega_t(s)$.  Middle right: each legal observation yields a
+within-instance frontier residual $r_{sx}$ (worked for column $x_5$), and
+their mean over comparable instances is the routing credit $G_s$ of
+\Cref{eq:global_key}.  Bottom: $G_s$ ranks the persistent slots $z_i$ that
+the assignment in \Cref{eq:proposal_assignment} couples to distinct proposal
+minibatches $P_j$, and selects references $r_i(x)$ for each task's legal
+admission batch $A_i$; a batch that meets $X(s_i,P_i)$ is refused.  The
+labelled outer lanes return both kinds of observation to the cache.  Red
+always marks one condition: an instance inside the birth provenance of the
+lineage in question.  The terminal program is the maximal defined $G_s$.}
 \label{fig:overview}
 \end{figure}
 
