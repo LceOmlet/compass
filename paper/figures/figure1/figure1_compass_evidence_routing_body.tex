@@ -29,8 +29,9 @@
 %    for s, but become the birth provenance of p, so (p, x_2) is hatched.
 %  * A = {x_5, x_6} is disjoint from X(s,P) = {x_1,...,x_4}; the admitted
 %    child p is committed there.
-%  * Column x_5 has C_t(x_5) = {p_0, s, p} with q = 0, 1, 1: frontier {s, p},
-%    so r_{s x_5} = 1 - (2-1)/(3-1) = 1/2, as printed in the figure.
+%  * Column x_5 has C_t(x_5) = {p_0, s, p} with q = 0, 1, 1: s and p tie at
+%    the top, so y = 1, K = 2, N = 3 and r_{s x_5} = 1 - (2-1)/(3-1) = +1/2.
+%    The figure states only the tie and the result; the arithmetic is Sec. 3.1.
 %
 % LIFECYCLE the drawing closes.
 %  * The wave row commits the admitted child into the table (top lane).
@@ -118,7 +119,7 @@
                  pattern=north east lines, pattern color=cStopH},
   swatch/.style={minimum width=0.30cm, minimum height=0.24cm},
   cstep/.style ={rounded corners=1.8pt, draw=cCand, fill=white, line width=0.7pt,
-                 minimum width=6.60cm, inner sep=0pt},
+                 minimum width=7.30cm, inner sep=0pt},
 ]
 
 \path (0,0) rectangle (13.97,8.80);
@@ -208,26 +209,31 @@
 \node[glo, anchor=west, text=cCand] at (1.22,4.96) {$\Omega_t(s)$: legal for candidate $s$};
 
 % ---- credit chain: Omega_t(s) -> r_sx -> G_s ------------------------------
+%  Intuition first, arithmetic last.  The residual step states the contrast
+%  in words (did s top column x, minus the share of its legally observed peers
+%  that did); one muted line then anchors it to the dashed column x_5 of the
+%  table so the number +1/2 is traceable without dominating the figure.
 \draw[aflow] (4.55,6.20) -- (4.98,6.20) -- (4.98,7.14) -- (5.25,7.14);
-\node[cstep, minimum height=0.40cm] at (8.55,7.14) {};
-\node[lab] at (8.55,7.14) {$\Omega_t(s)$: observed, unhatched cells of row $s$ ($x\notin\mathcal B_s$)};
-\draw[aflow] (8.55,6.94) -- (8.55,6.72);
-\node[cstep, minimum height=0.40cm] at (8.55,6.52) {};
-\node[lab] at (8.55,6.52) {$r_{sx}$: frontier residual of $s$ within column $x$};
-\draw[aflow] (8.55,6.32) -- (8.55,6.10);
-\node[glo] at (8.55,5.94)
-  {column $x_5$: $\mathcal C_t(x_5)=\{p_0,s,p\}$, frontier $\{s,p\}$ $\Rightarrow$ $r_{sx_5}=\tfrac12$};
-\draw[aflow] (8.55,5.76) -- (8.55,5.30);
+\node[cstep, minimum height=0.40cm] at (8.90,7.14) {};
+\node[lab] at (8.90,7.14) {$\Omega_t(s)$: observed, unhatched cells of row $s$ ($x\notin\mathcal B_s$)};
+\draw[aflow] (8.90,6.94) -- (8.90,6.76);
+\node[cstep, minimum height=0.64cm] at (8.90,6.44) {};
+\node[lab] at (8.90,6.57) {$r_{sx}$ = [$s$ tops column $x$] $-$ share of its peers that also top $x$};
+\node[glo] at (8.90,6.31) {a contrast, not a score: $+$ if $s$ stands out, $0$ if all tie};
+\draw[aflow] (8.90,6.12) -- (8.90,5.98);
+\node[glo] at (8.90,5.82)
+  {e.g.\ column $x_5$: $s$, $p$ tie at the top, $p_0$ does not $\Rightarrow$ $r_{sx_5}=+\tfrac12$};
+\draw[aflow] (8.90,5.64) -- (8.90,5.30);
 \node[rounded corners=0.26cm, draw=cCand, fill=cCandT, line width=1.0pt,
-      minimum width=6.60cm, minimum height=0.62cm, inner sep=0pt]
-      at (8.55,4.97) {};
-\node[lab] at (8.55,5.09) {candidate routing credit $G_s$, Eq.~(2)};
-\node[glo] at (8.55,4.84) {mean of $r_{sx}$ over comparable legal $x$};
+      minimum width=7.30cm, minimum height=0.62cm, inner sep=0pt]
+      at (8.90,4.97) {};
+\node[lab] at (8.90,5.09) {candidate routing credit $G_s$, Eq.~(2)};
+\node[glo] at (8.90,4.84) {mean of $r_{sx}$ over comparable legal $x$};
 
 % ---- fork to the two credit-aware workload decisions ---------------------
-\draw[cCand, line width=0.7pt] (8.55,4.66) -- (8.55,4.44);
-\draw[aflow] (8.55,4.44) -- (3.755,4.44) -- (3.755,4.26);
-\draw[aflow] (8.55,4.44) -- (10.215,4.44) -- (10.215,4.26);
+\draw[cCand, line width=0.7pt] (8.90,4.66) -- (8.90,4.44);
+\draw[aflow] (8.90,4.44) -- (3.755,4.44) -- (3.755,4.26);
+\draw[aflow] (8.90,4.44) -- (10.215,4.44) -- (10.215,4.26);
 
 % ---- panel 1: proposal workload -----------------------------------------
 \node[card, minimum width=6.28cm, minimum height=3.00cm, inner sep=0pt] at (3.755,2.76) {};
