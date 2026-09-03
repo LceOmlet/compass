@@ -29,9 +29,8 @@
 %    for s, but become the birth provenance of p, so (p, x_2) is hatched.
 %  * A = {x_5, x_6} is disjoint from X(s,P) = {x_1,...,x_4}; the admitted
 %    child p is committed there.
-%  * Column x_5 has C_t(x_5) = {p_0, s, p} with q = 0, 1, 1: s and p tie at
-%    the top, so y = 1, K = 2, N = 3 and r_{s x_5} = 1 - (2-1)/(3-1) = +1/2.
-%    The figure states only the tie and the result; the arithmetic is Sec. 3.1.
+%  * The credit region prints no numbers.  Its three boxes name the objects
+%    Omega_t(s) -> r_sx -> G_s; the table shows what they act on.
 %
 % LIFECYCLE the drawing closes.
 %  * The wave row commits the admitted child into the table (top lane).
@@ -53,7 +52,7 @@
 %   8.32  wave row
 %   7.86  provenance notes under P and A, commit label
 %   7.58  commit lane into the cache
-%   7.38-5.64  committed cache table (left) and credit chain (right)
+%   7.38-5.64  committed cache table (left); three credit steps (right)
 %   5.46-4.98  cell legend (left)
 %   4.97  routing credit pill (right)
 %   4.44  fork to the two workload panels
@@ -193,10 +192,6 @@
   \node[\st] at (\x,5.84) {};
   \node[lab, text=\tc] at (\x,5.84) {\v};}
 
-%  column x_5 is the worked within-instance comparison (drawn over the cells)
-\draw[cMute, line width=0.6pt, dash pattern=on 0.6mm off 0.45mm, rounded corners=1pt]
-      (3.16,5.62) rectangle (3.68,7.08);
-
 %  legend for the cell grammar (three rows under the table)
 \node[cellObs, swatch] at (1.00,5.44) {};
 \node[glo, anchor=west] at (1.22,5.44) {observed $q_t(u,x)$};
@@ -209,21 +204,20 @@
 \node[glo, anchor=west, text=cCand] at (1.22,4.96) {$\Omega_t(s)$: legal for candidate $s$};
 
 % ---- credit chain: Omega_t(s) -> r_sx -> G_s ------------------------------
-%  Intuition first, arithmetic last.  The residual step states the contrast
-%  in words (did s top column x, minus the share of its legally observed peers
-%  that did); one muted line then anchors it to the dashed column x_5 of the
-%  table so the number +1/2 is traceable without dominating the figure.
-\draw[aflow] (4.55,6.20) -- (4.98,6.20) -- (4.98,7.14) -- (5.25,7.14);
-\node[cstep, minimum height=0.40cm] at (8.90,7.14) {};
-\node[lab] at (8.90,7.14) {$\Omega_t(s)$: observed, unhatched cells of row $s$ ($x\notin\mathcal B_s$)};
-\draw[aflow] (8.90,6.94) -- (8.90,6.76);
-\node[cstep, minimum height=0.64cm] at (8.90,6.44) {};
-\node[lab] at (8.90,6.57) {$r_{sx}$ = [$s$ tops column $x$] $-$ share of its peers that also top $x$};
-\node[glo] at (8.90,6.31) {a contrast, not a score: $+$ if $s$ stands out, $0$ if all tie};
-\draw[aflow] (8.90,6.12) -- (8.90,5.98);
-\node[glo] at (8.90,5.82)
-  {e.g.\ column $x_5$: $s$, $p$ tie at the top, $p_0$ does not $\Rightarrow$ $r_{sx_5}=+\tfrac12$};
-\draw[aflow] (8.90,5.64) -- (8.90,5.30);
+%  Three steps, one style, one reading path: each box has a short title line
+%  (what the object is) and a muted sub-line (how it is formed).  No numbers:
+%  the table on the left shows the objects, the boxes name the operations,
+%  and the arithmetic stays in Sec. 3.1.  The final step is filled amber
+%  because it is the quantity that leaves this region.
+\draw[aflow] (4.55,6.20) -- (4.98,6.20) -- (4.98,7.05) -- (5.25,7.05);
+\node[cstep, minimum height=0.62cm] at (8.90,7.05) {};
+\node[lab] at (8.90,7.17) {legal evidence $\Omega_t(s)$};
+\node[glo] at (8.90,6.92) {observed cells of row $s$ with $x\notin\mathcal B_s$};
+\draw[aflow] (8.90,6.74) -- (8.90,6.52);
+\node[cstep, minimum height=0.62cm] at (8.90,6.21) {};
+\node[lab] at (8.90,6.33) {same-instance contrast $r_{sx}$};
+\node[glo] at (8.90,6.08) {[$s$ tops column $x$] $-$ share of peers that also top $x$};
+\draw[aflow] (8.90,5.90) -- (8.90,5.28);
 \node[rounded corners=0.26cm, draw=cCand, fill=cCandT, line width=1.0pt,
       minimum width=7.30cm, minimum height=0.62cm, inner sep=0pt]
       at (8.90,4.97) {};
