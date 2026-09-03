@@ -5,7 +5,8 @@
 % (Sec. 2.1, 2.2, 3.1, 3.3, App. A).  There is no figure-only notation.
 %
 % OBJECT GRAMMAR (one glyph = one kind of object).
-%  * Programs are cards or table rows: seed p_0, parent s, child p, slot z_i,
+%  * Programs are cards or table rows (labelled seed p_0, parent s, child p,
+%    one lineage), slot z_i,
 %    task t_i = (s_i, P_i).
 %  * Instances x_j are chips.  A green chip is a proposal instance (x in P),
 %    a blue outlined chip is an admission instance (x in A).
@@ -118,7 +119,7 @@
                  pattern=north east lines, pattern color=cStopH},
   swatch/.style={minimum width=0.30cm, minimum height=0.24cm},
   cstep/.style ={rounded corners=1.8pt, draw=cCand, fill=white, line width=0.7pt,
-                 minimum width=7.30cm, inner sep=0pt},
+                 minimum width=6.88cm, inner sep=0pt},
 ]
 
 \path (0,0) rectangle (13.97,8.80);
@@ -166,42 +167,45 @@
 
 % ---- committed cache: the partial table q_t(u,x) ---------------------------
 \node[card, draw=cCert, line width=0.8pt, anchor=south west,
-      minimum width=3.87cm, minimum height=1.90cm, inner sep=0pt] at (0.85,5.48) {};
-\node[lab, text=cCert, anchor=west] at (1.00,7.22) {committed cache $q_t(u,x)$};
-\node[glo] at (1.18,6.92) {$u\backslash x$};
-\foreach \x/\l in {1.66/$x_1$, 2.10/$x_2$, 2.54/$x_3$, 2.98/$x_4$, 3.42/$x_5$, 3.86/$x_6$}{
+      minimum width=4.60cm, minimum height=1.90cm, inner sep=0pt] at (0.62,5.48) {};
+\node[lab, text=cCert, anchor=west] at (0.78,7.22) {committed cache $q_t(u,x)$};
+\node[glo, anchor=east] at (1.70,6.92) {$u\backslash x$};
+\foreach \x/\l in {2.16/$x_1$, 2.60/$x_2$, 3.04/$x_3$, 3.48/$x_4$, 3.92/$x_5$, 4.36/$x_6$}{
   \node[glo] at (\x,6.92) {\l};}
-\node[glo] at (4.22,6.90) {$\cdots$};
-\node[lab] at (1.18,6.56) {$p_0$};
-\node[lab, text=cCand] at (1.18,6.20) {$s$};
-\node[lab] at (1.18,5.84) {$p$};
-\foreach \y in {6.56,6.20,5.84}{\node[glo] at (4.22,\y-0.02) {$\cdots$};}
+\node[glo] at (4.72,6.90) {$\cdots$};
+\node[lab, anchor=east] at (1.70,6.56) {\textcolor{cMute}{seed} $p_0$};
+\node[lab, anchor=east] at (1.70,6.20) {\textcolor{cMute}{parent} \textcolor{cCand}{$s$}};
+\node[lab, anchor=east] at (1.70,5.84) {\textcolor{cMute}{child} $p$};
+\foreach \y in {6.56,6.20,5.84}{\node[glo] at (4.72,\y-0.02) {$\cdots$};}
+%  Rows are ONE lineage, read top-down: seed p_0 -> parent s (accepted
+%  descendant of p_0, the current candidate) -> child p (proposed from s and
+%  admitted this wave).  The words make the relation local to the table.
 %  row p_0 (seed, B = empty: nothing hatched)
-\foreach \x/\st/\v/\tc in {1.66/cellObs/0/cInk, 2.10/cell/--/cMute, 2.54/cellObs/1/cInk,
-                           2.98/cellObs/0/cInk, 3.42/cellObs/0/cInk, 3.86/cellObs/1/cInk}{
+\foreach \x/\st/\v/\tc in {2.16/cellObs/0/cInk, 2.60/cell/--/cMute, 3.04/cellObs/1/cInk,
+                           3.48/cellObs/0/cInk, 3.92/cellObs/0/cInk, 4.36/cellObs/1/cInk}{
   \node[\st] at (\x,6.56) {};
   \node[lab, text=\tc] at (\x,6.56) {\v};}
 %  row s (current candidate, B_s = {x_3,x_4}): amber cells form Omega_t(s)
-\foreach \x/\st/\v/\tc in {1.66/cellElig/1/cInk, 2.10/cellElig/0/cInk, 2.54/cellBad/1/cStop,
-                           2.98/cell/--/cMute, 3.42/cellElig/1/cInk, 3.86/cellElig/1/cInk}{
+\foreach \x/\st/\v/\tc in {2.16/cellElig/1/cInk, 2.60/cellElig/0/cInk, 3.04/cellBad/1/cStop,
+                           3.48/cell/--/cMute, 3.92/cellElig/1/cInk, 4.36/cellElig/1/cInk}{
   \node[\st] at (\x,6.20) {};
   \node[lab, text=\tc] at (\x,6.20) {\v};}
 %  row p (child, B_p = {x_1,x_2} u B_s): x_2 observed later but never credited
-\foreach \x/\st/\v/\tc in {1.66/cell/--/cMute, 2.10/cellBad/1/cStop, 2.54/cell/--/cMute,
-                           2.98/cell/--/cMute, 3.42/cellObs/1/cInk, 3.86/cellObs/0/cInk}{
+\foreach \x/\st/\v/\tc in {2.16/cell/--/cMute, 2.60/cellBad/1/cStop, 3.04/cell/--/cMute,
+                           3.48/cell/--/cMute, 3.92/cellObs/1/cInk, 4.36/cellObs/0/cInk}{
   \node[\st] at (\x,5.84) {};
   \node[lab, text=\tc] at (\x,5.84) {\v};}
 
 %  legend for the cell grammar (three rows under the table)
-\node[cellObs, swatch] at (1.00,5.28) {};
-\node[glo, anchor=west] at (1.22,5.28) {observed $q_t(u,x)$};
-\node[cell, swatch] at (3.95,5.28) {};
-\node[lab, text=cMute] at (3.95,5.28) {--};
-\node[glo, anchor=west] at (4.17,5.28) {missing};
-\node[cellBad, swatch] at (1.00,5.04) {};
-\node[glo, anchor=west, text=cStop] at (1.22,5.04) {$x\in\mathcal B_u$: never credited to $u$};
-\node[cellElig, swatch] at (1.00,4.80) {};
-\node[glo, anchor=west, text=cCand] at (1.22,4.80) {$\Omega_t(s)$: legal for candidate $s$};
+\node[cellObs, swatch] at (0.78,5.28) {};
+\node[glo, anchor=west] at (1.00,5.28) {observed $q_t(u,x)$};
+\node[cell, swatch] at (3.73,5.28) {};
+\node[lab, text=cMute] at (3.73,5.28) {--};
+\node[glo, anchor=west] at (3.95,5.28) {missing};
+\node[cellBad, swatch] at (0.78,5.04) {};
+\node[glo, anchor=west, text=cStop] at (1.00,5.04) {$x\in\mathcal B_u$: never credited to $u$};
+\node[cellElig, swatch] at (0.78,4.80) {};
+\node[glo, anchor=west, text=cCand] at (1.00,4.80) {$\Omega_t(s)$: legal for candidate $s$};
 
 % ---- credit chain: Omega_t(s) -> r_sx -> G_s ------------------------------
 %  Three steps, one style, one reading path: each box has a short title line
@@ -209,25 +213,25 @@
 %  the table on the left shows the objects, the boxes name the operations,
 %  and the arithmetic stays in Sec. 3.1.  The final step is filled amber
 %  because it is the quantity that leaves this region.
-\draw[aflow] (4.72,6.20) -- (4.98,6.20) -- (4.98,7.05) -- (5.25,7.05);
-\node[cstep, minimum height=0.62cm] at (8.90,7.05) {};
-\node[lab] at (8.90,7.17) {legal evidence $\Omega_t(s)$};
-\node[glo] at (8.90,6.92) {observed cells of row $s$ with $x\notin\mathcal B_s$};
-\draw[aflow] (8.90,6.74) -- (8.90,6.52);
-\node[cstep, minimum height=0.62cm] at (8.90,6.21) {};
-\node[lab] at (8.90,6.33) {same-instance contrast $r_{sx}$};
-\node[glo] at (8.90,6.08) {[$s$ tops column $x$] $-$ share of peers that also top $x$};
-\draw[aflow] (8.90,5.90) -- (8.90,5.28);
+\draw[aflow] (5.22,6.20) -- (5.44,6.20) -- (5.44,7.05) -- (5.66,7.05);
+\node[cstep, minimum height=0.62cm] at (9.10,7.05) {};
+\node[lab] at (9.10,7.17) {legal evidence $\Omega_t(s)$};
+\node[glo] at (9.10,6.92) {observed cells of row $s$ with $x\notin\mathcal B_s$};
+\draw[aflow] (9.10,6.74) -- (9.10,6.52);
+\node[cstep, minimum height=0.62cm] at (9.10,6.21) {};
+\node[lab] at (9.10,6.33) {same-instance contrast $r_{sx}$};
+\node[glo] at (9.10,6.08) {[$s$ tops column $x$] $-$ share of peers that also top $x$};
+\draw[aflow] (9.10,5.90) -- (9.10,5.28);
 \node[rounded corners=0.26cm, draw=cCand, fill=cCandT, line width=1.0pt,
-      minimum width=7.30cm, minimum height=0.62cm, inner sep=0pt]
-      at (8.90,4.97) {};
-\node[lab] at (8.90,5.09) {candidate routing credit $G_s$, Eq.~(2)};
-\node[glo] at (8.90,4.84) {mean of $r_{sx}$ over comparable legal $x$};
+      minimum width=6.88cm, minimum height=0.62cm, inner sep=0pt]
+      at (9.10,4.97) {};
+\node[lab] at (9.10,5.09) {candidate routing credit $G_s$, Eq.~(2)};
+\node[glo] at (9.10,4.84) {mean of $r_{sx}$ over comparable legal $x$};
 
 % ---- fork to the two credit-aware workload decisions ---------------------
-\draw[cCand, line width=0.7pt] (8.90,4.66) -- (8.90,4.44);
-\draw[aflow] (8.90,4.44) -- (3.755,4.44) -- (3.755,4.26);
-\draw[aflow] (8.90,4.44) -- (10.215,4.44) -- (10.215,4.26);
+\draw[cCand, line width=0.7pt] (9.10,4.66) -- (9.10,4.44);
+\draw[aflow] (9.10,4.44) -- (3.755,4.44) -- (3.755,4.26);
+\draw[aflow] (9.10,4.44) -- (10.215,4.44) -- (10.215,4.26);
 
 % ---- panel 1: proposal workload -----------------------------------------
 \node[card, minimum width=6.28cm, minimum height=3.00cm, inner sep=0pt] at (3.755,2.76) {};
@@ -292,9 +296,9 @@
 
 % ---- return lanes: both decisions commit observations into the cache -----
 %  Left lane: proposal rollouts update the parent rows of the table.
-\draw[cGen, lane] (3.755,1.26) -- (3.755,0.98) -- (0.42,0.98);
-\draw[gflow, lane] (0.42,0.98) -- (0.42,6.20) -- (0.85,6.20);
-\node[glo, text=cGen, rotate=90] at (0.20,3.40)
+\draw[cGen, lane] (3.755,1.26) -- (3.755,0.98) -- (0.30,0.98);
+\draw[gflow, lane] (0.30,0.98) -- (0.30,6.20) -- (0.62,6.20);
+\node[glo, text=cGen, rotate=90] at (0.12,3.40)
   {proposal rollouts: commit $q_t(z_i,x)$, $x\in P_j$};
 %  Right lane: an admitted child joins the table through the top commit lane.
 \draw[cCert, lane] (10.215,1.26) -- (10.215,0.98) -- (13.55,0.98) -- (13.55,7.58);

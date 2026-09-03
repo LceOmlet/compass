@@ -138,7 +138,9 @@ admission batch $A$ (blue chips, $x\in A$) sampled outside the recursive
 exclusion set $X(s,P)$ of \Cref{eq:recursive_exclusion}, and commits the
 accepted child's admission observations into the cache.  Middle left: the
 committed cache is the partial table $q_t(u,x)$ of programs (rows) by
-instances (columns); a hatched red cell is an observation stored for $u$ but
+instances (columns), shown for one lineage: the seed $p_0$, its accepted
+descendant $s$ that is the current parent, and the child $p$ just admitted
+from $s$; a hatched red cell is an observation stored for $u$ but
 never credited to $u$ because $x$ lies in $u$'s lineage birth set
 $\mathcal B_u$, and the amber-framed cells of row $s$ form its legal evidence
 set $\Omega_t(s)$.  Middle right: each legal observation yields a
