@@ -2,6 +2,18 @@ $ErrorActionPreference = "Stop"
 
 $paperRoot = Split-Path -Parent $PSScriptRoot
 $figureRoot = Join-Path $paperRoot "figures\figure1"
+$radarRoot = Join-Path $paperRoot "figures\qwen_radar"
+
+Push-Location $radarRoot
+try {
+    latexmk -pdf -interaction=nonstopmode -halt-on-error qwen_radar.tex
+    if ($LASTEXITCODE -ne 0) {
+        throw "Qwen radar build failed with exit code $LASTEXITCODE"
+    }
+}
+finally {
+    Pop-Location
+}
 
 Push-Location $figureRoot
 try {
