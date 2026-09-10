@@ -81,14 +81,14 @@ affect sample-efficient textual-program evolution.
 \section{Introduction}
 \label{sec:introduction}
 
-\begin{wrapfigure}[19]{r}{0.47\textwidth}
+\begin{wrapfigure}[21]{r}{0.47\textwidth}
 \vspace{-8pt}
 \centering
 \includegraphics[width=\linewidth]{figures/qwen_radar/qwen_radar.pdf}
 \setlength{\abovecaptionskip}{3pt}
 \setlength{\belowcaptionskip}{0pt}
-\caption{\textbf{Qwen3-8B scores (\%).} Labeled ranges run from center to rim
-(Table~\ref{tab:qwen_results}).}
+\caption{\textbf{COMPASS leads on five tasks.} \mbox{Qwen3-8B} scores (\%) use
+labeled center-to-rim ranges (Table~\ref{tab:qwen_results}).}
 \label{fig:qwen_radar}
 \end{wrapfigure}
 
@@ -101,11 +101,12 @@ task is compact: given a seed textual program, a benchmark evaluator, and rollou
 budget $B$, the optimizer adaptively generates and evaluates candidates, then
 returns one terminal program.  Every rollout serves one of two statistical
 roles.  Proposal evidence diagnoses a failure and shapes a revision.
-Verification evidence evaluates a revision whose text is already fixed.  Three
-instruction-following cases, for example, may expose a constraint-ordering error
+Evaluation evidence tests a revision whose text is already fixed.  Admission
+uses paired evaluation to decide whether the revision enters the candidate
+pool.  Three instruction-following cases, for example, may expose a constraint-ordering error
 and inspire a new rule.  Fresh benchmark cases then measure the fixed rule.
 
-The number of proposal--verification attempts sets search bandwidth, and the
+The number of proposal-and-evaluation attempts sets search bandwidth, and the
 fresh evaluations per fixed candidate determine ranking precision.  Their
 shared budget trades broader search against more reliable admission and final
 selection.  Every batch that shapes a candidate becomes proposal history for
@@ -114,13 +115,13 @@ revision separate from those used to evaluate it.
 
 This paper studies this task as \emph{provenance-constrained evidence routing}.
 The routing policy minimizes expected terminal simple regret under a total
-rollout budget, finite search bandwidth, finite fresh verification support, and
+rollout budget, finite search bandwidth, finite fresh evaluation support, and
 lineage-level provenance.  A committed partial reward table supplies legal
 routing evidence.  The single objective is to return the strongest terminal
 program supported by the budget and benchmark evaluation.
 
 Three challenges govern this objective.  First, birth provenance must propagate
-through the full lineage so that each fixed child receives fresh certification
+through the full lineage so that each fixed child receives fresh admission
 evidence.  Second, a partial and uneven reward table needs a candidate credit
 that remains comparable across instance difficulty and updates with new
 frontiers.  Third, finite proposal capacity must reach distinct, high-value
@@ -129,8 +130,8 @@ repair opportunities across concurrent search paths.
 \method{} (\textbf{C}redit-Aware \textbf{O}ptimization with \textbf{M}ini-batch
 \textbf{P}roposal and \textbf{A}dmission for \textbf{S}kill \textbf{S}earch)
 implements this routing principle through three aligned mechanisms.  Recursive
-exclusion propagates the generation--certification boundary and supplies each
-fixed child with a separately sampled legal admission batch.  Instance-relative
+exclusion separates proposal and admission evidence throughout the lineage.
+Each fixed child receives a separately sampled legal admission batch.  Instance-relative
 credit compares legally observed candidates on the same instance and refreshes
 their ordering whenever the reward frontier changes.  A persistent queue cycles
 through the highest-credit candidates, including all ties at the cutoff, while a
@@ -141,17 +142,13 @@ limited evidence from candidate generation to terminal selection.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figures/figure1/figure1_compass_evidence_routing.pdf}
-\caption{\textbf{Provenance-constrained evidence routing in \method{}.}
-A child $p$ is proposed from parent $s$ on minibatch $P$ and certified on an
-admission batch $A$ drawn outside the recursive exclusion set $X(s,P)$
-(\Cref{eq:recursive_exclusion}); accepted observations enter the committed
-cache $q_t(u,x)$.  For candidate $s$, only cache entries outside its lineage
-birth set $\mathcal B_s$ (unhatched) are legal evidence $\Omega_t(s)$; each is
-contrasted with the peers observed on the same instance, and the mean contrast
-is the routing credit $G_s$ (\Cref{eq:global_key}).  $G_s$ then allocates
-proposal slots to distinct minibatches and references for each legal admission
-batch, and selects the terminal program.  Red marks an instance inside the
-birth provenance of the lineage in question.}
+\caption{\textbf{Legal evidence guides the next search wave in \method{}.}
+Child $p$, proposed from parent $s$ on $P$, is evaluated on a separate legal
+batch $A$ and enters the cache after admission.  Legal same-instance comparisons
+produce credit $G_s$, which selects proposal parents, admission references, and
+the final program.  $H$ matches parent slots to proposal batches, while each
+admission batch is sampled independently outside $X(s,P)$.  Red hatching marks
+lineage-excluded observations.}
 \label{fig:overview}
 \end{figure}
 
@@ -166,10 +163,10 @@ This paper makes four contributions:
 \begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=3pt]
   \item \emph{Provenance-constrained evidence routing} casts textual-program
   evolution as terminal simple-regret minimization under explicit constraints on
-  rollout budget, search bandwidth, verification support, and lineage
+  rollout budget, search bandwidth, evaluation support, and lineage
   provenance (\Cref{sec:setting}).
 
-  \item \method{} recursively separates generation from certification and
+  \item \method{} recursively separates proposal from admission evidence and
   turns committed legal evidence into a routing signal based on how each
   candidate compares with its peers on the same instance.  The signal is
   recomputed as the partial observation state changes
@@ -203,13 +200,14 @@ budgeted objective is
 \E\!\left[R^\star-R(p_{\hat s_\pi})\right],
 \]
 where $b_P,b_A\in\mathbb N_+$, with $|P|=b_P$ proposal observations and
-$|A|=b_A$ fresh verification observations per attempt.  Policies in
-$\Pi(B,b_P,b_A)$ divide their rollout expenditure as
+$|A|=b_A$ fresh admission observations per attempt.  For policies in
+$\Pi(B,b_P,b_A)$, $B$ is the wave-level stopping threshold.  A new wave starts
+while the cumulative proposal and evaluation costs satisfy
 \[
-C_{\mathrm{proposal}}(\pi)+C_{\mathrm{verify}}(\pi)\le B.
+C_{\mathrm{proposal}}+C_{\mathrm{evaluation}}<B,
 \]
-Proposal expenditure determines the number $M_B(\pi)$ of independently
-proposed-and-certified children, which is the search bandwidth.  Verification
+and runs to completion.  The number $M_B(\pi)$ of completed
+proposal-and-evaluation attempts defines search bandwidth.  Evaluation
 expenditure assigns $b_A$ fresh benchmark observations to each fixed child and
 controls the precision of admission and terminal selection.  Larger
 $M_B(\pi)$ lowers the search gap, and larger $b_A$ lowers selection uncertainty.
@@ -241,7 +239,7 @@ outside the batches that shaped its lineage.
 The benchmark evaluator supplies the optimization observations stored in the cache and,
 after selection, an independent frozen test.
 
-\subsection{Recursive generation--certification boundary}
+\subsection{Separating proposal and admission evidence}
 
 For a child proposed from parent $s$ on batch $P$, define
 \begin{equation}
@@ -250,7 +248,7 @@ X(s,P)=P\cup
 \label{eq:recursive_exclusion}
 \end{equation}
 A legal admission batch satisfies $A\cap X(s,P)=\varnothing$.  Proposal traces
-remain available for diagnosis.  Certification for the child and its
+remain available for diagnosis.  Admission for the child and its
 descendants uses batches disjoint from current and inherited birth provenance.
 In the running example, the three diagnostic cases explain the error, and a
 disjoint admission batch decides whether the new rule earns future search
@@ -262,13 +260,13 @@ Let $\mathcal H_t$ contain the lineage, birth provenance, committed cache,
 remaining budget, and persistent routing state.  A routing action
   $a_t=(\A_t,\mathbf z_t,Y_t)$ chooses active candidates, persistent parent
   slots, and a one-to-one proposal assignment from $\mathcal H_t$.  The frozen
-benchmark test is reserved for final evaluation.  Recursive exclusion supplies
-the generation--certification boundary.  Instance-relative credit organizes
+benchmark test is reserved for final evaluation.  Recursive exclusion separates
+proposal and admission evidence.  Instance-relative credit organizes
 uneven partial evidence as frontiers change.  Persistent proposal slots and a
 coupled one-to-one assignment coordinate concurrent repair opportunities, and
 each fixed child receives an independently sampled admission batch.
 
-A feasible router preserves the recursive boundary, the logical budget $B$,
+A feasible router preserves the recursive boundary, the wave-level stopping rule,
 one cached record per candidate--instance pair, and a separate final test.  Its optimal policy
 minimizes expected simple regret for the returned program.
 
@@ -295,8 +293,8 @@ routing-eligible set together with all inherited birth batches.  At birth, the c
 enters the committed table only through its legal admission evaluation.
 Later valid benchmark executions may enlarge its routing evidence whenever
 their instances remain outside the same lineage birth set.  This lets proposal
-traces retain their high-bandwidth diagnostic role while admission supplies a
-new observation that can certify the revision.
+traces retain their high-bandwidth diagnostic role while admission supplies
+fresh evidence to evaluate the revision.
 
 Let $\F_t(x)$ be the \emph{reward frontier}: the candidates with the highest
 cached score among those for which $x\in\Omega_t(s)$, including every exact tie.
@@ -450,17 +448,17 @@ A revision can look perfect on the examples it was written to solve while
 changing nothing elsewhere.  Fresh evaluation checks whether the revision
 also helps beyond those examples.
 
-\begin{proposition}[Self-certification can be arbitrarily optimistic]
+\begin{proposition}[Reusing proposal examples can overstate performance]
 \label{prop:self_cert_leakage}
 For every admission size $n\ge1$ and $\epsilon>0$, there is a task
 distribution and a proposal rule that observes $n$ examples, constructs a
-program, and scores one when those examples are reused for certification,
+program, and scores one when those examples are reused for evaluation,
 although the program's population utility is at most $\epsilon$.
 \end{proposition}
 
 The construction in \Cref{app:proofs} memorizes the observed examples.
-COMPASS prevents that evidence from returning as certification for either the
-child that used it or later descendants that can inherit the resulting
+COMPASS excludes those examples from admission for both the
+child that used them and later descendants that can inherit the resulting
 behavior.
 
 \paragraph{Fresh-pair principle.}
@@ -491,8 +489,8 @@ before \Cref{eq:global_key} satisfy
 \end{proposition}
 
 This conservation law assigns credit to differences between candidates.  If all
-$N_x$ compared candidates share the current frontier, every residual is zero:
-an instance that separates nobody raises nobody's routing priority.  If one
+$N_x$ compared candidates share the current frontier, the instance assigns
+zero residual to every candidate.  If one
 candidate uniquely owns the frontier, it receives residual one and each of the
 other $N_x-1$ candidates receives $-1/(N_x-1)$.  Thus the same frontier event
 means more when it distinguishes a candidate from its observed peers.
@@ -502,12 +500,6 @@ changes $\mathcal F_t(x)$, COMPASS recomputes $K_x$, every affected $r_{sx}$,
 and the corresponding $G_s$.  An instance with only one legal observation
 remains cached but begins contributing relative credit only after another
 candidate becomes comparable there.
-
-Ancestry determines which observations may contribute to a candidate's credit.
-Once $G_s$ is defined, the tie-inclusive Top-$\rho$ rule
-ranks every candidate in one pool, so a parent and its descendant can remain
-active together.  A persistent cursor cycles through this credit order across
-successive waves to distribute proposal slots.
 
 \subsection{Credit directs the next wave}
 
@@ -541,7 +533,7 @@ slot coverage and exact optimality of the proposal assignment.
 \subsection{Why breadth and confidence compete}
 \label{sec:breadth_confidence}
 
-Let $\Pcal_B$ be the candidates discovered within budget $B$ and let
+Let $\Pcal_B$ be the candidates available when search stops at threshold $B$ and let
 $\hat p_B$ be COMPASS's actual $G_s$-selected terminal program.  Its regret
 has the exact decomposition
 \begin{equation}
@@ -556,14 +548,14 @@ The first term falls only when search discovers stronger candidates; the
 second falls only when the available evidence identifies a strong discovered
 candidate.  A fixed rollout budget must support both.
 
-A simple budget calculation makes the tradeoff explicit.  Let
+A fixed-cost budget calculation makes the tradeoff explicit.  Let
 $c_{\mathrm{prop}}$ be the rollout cost of producing one candidate and let
-$n\ge1$ be the number of fresh evaluations used to verify it.  The budget can
-then support
+$n\ge1$ be the number of fresh evaluations used to assess it.  The number of
+complete proposal-and-evaluation attempts that fit within $B$ is
 \[
-M_B(n)=\left\lfloor\frac{B}{c_{\mathrm{prop}}+n}\right\rfloor
+M_B(n)=\left\lfloor\frac{B}{c_{\mathrm{prop}}+n}\right\rfloor.
 \]
-proposal-and-verification attempts.  Increasing $n$ improves the precision of
+Increasing $n$ improves the precision of
 each decision but leaves room for fewer candidates.  The $1/\sqrt n$ rate also
 shows diminishing returns: halving the uncertainty requires four times as
 many fresh evaluations.
@@ -571,7 +563,7 @@ many fresh evaluations.
 \Cref{prop:bandwidth_precision} formalizes this tradeoff for a reference
 selector that compares candidate means under a common fresh-evaluation
 distribution.  Its regret separates into a search gap and a selection term
-that shrinks with verification sample size.  The appendix gives the full
+that shrinks with evaluation sample size.  The appendix gives the full
 statement and assumptions.  In COMPASS, credit-ranked slots and exact proposal
 matching allocate search effort, paired admission evaluates each revision, and
 the resulting $G_s$ values guide both further search and final selection.
@@ -681,7 +673,7 @@ TextGrad, Trace/OptoPrime, MIPROv2, and GEPA optimize textual components from
 execution evidence
 \citep{reflexion,self_refine,textgrad,
 cheng2024traceautodiffgenerativeoptimization,miprov2,gepa}.  COMPASS focuses on
-evidence routing: which observations may certify a lineage, how a candidate's
+evidence routing: which observations are eligible to evaluate each candidate, how its
 frontier contribution should be measured against other legally observed
 candidates on the same instance, and where the next proposal budget should
 flow.
@@ -708,8 +700,8 @@ Repeated adaptive use of optimization data can widen the gap between selected
 validation performance and fresh test performance
 \citep{dwork2015generalization}.  GEPA addresses this empirically through
 reusable rules and branch diversity~\citep{gepa}.  COMPASS adds recursive
-certification separation and an instance-relative frontier residual that is
-recomputed as the cached observations change.  Held-out benchmark tests
+separation of proposal and admission evidence and an instance-relative frontier
+residual that is recomputed as the cached observations change.  Held-out benchmark tests
 evaluate the selected program.
 
 \section{Conclusion}
@@ -823,6 +815,7 @@ aggregate in \Cref{eq:admission_gate} is positive.
 \Ensure updated committed state $\mathcal H_{t+1}$
 \State Recompute every defined $G_s$ from the committed cache
 \State $\A_t \gets$ tie-inclusive Top-$\rho$ candidates, sorted by $G_s$ and candidate index
+\State If $\A_t=\varnothing$, set $\A_t\gets\{0\}$ \Comment{Seed fallback}
 \State $(z_i)_{i\in\mathcal I_w} \gets \Call{CyclicSlots}{\A_t,w}$
 \State Draw $(P_j)_{j\in\mathcal I_w}$ and form $M_{ij}\gets H(z_i,P_j)$
 \State $Y^\star \gets \Call{MaxWeightAssignment}{M}$
@@ -846,9 +839,9 @@ aggregate in \Cref{eq:admission_gate} is positive.
 \end{algorithmic}
 \end{algorithm}
 
-Repeat \Cref{alg:compass_wave} until the rollout budget is reached.  Because the
-logical budget is checked between waves, the final wave may overshoot; we report
-both target and actual calls.  Request-level retries add no logical task result.
+Repeat \Cref{alg:compass_wave} while the cumulative logical call count is below
+$B$, and complete the final wave before stopping.  Report both the target $B$
+and actual calls.  Request-level retries add no logical task result.
 
 \section{Proofs for Evidence, Credit, and Regret}
 \label{app:proofs}
@@ -858,19 +851,18 @@ provides fresh paired admission evidence, relative credit is conserved within
 each comparable instance, and selection by fresh sample means demonstrates the
 budget tradeoff between search breadth and decision precision.
 
-\subsection{Why generation and certification must separate}
+\subsection{Why proposal and admission evidence are separate}
 
 \begin{proof}[Proof of \Cref{prop:self_cert_leakage}]
 Let the task distribution be uniform on a domain of size $K\ge n/\epsilon$.
 After observing $S=(x_1,\ldots,x_n)$, let the proposal rule construct a program
 whose reward is one exactly on the distinct elements appearing in $S$ and zero
-elsewhere.  Every reused certification example belongs to that set, so the
+elsewhere.  Every reused evaluation example belongs to that set, so the
 empirical reward on $S$ is one.  The population reward is the fraction of the
 domain covered by the observed set, at most $n/K\le\epsilon$.
 \end{proof}
 
-The construction captures the mechanism in its simplest form: certification
-is informative only when it contributes evidence beyond what already shaped
+The construction motivates admission on examples outside those that shaped
 the candidate.  Recursive birth provenance extends this separation through the
 lineage, because a descendant can retain behavior adapted to an ancestor's
 proposal batch.
@@ -956,7 +948,7 @@ The statement is per instance; the candidate averages $G_s$ need not sum to
 zero because their comparable exposure sets and denominators can differ.
 \end{proof}
 
-\subsection{The search--verification budget tradeoff}
+\subsection{The search--evaluation budget tradeoff}
 
 The reference calculation in \Cref{sec:breadth_confidence} compares candidates
 using the mean of fresh evaluation scores.  The following statement gives its
@@ -984,9 +976,9 @@ R^\star-R(\widetilde p_{M,n})
 \end{proposition}
 
 For \Cref{prop:bandwidth_precision}, let $\mathcal F_{i-1}$ contain the
-complete adaptive search history before candidate $p_i$ is certified and let
+complete adaptive search history before candidate $p_i$ is evaluated and let
 $p_i$ be measurable with respect to that history.  Conditional on
-$\mathcal F_{i-1}$, its $n$ certification rewards follow the distribution in the
+$\mathcal F_{i-1}$, its $n$ evaluation rewards follow the distribution in the
 proposition and are hidden until $p_i$ is fixed.  The reference selector
 $\widetilde p_{M,n}$ chooses a program with the largest fresh sample mean.
 
@@ -1010,7 +1002,7 @@ of the concentration event by one also gives
 +2\sqrt{\frac{\log(2M/\delta)}{2n}}+\delta.
 \]
 The two terms isolate the reference tradeoff.  Increasing $n$ tightens each
-certification decision but lowers $M_B(n)$; increasing bandwidth raises the
+evaluation decision but lowers $M_B(n)$; increasing bandwidth raises the
 chance of discovering a strong program but leaves less fresh support per
 candidate.  Along a growing candidate sequence, the expected search-regret
 term is nonincreasing in $M$, whereas the displayed selection term decreases
@@ -1101,8 +1093,8 @@ checkpoint, and random-number-generator state.
 Evidence routing can reduce the number of expensive environment executions
 needed to discover a useful textual program and can make search decisions easier
 to audit.  The same efficiency can also optimize undesirable procedures or
-exploit imperfect rewards.  Strict admission and held-out tests do not replace
-secure tool policies, sandboxing, red-team evaluation, or human review.
+exploit imperfect rewards.  Responsible deployment calls for secure tool
+policies, sandboxing, red-team evaluation, and human review.
 
 \paragraph{Use of large language models.}
 Language models assisted with literature review, editing, code, and figure

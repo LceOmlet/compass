@@ -27,9 +27,11 @@
 % WORKED EXAMPLE (consistent across the whole drawing).
 %  * B_s = {x_3, x_4}: the batch that created s from p_0.
 %  * This wave proposes on P = {x_1, x_2}: these update row s and are legal
-%    for s, but become the birth provenance of p, so (p, x_2) is hatched.
+%    for s, but become the birth provenance of p.  Child proposal cells remain
+%    missing: only the accepted child's admission observations are committed.
 %  * A = {x_5, x_6} is disjoint from X(s,P) = {x_1,...,x_4}; the admitted
-%    child p is committed there.
+%    child p is committed there.  On A, seed=(0,0), parent=(1,0), child=(1,1),
+%    so the child strictly improves on the pre-child per-instance frontiers.
 %  * The credit region prints no numbers.  Its three boxes name the objects
 %    Omega_t(s) -> r_sx -> G_s; the table shows what they act on.
 %
@@ -133,8 +135,7 @@
 \node[lab, text=white] at (2.98,8.32) {$x_1$};
 \node[chipP] at (3.46,8.32) {};
 \node[lab, text=white] at (3.46,8.32) {$x_2$};
-\node[lab, text=cGen] at (3.86,8.30) {$\cdots$};
-\draw[gflow] (4.06,8.32) -- (4.36,8.32);
+\draw[gflow] (3.72,8.32) -- (4.36,8.32);
 \node[card, draw=cCand, fill=cCandT, line width=0.8pt, minimum width=1.75cm,
       minimum height=0.50cm, inner sep=0pt] at (5.28,8.32) {};
 \node[lab] at (5.28,8.32) {child $p$ fixed};
@@ -144,8 +145,7 @@
 \node[lab, text=cCert] at (6.74,8.32) {$x_5$};
 \node[chipA] at (7.22,8.32) {};
 \node[lab, text=cCert] at (7.22,8.32) {$x_6$};
-\node[lab, text=cCert] at (7.62,8.30) {$\cdots$};
-\draw[cflow] (7.82,8.32) -- (8.12,8.32);
+\draw[cflow] (7.48,8.32) -- (8.12,8.32);
 \node[card, draw=cCert, minimum width=2.05cm, minimum height=0.50cm,
       inner sep=0pt] at (9.20,8.32) {};
 \node[lab] at (9.20,8.32) {admit iff $\Delta>0$};
@@ -156,7 +156,7 @@
 
 %  provenance notes: P is birth provenance of p (red = provenance exclusion),
 %  A is sampled outside X(s,P).
-\node[glo, text=cStop] at (3.55,7.86) {$P\subseteq X(s,P)$: never certifies $p$};
+\node[glo, text=cStop] at (3.55,7.86) {$P\subseteq X(s,P)$: excluded from $A$};
 \node[glo, text=cCert] at (7.10,7.86) {$A\cap X(s,P)=\varnothing$};
 
 %  commit lane: the admission observations of the accepted child enter the cache.
@@ -182,17 +182,17 @@
 %  admitted this wave).  The words make the relation local to the table.
 %  row p_0 (seed, B = empty: nothing hatched)
 \foreach \x/\st/\v/\tc in {2.16/cellObs/0/cInk, 2.60/cell/--/cMute, 3.04/cellObs/1/cInk,
-                           3.48/cellObs/0/cInk, 3.92/cellObs/0/cInk, 4.36/cellObs/1/cInk}{
+                           3.48/cellObs/0/cInk, 3.92/cellObs/0/cInk, 4.36/cellObs/0/cInk}{
   \node[\st] at (\x,6.56) {};
   \node[lab, text=\tc] at (\x,6.56) {\v};}
 %  row s (current candidate, B_s = {x_3,x_4}): amber cells form Omega_t(s)
 \foreach \x/\st/\v/\tc in {2.16/cellElig/1/cInk, 2.60/cellElig/0/cInk, 3.04/cellBad/1/cStop,
-                           3.48/cell/--/cMute, 3.92/cellElig/1/cInk, 4.36/cellElig/1/cInk}{
+                           3.48/cell/--/cMute, 3.92/cellElig/1/cInk, 4.36/cellElig/0/cInk}{
   \node[\st] at (\x,6.20) {};
   \node[lab, text=\tc] at (\x,6.20) {\v};}
-%  row p (child, B_p = {x_1,x_2} u B_s): x_2 observed later but never credited
-\foreach \x/\st/\v/\tc in {2.16/cell/--/cMute, 2.60/cellBad/1/cStop, 3.04/cell/--/cMute,
-                           3.48/cell/--/cMute, 3.92/cellObs/1/cInk, 4.36/cellObs/0/cInk}{
+%  row p (child, B_p = {x_1,x_2} u B_s): only admission A is observed at birth
+\foreach \x/\st/\v/\tc in {2.16/cell/--/cMute, 2.60/cell/--/cMute, 3.04/cell/--/cMute,
+                           3.48/cell/--/cMute, 3.92/cellObs/1/cInk, 4.36/cellObs/1/cInk}{
   \node[\st] at (\x,5.84) {};
   \node[lab, text=\tc] at (\x,5.84) {\v};}
 
@@ -220,7 +220,7 @@
 \draw[aflow] (9.10,6.74) -- (9.10,6.52);
 \node[cstep, minimum height=0.62cm] at (9.10,6.21) {};
 \node[lab] at (9.10,6.33) {same-instance contrast $r_{sx}$};
-\node[glo] at (9.10,6.08) {[$s$ tops column $x$] $-$ share of peers that also top $x$};
+\node[glo] at (9.10,6.08) {[$s$ reaches frontier] $-$ legal peers' frontier share};
 \draw[aflow] (9.10,5.90) -- (9.10,5.28);
 \node[rounded corners=0.26cm, draw=cCand, fill=cCandT, line width=1.0pt,
       minimum width=6.88cm, minimum height=0.62cm, inner sep=0pt]
@@ -240,37 +240,36 @@
 \node[badge] at (0.955,4.05) {1};
 \node[ttl] at (1.225,4.05) {Proposal workload};
 \node[sub, text=cGenT] at (6.745,4.05) {slot $\to$ minibatch};
-\node[glo, text=cGen] at (3.755,3.58) {slots $z_i$ drawn from the $G$-ranked queue};
-\node[glo, text=cGen] at (3.755,3.30) {max-weight one-to-one assignment, Eq.~(4)};
-\foreach \y/\s/\j in {2.88/1/3, 2.46/2/1}{
-  \node[slot] at (2.10,\y) {};
+\node[glo, text=cGen] at (3.755,3.58) {$G$: choose parents, then draw cyclic slots $z_i$};
+\node[glo, text=cGen] at (3.755,3.30) {$H$: exact one-to-one matching, Eq.~(4)};
+\foreach \y/\s/\j in {2.88/0/2, 2.46/1/0}{
+  \node[slot, minimum width=0.90cm] at (2.10,\y) {};
   \node[lab, text=cCand] at (2.10,\y) {$z_\s$};
-  \draw[gflow] (2.52,\y) -- (3.40,\y);
+  \draw[gflow] (2.64,\y) -- (3.40,\y);
   \node[chipBatch] at (3.75,\y) {};
   \node[lab, text=white] at (3.75,\y) {$P_\j$};
   \node[glo, anchor=west] at (4.12,\y) {$=\{x,\ldots\}$, $|P_\j|=b_P$};}
 \foreach \dy in {-0.10,0,0.10}{
   \fill[cCand] (2.10,2.14+\dy) circle (0.022);
   \fill[cGen]  (3.75,2.14+\dy) circle (0.022);}
-\node[slot] at (2.10,1.82) {};
-\node[lab, text=cCand] at (2.10,1.82) {$z_w$};
-\draw[gflow] (2.52,1.82) -- (3.40,1.82);
+\node[slot, minimum width=0.90cm] at (2.10,1.82) {};
+\node[lab, text=cCand] at (2.10,1.82) {$z_{w-1}$};
+\draw[gflow] (2.64,1.82) -- (3.40,1.82);
 \node[chipBatch] at (3.75,1.82) {};
 \node[lab, text=white] at (3.75,1.82) {$P_j$};
 \node[glo] at (3.755,1.46) {no minibatch is assigned twice};
 
 % ---- panel 2: admission workload ----------------------------------------
-%  Eq. (1) is the recursive exclusion set itself.  The side condition below it
-%  is the consequence drawn from it and is labelled separately, never as Eq. (1).
+%  G chooses per-instance references.  Every task samples its own legal batch;
+%  the condition uses the recursive exclusion set defined in Eq. (1).
 \node[card, minimum width=6.28cm, minimum height=3.00cm, inner sep=0pt] at (10.215,2.76) {};
 \fill[cCert, rounded corners=1.8pt] (7.075,3.84) rectangle (13.355,4.26);
 \fill[cCert] (7.075,3.84) rectangle (13.355,4.06);
 \node[badge, text=cCert] at (7.415,4.05) {2};
 \node[ttl] at (7.685,4.05) {Admission workload};
 \node[sub, text=cCertT] at (13.205,4.05) {task $\to$ legal batch};
-\node[font=\fontsize{8}{9.6}\selectfont, text=cInk, inner sep=0pt] at (10.215,3.56)
-  {Eq.~(1):\ $X(s,P)=P\cup\bigcup\nolimits_{a\in\operatorname{Anc}(s)\cup\{s\}}P_a^{\mathrm{birth}}$};
-\node[glo] at (10.215,3.14) {task $t_i=(s_i,P_i)$; legal iff $A_i\cap X(s_i,P_i)=\varnothing$};
+\node[glo] at (10.215,3.56) {references by $G$; independently sampled $A_i$};
+\node[glo] at (10.215,3.14) {$A_i\cap X(s_i,P_i)=\varnothing$; $X$ defined in Eq.~(1)};
 \foreach \y/\s/\a/\b in {2.72/1/5/6, 2.30/2/8/9}{
   \node[slot] at (8.45,\y) {};
   \node[lab, text=cCand] at (8.45,\y) {$t_\s$};
@@ -292,7 +291,7 @@
 \draw[cStop, line width=0.85pt, fill=white] (10.82,1.88) circle (0.130);
 \draw[cStop, line width=0.85pt] (10.735,1.795) -- (10.905,1.965);
 \node[glo, text=cStop, anchor=west] at (11.00,1.88) {$x_3\in X(s_m,P_m)$};
-\node[glo] at (10.215,1.46) {reference $r_i(x)$ by $G$; admit iff $\Delta_i>0$, Eq.~(5)};
+\node[glo] at (10.215,1.46) {$t_i=(s_i,P_i)$; admit iff $\Delta_i>0$, Eq.~(5)};
 
 % ---- return lanes: both decisions commit observations into the cache -----
 %  Left lane: proposal rollouts update the parent rows of the table.
