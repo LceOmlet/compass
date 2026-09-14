@@ -80,18 +80,18 @@
 
 \begin{tikzpicture}[
   x=1cm, y=1cm, line cap=round, line join=round,
-  font=\sffamily,
-  lab/.style   ={font=\sffamily\fontsize{8}{9.6}\selectfont, text=cInk,
+  font=\rmfamily,
+  lab/.style   ={font=\rmfamily\fontsize{9}{10.5}\selectfont, text=cInk,
                  inner sep=0pt, align=center},
   labw/.style  ={lab, fill=white, inner sep=0.5pt},
-  glo/.style   ={font=\sffamily\fontsize{8}{9.6}\selectfont, text=cMute,
+  glo/.style   ={font=\rmfamily\fontsize{9}{10.5}\selectfont, text=cMute,
                  inner sep=0pt, align=center},
-  ttl/.style   ={font=\sffamily\bfseries\fontsize{8.5}{10}\selectfont,
+  ttl/.style   ={font=\rmfamily\bfseries\fontsize{9.5}{11}\selectfont,
                  text=white, inner sep=0pt, anchor=west},
-  sub/.style   ={font=\sffamily\fontsize{8}{9.6}\selectfont, inner sep=0pt,
+  sub/.style   ={font=\rmfamily\fontsize{9}{10.5}\selectfont, inner sep=0pt,
                  anchor=east},
   badge/.style ={circle, inner sep=0pt, minimum size=0.36cm, fill=white,
-                 text=cGen, font=\sffamily\bfseries\fontsize{8}{8.5}\selectfont},
+                 text=cGen, font=\rmfamily\bfseries\fontsize{9}{10}\selectfont},
   card/.style  ={rounded corners=1.8pt, draw=cLine, line width=0.6pt, fill=white},
   flow/.style  ={-{Latex[length=1.5mm,width=1.1mm]}, draw=cInk, line width=0.7pt},
   gflow/.style ={flow, draw=cGen},
@@ -128,7 +128,7 @@
 
 % ---- wave row: one proposal--admission attempt ---------------------------
 \node[card, minimum width=1.70cm, minimum height=0.50cm, inner sep=0pt] at (1.55,8.32) {};
-\node[lab] at (1.55,8.32) {parent $s$};
+\node[lab] at (1.55,8.32) {Parent $s$};
 \draw[gflow] (2.42,8.32) -- (2.72,8.32);
 \node[glo, text=cGen] at (3.22,8.66) {$P$};
 \node[chipP] at (2.98,8.32) {};
@@ -138,7 +138,7 @@
 \draw[gflow] (3.72,8.32) -- (4.36,8.32);
 \node[card, draw=cCand, fill=cCandT, line width=0.8pt, minimum width=1.75cm,
       minimum height=0.50cm, inner sep=0pt] at (5.28,8.32) {};
-\node[lab] at (5.28,8.32) {child $p$ fixed};
+\node[lab] at (5.28,8.32) {New skill $p$};
 \draw[cflow] (6.18,8.32) -- (6.48,8.32);
 \node[glo, text=cCert] at (6.98,8.66) {$A$};
 \node[chipA] at (6.74,8.32) {};
@@ -148,34 +148,34 @@
 \draw[cflow] (7.48,8.32) -- (8.12,8.32);
 \node[card, draw=cCert, minimum width=2.05cm, minimum height=0.50cm,
       inner sep=0pt] at (9.20,8.32) {};
-\node[lab] at (9.20,8.32) {admit iff $\Delta>0$};
+\node[lab] at (9.20,8.32) {Accept if $\Delta>0$};
 \draw[cflow] (10.24,8.32) -- (10.54,8.32);
 \node[card, draw=cCert, minimum width=1.90cm, minimum height=0.50cm,
       inner sep=0pt] at (11.55,8.32) {};
-\node[lab] at (11.55,8.32) {accepted $p$};
+\node[lab] at (11.55,8.32) {Accepted $p$};
 
 %  provenance notes: P is birth provenance of p (red = provenance exclusion),
 %  A is sampled outside X(s,P).
-\node[glo, text=cStop] at (3.55,7.86) {$P\subseteq X(s,P)$: excluded from $A$};
+\node[glo, text=cStop] at (3.55,7.86) {Do not reuse $P$ in $A$};
 \node[glo, text=cCert] at (7.10,7.86) {$A\cap X(s,P)=\varnothing$};
 
 %  commit lane: the admission observations of the accepted child enter the cache.
 \draw[cCert, lane] (11.55,8.07) -- (11.55,7.58);
 \fill[cCert] (11.55,7.58) circle (0.045);
-\node[glo, text=cCert, anchor=east] at (11.42,7.86) {commit $q_t(p,x)$, $x\in A$};
+\node[glo, text=cCert, anchor=east] at (11.42,7.86) {Store scores};
 \draw[cflow, lane] (13.55,7.58) -- (2.60,7.58) -- (2.60,7.40);
 
 % ---- committed cache: the partial table q_t(u,x) ---------------------------
 \node[card, draw=cCert, line width=0.8pt, anchor=south west,
       minimum width=4.60cm, minimum height=1.90cm, inner sep=0pt] at (0.62,5.48) {};
-\node[lab, text=cCert, anchor=west] at (0.78,7.22) {committed cache $q_t(u,x)$};
+\node[lab, text=cCert, anchor=west] at (0.78,7.22) {Score table $q_t(u,x)$};
 \node[glo, anchor=east] at (1.70,6.92) {$u\backslash x$};
 \foreach \x/\l in {2.16/$x_1$, 2.60/$x_2$, 3.04/$x_3$, 3.48/$x_4$, 3.92/$x_5$, 4.36/$x_6$}{
   \node[glo] at (\x,6.92) {\l};}
 \node[glo] at (4.72,6.90) {$\cdots$};
-\node[lab, anchor=east] at (1.70,6.56) {\textcolor{cMute}{seed} $p_0$};
-\node[lab, anchor=east] at (1.70,6.20) {\textcolor{cMute}{parent} \textcolor{cCand}{$s$}};
-\node[lab, anchor=east] at (1.70,5.84) {\textcolor{cMute}{child} $p$};
+\node[lab, anchor=east] at (1.70,6.56) {\textcolor{cMute}{Seed} $p_0$};
+\node[lab, anchor=east] at (1.70,6.20) {\textcolor{cMute}{Parent} \textcolor{cCand}{$s$}};
+\node[lab, anchor=east] at (1.70,5.84) {\textcolor{cMute}{Child} $p$};
 \foreach \y in {6.56,6.20,5.84}{\node[glo] at (4.72,\y-0.02) {$\cdots$};}
 %  Rows are ONE lineage, read top-down: seed p_0 -> parent s (accepted
 %  descendant of p_0, the current candidate) -> child p (proposed from s and
@@ -197,15 +197,15 @@
   \node[lab, text=\tc] at (\x,5.84) {\v};}
 
 %  legend for the cell grammar (three rows under the table)
-\node[cellObs, swatch] at (0.78,5.28) {};
-\node[glo, anchor=west] at (1.00,5.28) {observed $q_t(u,x)$};
-\node[cell, swatch] at (3.73,5.28) {};
-\node[lab, text=cMute] at (3.73,5.28) {--};
-\node[glo, anchor=west] at (3.95,5.28) {missing};
-\node[cellBad, swatch] at (0.78,5.04) {};
-\node[glo, anchor=west, text=cStop] at (1.00,5.04) {$x\in\mathcal B_u$: never credited to $u$};
-\node[cellElig, swatch] at (0.78,4.80) {};
-\node[glo, anchor=west, text=cCand] at (1.00,4.80) {$\Omega_t(s)$: legal for candidate $s$};
+\node[cellObs, swatch] at (0.78,5.27) {};
+\node[glo, anchor=west] at (1.00,5.27) {Recorded score};
+\node[cell, swatch] at (3.73,5.27) {};
+\node[lab, text=cMute] at (3.73,5.27) {--};
+\node[glo, anchor=west] at (3.95,5.27) {Not scored};
+\node[cellBad, swatch] at (0.78,4.98) {};
+\node[glo, anchor=west, text=cStop] at (1.00,4.98) {Excluded from credit};
+\node[cellElig, swatch] at (0.78,4.69) {};
+\node[glo, anchor=west, text=cCand] at (1.00,4.69) {Eligible for credit};
 
 % ---- credit chain: Omega_t(s) -> r_sx -> G_s ------------------------------
 %  Three steps, one style, one reading path: each box has a short title line
@@ -214,22 +214,22 @@
 %  and the arithmetic stays in Sec. 3.1.  The final step is filled amber
 %  because it is the quantity that leaves this region.
 \draw[aflow] (5.22,6.20) -- (5.44,6.20) -- (5.44,7.05) -- (5.66,7.05);
-\node[cstep, minimum height=0.62cm] at (9.10,7.05) {};
-\node[lab] at (9.10,7.17) {legal evidence $\Omega_t(s)$};
-\node[glo] at (9.10,6.92) {observed cells of row $s$ with $x\notin\mathcal B_s$};
-\draw[aflow] (9.10,6.74) -- (9.10,6.52);
-\node[cstep, minimum height=0.62cm] at (9.10,6.21) {};
-\node[lab] at (9.10,6.33) {same-instance contrast $r_{sx}$};
-\node[glo] at (9.10,6.08) {[$s$ reaches frontier] $-$ legal peers' frontier share};
-\draw[aflow] (9.10,5.90) -- (9.10,5.28);
+\node[cstep, minimum height=0.70cm] at (9.10,7.05) {};
+\node[lab] at (9.10,7.20) {Filter scores $\Omega_t(s)$};
+\node[glo] at (9.10,6.90) {Keep scored examples outside the proposal history};
+\draw[aflow] (9.10,6.70) -- (9.10,6.56);
+\node[cstep, minimum height=0.70cm] at (9.10,6.21) {};
+\node[lab] at (9.10,6.36) {Compare skills on each example};
+\node[glo] at (9.10,6.06) {Compute per-instance credit $r_{sx}$};
+\draw[aflow] (9.10,5.86) -- (9.10,5.32);
 \node[rounded corners=0.26cm, draw=cCand, fill=cCandT, line width=1.0pt,
-      minimum width=6.88cm, minimum height=0.62cm, inner sep=0pt]
+      minimum width=6.88cm, minimum height=0.70cm, inner sep=0pt]
       at (9.10,4.97) {};
-\node[lab] at (9.10,5.09) {candidate routing credit $G_s$, Eq.~(2)};
-\node[glo] at (9.10,4.84) {mean of $r_{sx}$ over comparable legal $x$};
+\node[lab] at (9.10,5.12) {Relative credit $G_s$};
+\node[glo] at (9.10,4.82) {Average over comparable examples, Eq.~(2)};
 
 % ---- fork to the two credit-aware workload decisions ---------------------
-\draw[cCand, line width=0.7pt] (9.10,4.66) -- (9.10,4.44);
+\draw[cCand, line width=0.7pt] (9.10,4.62) -- (9.10,4.44);
 \draw[aflow] (9.10,4.44) -- (3.755,4.44) -- (3.755,4.26);
 \draw[aflow] (9.10,4.44) -- (10.215,4.44) -- (10.215,4.26);
 
@@ -238,10 +238,10 @@
 \fill[cGen, rounded corners=1.8pt] (0.615,3.84) rectangle (6.895,4.26);
 \fill[cGen] (0.615,3.84) rectangle (6.895,4.06);
 \node[badge] at (0.955,4.05) {1};
-\node[ttl] at (1.225,4.05) {Proposal workload};
-\node[sub, text=cGenT] at (6.745,4.05) {slot $\to$ minibatch};
-\node[glo, text=cGen] at (3.755,3.58) {$G$: choose parents, then draw cyclic slots $z_i$};
-\node[glo, text=cGen] at (3.755,3.30) {$H$: exact one-to-one matching, Eq.~(4)};
+\node[ttl] at (1.225,4.05) {Generate skills};
+\node[sub, text=cGenT] at (6.745,4.05) {Slot $\to$ batch};
+\node[glo, text=cGen] at (3.755,3.58) {Select parents by $G_s$, in turn};
+\node[glo, text=cGen] at (3.755,3.30) {Match slots to batches ($H$), Eq.~(4)};
 \foreach \y/\s/\j in {2.88/0/2, 2.46/1/0}{
   \node[slot, minimum width=0.90cm] at (2.10,\y) {};
   \node[lab, text=cCand] at (2.10,\y) {$z_\s$};
@@ -257,7 +257,7 @@
 \draw[gflow] (2.64,1.82) -- (3.40,1.82);
 \node[chipBatch] at (3.75,1.82) {};
 \node[lab, text=white] at (3.75,1.82) {$P_j$};
-\node[glo] at (3.755,1.46) {no minibatch is assigned twice};
+\node[glo] at (3.755,1.46) {Assign each batch once};
 
 % ---- panel 2: admission workload ----------------------------------------
 %  G chooses per-instance references.  Every task samples its own legal batch;
@@ -266,10 +266,10 @@
 \fill[cCert, rounded corners=1.8pt] (7.075,3.84) rectangle (13.355,4.26);
 \fill[cCert] (7.075,3.84) rectangle (13.355,4.06);
 \node[badge, text=cCert] at (7.415,4.05) {2};
-\node[ttl] at (7.685,4.05) {Admission workload};
-\node[sub, text=cCertT] at (13.205,4.05) {task $\to$ legal batch};
-\node[glo] at (10.215,3.56) {references by $G$; independently sampled $A_i$};
-\node[glo] at (10.215,3.14) {$A_i\cap X(s_i,P_i)=\varnothing$; $X$ defined in Eq.~(1)};
+\node[ttl] at (7.685,4.05) {Evaluate skills};
+\node[sub, text=cCertT] at (13.205,4.05) {Task $\to$ batch};
+\node[glo] at (10.215,3.56) {Sample $A_i$; select references by $G_s$};
+\node[glo] at (10.215,3.14) {Exclude proposal history, Eq.~(1)};
 \foreach \y/\s/\a/\b in {2.72/1/5/6, 2.30/2/8/9}{
   \node[slot] at (8.45,\y) {};
   \node[lab, text=cCand] at (8.45,\y) {$t_\s$};
@@ -280,7 +280,7 @@
   \node[lab, text=cCert] at (10.38,\y) {$x_\b$};
   \node[lab, text=cCert] at (10.78,\y-0.02) {$\cdots$};
   \draw[cGen, line width=0.9pt] (11.05,\y-0.02) -- (11.18,\y-0.13) -- (11.43,\y+0.13);
-  \node[glo, text=cGen, anchor=west] at (11.55,\y) {legal $A_\s$};}
+  \node[glo, text=cGen, anchor=west] at (11.55,\y) {Use $A_\s$};}
 \node[slot] at (8.45,1.88) {};
 \node[lab, text=cCand] at (8.45,1.88) {$t_m$};
 \draw[stop] (8.88,1.88) -- (9.58,1.88);
@@ -290,29 +290,29 @@
 \node[lab, text=cStop] at (10.38,1.88) {$x_3$};
 \draw[cStop, line width=0.85pt, fill=white] (10.82,1.88) circle (0.130);
 \draw[cStop, line width=0.85pt] (10.735,1.795) -- (10.905,1.965);
-\node[glo, text=cStop, anchor=west] at (11.00,1.88) {$x_3\in X(s_m,P_m)$};
-\node[glo] at (10.215,1.46) {$t_i=(s_i,P_i)$; admit iff $\Delta_i>0$, Eq.~(5)};
+\node[glo, text=cStop, anchor=west] at (11.10,1.88) {Excluded};
+\node[glo] at (10.215,1.46) {$t_i=(s_i,P_i)$; accept if $\Delta_i>0$, Eq.~(5)};
 
 % ---- return lanes: both decisions commit observations into the cache -----
 %  Left lane: proposal rollouts update the parent rows of the table.
 \draw[cGen, lane] (3.755,1.26) -- (3.755,0.98) -- (0.30,0.98);
 \draw[gflow, lane] (0.30,0.98) -- (0.30,6.20) -- (0.62,6.20);
 \node[glo, text=cGen, rotate=90] at (0.12,3.40)
-  {proposal rollouts: commit $q_t(z_i,x)$, $x\in P_j$};
+  {Store parent scores};
 %  Right lane: an admitted child joins the table through the top commit lane.
 \draw[cCert, lane] (10.215,1.26) -- (10.215,0.98) -- (13.55,0.98) -- (13.55,7.58);
 \node[glo, text=cCert, rotate=90] at (13.77,3.40)
-  {admitted child: commit $q_t(p_i,x)$, $x\in A_i$};
+  {Store accepted skill scores};
 
 % ---- the credit path ends at the terminal program ------------------------
 \draw[aflow] (6.985,4.44) -- (6.985,0.78);
 \node[card, draw=cCand, fill=cCandT, line width=0.8pt, minimum width=4.40cm,
       minimum height=0.44cm, inner sep=0pt] at (6.985,0.56) {};
-\node[lab] at (6.985,0.56) {terminal program $\arg\max_s G_s$};
+\node[lab] at (6.985,0.56) {Return skill with largest $G_s$};
 \draw[cLine, line width=0.6pt, dash pattern=on 1.2mm off 0.9mm]
       (0.55,0.56) -- (4.60,0.56);
 \draw[cLine, line width=0.6pt, dash pattern=on 1.2mm off 0.9mm]
       (9.37,0.56) -- (13.42,0.56);
-\node[glo, text=cCand, anchor=east] at (4.60,0.28) {budget boundary};
+\node[glo, text=cCand, anchor=east] at (4.60,0.28) {Budget reached};
 \end{tikzpicture}
 \endgroup

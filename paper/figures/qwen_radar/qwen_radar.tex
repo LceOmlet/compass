@@ -2,10 +2,10 @@
 % Axis order: HotPotQA, IFBench, HoVer, PUPA, AIME-2025, LiveBench-Math.
 % Each spoke has an explicitly labeled linear score range (center to rim).
 % Axis-local zoom changes geometry only; the 36 raw scores are unchanged.
-% Native-size vector graphic: 65.5 mm wide; all text is at least 8 pt.
+% Native-size vector graphic: 67 mm wide; labels are 8.5 pt before inclusion.
 \documentclass[tikz,border=0pt]{standalone}
 \usepackage[T1]{fontenc}
-\usepackage{times}
+\usepackage{newtxtext,newtxmath}
 \usetikzlibrary{plotmarks}
 
 \definecolor{seed}{HTML}{7D858C}
@@ -31,13 +31,13 @@
     line width=0.7pt, mark=x, mark size=1.5pt, mark options={solid}},
   compass/.style={draw=compass, line width=1.25pt, mark=*,
     mark size=1.6pt, mark options={solid, fill=compass}},
-  label/.style={font=\fontsize{8}{8.6}\selectfont, text=ink, inner sep=1pt},
-  axisrange/.style={font=\fontsize{8}{8.6}\selectfont, text=seed, inner sep=1pt},
+  label/.style={font=\rmfamily\fontsize{8.5}{9.2}\selectfont, text=ink, inner sep=1pt},
+  axisrange/.style={font=\rmfamily\fontsize{8.5}{9.2}\selectfont, text=seed, inner sep=1pt},
 }
 
 % Ranges include every method, with margin on both ends.
 \def\axismin{{40,25,30,75,15,40}}
-\def\axismax{{70,45,60,95,60,70}}
+\def\axismax{{70,45,60,95,75,80}}
 \newcommand{\radardata}[2]{%
   \foreach \value [count=\i] in {#2}{%
     \pgfmathsetmacro{\angle}{90-60*(\i-1)}%
@@ -63,7 +63,7 @@
 
 \begin{document}
 \begin{tikzpicture}[line cap=round, line join=round]
-\path[use as bounding box] (-3.275,-3.05) rectangle (3.275,2.85);
+\path[use as bounding box] (-3.35,-3.05) rectangle (3.35,3.00);
 \begin{scope}[yshift=0.50cm]
   \foreach \level in {25,50,75,100}{
     \pgfmathsetmacro{\r}{1.78*\level/100}
@@ -79,7 +79,7 @@
   \radardata{mipro}{55.33,36.22,47.33,81.55,20.00,46.60}
   \radardata{gepa}{62.33,38.61,52.33,91.85,32.00,51.95}
   \radardata{merge}{64.33,28.23,51.67,86.26,32.00,51.95}
-  \radardata{compass}{64.67,43.37,54.00,86.91,57.33,66.67}
+  \radardata{compass}{67.00,43.37,54.00,93.04,68.67,73.96}
 
   \path[fill=compass,fill opacity=0.075]
     (compass-1)--(compass-2)--(compass-3)--(compass-4)--(compass-5)--(compass-6)--cycle;
@@ -95,9 +95,9 @@
   \node[label,anchor=north] at (0,-1.91) {PUPA};
   \node[axisrange,anchor=north] at (0,-2.21) {75--95};
   \node[label,anchor=east] at (-1.76,-0.85) {AIME-2025};
-  \node[axisrange,anchor=east] at (-1.76,-1.16) {15--60};
+  \node[axisrange,anchor=east] at (-1.76,-1.16) {15--75};
   \node[label,anchor=east,align=right] at (-1.76,1.21) {LiveBench-\\Math};
-  \node[axisrange,anchor=east] at (-1.76,0.76) {40--70};
+  \node[axisrange,anchor=east] at (-1.76,0.76) {40--80};
 \end{scope}
 
 \legendentry{seed}{-2.90}{-2.06}{Seed}

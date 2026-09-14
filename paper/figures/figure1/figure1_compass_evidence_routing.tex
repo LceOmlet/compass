@@ -9,18 +9,12 @@
 %                 figure1_compass_evidence_routing
 \documentclass[tikz,border=0pt]{standalone}
 \usepackage[T1]{fontenc}
-\usepackage{times}
-\usepackage{amsmath,amssymb}
+\usepackage{amsmath}
+\usepackage{newtxtext,newtxmath}
 \usepackage{xcolor}
 \usetikzlibrary{arrows.meta,positioning,fit,calc,decorations.pathreplacing,patterns}
 
-% Publication floor: no visible run below 8pt at 1:1 inclusion.  Pin the math
-% script/scriptscript sizes for every text size the figure uses so subscripts
-% and superscripts cannot fall under the floor.
-\DeclareMathSizes{8}{8}{8}{8}
-\DeclareMathSizes{9}{9}{8}{8}
-\DeclareMathSizes{10}{10}{8}{8}
-\DeclareMathSizes{12}{12}{9}{9}
+% Times-family text and matching mathematics; use natural script sizes.
 
 \begin{document}
 \input{figure1_compass_evidence_routing_body.tex}
