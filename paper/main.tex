@@ -53,8 +53,10 @@
 
 \begin{abstract}
 Textual-program optimization must balance proposing and evaluating candidates
-under a fixed rollout budget.  We introduce \method{}, which turns accumulated
-evaluation results into relative credit to guide subsequent proposals.  On each
+under a fixed rollout budget.  Candidates are evaluated on different subsets
+of instances, leaving an uneven record for deciding which candidates to revise
+next.  We introduce \method{}, which turns accumulated evaluation results into
+relative credit to guide subsequent proposals.  On each
 shared instance, attaining the highest observed score earns more credit when a
 smaller fraction of the other candidates attain it.  \method{} averages these
 per-instance credits to select candidates for further revision and updates the
@@ -64,7 +66,9 @@ on each instance.  Each new candidate is evaluated on instances that were not
 used to generate it or its ancestors.  Across six benchmarks, \method{}
 achieves the highest average score among the compared methods for both
 Qwen3-8B and GPT-5.4-nano.  On Qwen3-8B, it improves over GEPA by $11.8$
-percentage points on average and $36.7$ points on AIME-2025.
+percentage points on average and $36.7$ points on AIME-2025.  Ablations on
+Qwen3-8B show that both relative credit and matching improve the average score
+across the six benchmarks.
 \end{abstract}
 
 \section{Introduction}
