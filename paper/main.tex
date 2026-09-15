@@ -52,25 +52,19 @@
 \maketitle
 
 \begin{abstract}
-Textual-program optimizers use execution traces to revise prompts,
-instructions, and agent skills, which we collectively call textual programs.
-A fixed rollout budget must support both
-candidate revision and the choice of where to search next.  \method{} uses
-execution results to choose which candidates to revise and which batches to
-use for those revisions.  It compares
-candidates on shared instances and updates their relative credit as new results
-arrive.  It selects the highest-credit candidates for revision and assigns
-their proposal batches by maximum-weight matching using recorded score gaps.
-The method tracks
-the examples used to create each candidate and its ancestors.  Each fixed
-revision is evaluated on a separately sampled batch outside that history.
-Proposal generation and admission evaluation share the rollout budget.
-Qwen3-8B held-out evaluations span mathematical reasoning
-(e.g., AIME-2025), instruction following (IFBench), multi-hop question answering
-and fact verification (HotPotQA and HoVer), and privacy-conscious delegation
-(PUPA).  Relative to
-published GEPA, the largest gain is $36.7$ percentage points on AIME-2025, and
-the mean gain across all six shared benchmarks is $11.8$ points.
+Textual-program optimization must balance proposing and evaluating candidates
+under a fixed rollout budget.  We introduce \method{}, which turns accumulated
+evaluation results into relative credit to guide subsequent proposals.  On each
+shared instance, attaining the highest observed score earns more credit when a
+smaller fraction of the other candidates attain it.  \method{} averages these
+per-instance credits to select candidates for further revision and updates the
+credits as new results arrive.  For revision, it assigns batches of instances
+using the selected candidates' score gaps to the best score recorded among them
+on each instance.  Each new candidate is evaluated on instances that were not
+used to generate it or its ancestors.  Across six benchmarks, \method{}
+achieves the highest average score among the compared methods for both
+Qwen3-8B and GPT-5.4-nano.  On Qwen3-8B, it improves over the published results
+for GEPA by $11.8$ percentage points on average and $36.7$ points on AIME-2025.
 \end{abstract}
 
 \section{Introduction}
