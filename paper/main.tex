@@ -59,9 +59,9 @@ candidate revision and the choice of where to search next.  \method{} uses
 execution results to choose which candidates to revise and which batches to
 use for those revisions.  It compares
 candidates on shared instances and updates their relative credit as new results
-arrive.  A round-robin queue gives the highest-credit candidates repeated
-proposal opportunities, and maximum-weight matching assigns their proposal
-slots to batches using their recorded score gaps.  The method tracks
+arrive.  It selects the highest-credit candidates for revision and assigns
+their proposal batches by maximum-weight matching using recorded score gaps.
+The method tracks
 the examples used to create each candidate and its ancestors.  Each fixed
 revision is evaluated on a separately sampled batch outside that history.
 Proposal generation and admission evaluation share the rollout budget.
@@ -123,8 +123,8 @@ need batches matched to each parent's recorded score gaps.
 \textbf{P}roposal and \textbf{A}dmission for \textbf{S}kill \textbf{S}earch)
 links these decisions.  Recursive exclusion separates proposal and admission
 examples throughout the lineage.  Relative credit updates candidate rankings
-as instance frontiers change.  Round-robin selection allocates proposal turns
-to the highest-credit candidates, including cutoff ties.  Maximum-weight
+as instance frontiers change.  COMPASS selects the highest-credit candidates
+for revision, including cutoff ties.  Maximum-weight
 matching assigns batches to their proposal slots, each representing one
 revision attempt; each fixed child receives a
 separately sampled legal admission batch.  Figure~\ref{fig:overview} follows
@@ -159,8 +159,8 @@ This paper makes four contributions:
   credit and updates that credit when new results arrive
   (\Cref{sec:global_credit,sec:lineage_compression}).
 
-  \item Round-robin parent selection and maximum-weight matching allocate
-  proposal work using recorded score gaps; paired admission evaluates
+  \item Relative credit selects proposal parents, and maximum-weight matching
+  assigns their batches using recorded score gaps.  Paired admission evaluates
   each resulting revision (\Cref{sec:proposal_allocation}).
 
   \item Evaluations under fixed published budgets cover two models and six
@@ -320,9 +320,10 @@ programs at a boundary tie, and a parent and its descendant may remain active
 simultaneously.  If no candidate has defined credit, COMPASS falls back to the
 seed.
 
-COMPASS selects proposal parents by round-robin traversal of the active set.
-The set is ordered by decreasing $G_s$, with earlier candidate index breaking
-exact ties, and the cursor is carried across waves.  For a fixed order
+Proposal parents are taken in order from the active set, sorted by decreasing
+$G_s$ with earlier candidate index breaking exact ties.  Selection continues
+from the saved position across waves, returning to the start after the last
+candidate.  For a fixed order
 $(a,b,c)$ and wave width $w=2$, successive waves draw $(a,b)$, $(c,a)$, and
 $(b,c)$.  In general, each of the $w\in\mathbb N_+$ slots denotes one proposal
 attempt, with $z_i$ its parent.  When $|\A_t|<w$, a parent can receive multiple
@@ -694,9 +695,9 @@ the selected program.
 COMPASS uses execution results to decide which candidates to develop and which
 batches they should work on.  Proposal history determines the eligible
 comparisons, and new results update the relative credit of candidates already
-in the pool.  Round-robin selection and maximum-weight matching direct the next
-proposal wave; paired admission evaluates the resulting revisions on separate
-examples.  Under the reported budgets, COMPASS achieves the highest six-task
+in the pool.  Relative credit selects proposal parents, and maximum-weight
+matching assigns their batches.  Paired admission evaluates the resulting
+revisions on separate examples.  Under the reported budgets, COMPASS achieves the highest six-task
 aggregate for both Qwen3-8B and GPT-5.4-nano, and leads on all six Qwen3-8B tasks.
 
 \bibliography{references,style/iclr2026_conference}
@@ -798,7 +799,7 @@ aggregate in \Cref{eq:admission_gate} is positive.
 \State Recompute every defined $G_s$ from the committed cache
 \State $\A_t \gets$ tie-inclusive Top-$\rho$ candidates, sorted by $G_s$ and candidate index
 \State If $\A_t=\varnothing$, set $\A_t\gets\{0\}$ \Comment{Seed fallback}
-\State $(z_i)_{i\in\mathcal I_w} \gets \Call{CyclicSlots}{\A_t,w}$
+\State $(z_i)_{i\in\mathcal I_w} \gets \text{next $w$ parents from $\A_t$, continuing from the saved position}$
 \State Draw $(P_j)_{j\in\mathcal I_w}$ and form $M_{ij}\gets H(z_i,P_j)$
 \State $Y^\star \gets \Call{MaxWeightAssignment}{M}$
 \ForAll{assigned parent--proposal pairs $(s_i,P_i)$ \textbf{in parallel}}
@@ -829,8 +830,8 @@ and actual calls.  Request-level retries add no logical task result.
 \label{app:proofs}
 
 We prove the exclusion and paired-concentration properties of admission,
-instance-wise credit conservation, finite-pool selection bounds, cyclic
-slot coverage, and optimality of the proposal assignment.
+instance-wise credit conservation, finite-pool selection bounds, coverage of
+the active set, and optimality of the proposal assignment.
 
 \subsection{Why proposal and admission evidence are separate}
 
@@ -1037,13 +1038,13 @@ their rankings and ties coincide and $\xi_G=0$.
 
 \subsection{Structural properties of the router}
 
-\begin{proposition}[Cyclic slot coverage]
+\begin{proposition}[Proposal turns for a fixed active set]
 For a fixed ordered active set of size $m$, every block of $m$ consecutive
 queue draws contains each active candidate exactly once, including when a
 width-$w$ wave wraps around the queue.
 \end{proposition}
 
-\begin{proof}[Proof of cyclic slot coverage]
+\begin{proof}
 Index the fixed active order by $0,\ldots,m-1$ and let the persistent cursor
 be $c$.  Consecutive draws are $(c+r)\bmod m$.  For
 $r=0,\ldots,m-1$, these residues are pairwise distinct and cover every index.
