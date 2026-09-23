@@ -29,48 +29,45 @@ labeled center-to-rim ranges (Table~\ref{tab:qwen_results}).}
 \label{fig:qwen_radar}
 \end{wrapfigure}
 
-Feedback-driven optimizers revise instructions, prompts, and agent skills from
-execution traces.  Reflection, textual gradients, and evolutionary prompt
-search use language feedback to produce large behavioral updates with fixed
-model weights \citep{reflexion,self_refine,textgrad,
-cheng2024traceautodiffgenerativeoptimization,gepa}.  Given a seed program, a
-benchmark evaluator, and rollout budget $B$, an optimizer generates and
-evaluates candidates, then returns one program.  Rollouts provide traces for
-proposing revisions and scores for comparing candidates.  Admission uses
-a separate batch to decide whether a fixed revision enters the candidate pool.
-For example, three instruction-following cases may expose a constraint-ordering
-error and guide a new rule.  The rule is then evaluated on other cases.
+Recent work has shown that textual-program optimization can outperform
+reinforcement learning with substantially fewer rollouts while keeping model
+weights fixed \citep{gepa}.  This offers an efficient way to adapt language
+models when task executions are expensive.  Evaluation cost has motivated
+methods for selecting candidates under fixed budgets and for improving
+performance per evaluation \citep{triple,kang2026textbo}.
+The goal is to maximize the expected benchmark utility of the final program
+under a limited rollout budget shared by candidate generation and evaluation.
 
-Each proposal-and-evaluation attempt spends rollout budget on traces and
-admission scores.
-An observation can also contribute to later candidate comparisons and proposal
-decisions.  Tracking which examples shaped each candidate determines how that
-observation can be reused along the lineage.
-
-The central question is how to use a growing, uneven record of execution
-results to choose which candidates to revise and which batches to use next.
-We call this \emph{provenance-constrained evidence routing}.  Proposal history
-determines which observations can evaluate a candidate, and the recorded
-results guide the next search decisions.  The aim is to maximize the final
-program's expected benchmark utility under the available rollout budget.
-
-This requires three linked decisions.  First, a candidate's proposal history
-must follow its descendants when choosing admission examples.  Second, scores
-collected on different subsets need to be compared on shared instances.  The
-\emph{frontier} on an instance consists of its highest-scoring eligible
-candidates and changes as results arrive.  Third, concurrent proposal attempts
-need batches matched to each parent's recorded score gaps.
+Evaluating candidates more extensively leaves fewer rollouts for proposing new
+ones.  The challenge is to use limited evaluations both to judge candidates and
+to guide further proposals.  Rollouts provide traces for proposing revisions
+\citep{cheng2024traceautodiffgenerativeoptimization} and scores for comparing
+candidates.  The recorded scores can guide which candidates to revise and which
+instances to use without additional evaluations for these decisions.
+Comparisons on shared instances show where a candidate outperforms its peers or
+falls behind.  New results can change these comparisons even when earlier
+scores remain fixed.
 
 \method{} (\textbf{C}redit-Aware \textbf{O}ptimization with \textbf{M}ini-batch
 \textbf{P}roposal and \textbf{A}dmission for \textbf{S}kill \textbf{S}earch)
-links these decisions.  Recursive exclusion separates proposal and admission
-examples throughout the lineage.  Relative credit updates candidate rankings
-as instance frontiers change.  COMPASS selects the highest-credit candidates
-for revision, including cutoff ties.  Maximum-weight
-matching assigns batches to their proposal slots, each representing one
- revision attempt. Each fixed child receives a
-separately sampled legal admission batch.  Figure~\ref{fig:overview} follows
-this process from candidate generation to final selection.
+selects the candidates with the highest relative credit for further revision.
+On each shared instance, attaining the highest score earns more per-instance
+credit when a smaller fraction of the other candidates attain it.  COMPASS
+averages these per-instance credits and updates relative credit as new results
+arrive.  Proposal matching assigns batches that address each selected
+candidate's weaknesses, using recorded score gaps between candidates on the
+same instances.  Several candidates may favor the same batch, so the batches
+are assigned jointly by maximum-weight matching.
+
+\begin{samepage}
+Each proposed candidate is evaluated on a separate admission batch to decide
+whether it enters the candidate pool.  This batch excludes the instances used
+to generate the candidate or its ancestors, because the candidate can inherit
+changes made using those instances.  Accepted candidates join the pool, and
+their admission results inform subsequent comparisons and proposal matching.
+Figure~\ref{fig:overview} follows this process from candidate generation to
+final selection.
+\end{samepage}
 
 \begin{figure}[t]
 \centering
@@ -85,47 +82,49 @@ lineage-excluded observations.}
 \label{fig:overview}
 \end{figure}
 
-Completed benchmark evaluations span model families and task types.  On
-Qwen3-8B, the programs selected by COMPASS for each task reach $63.33\%$ on AIME-2025,
+We evaluate COMPASS on six benchmarks with Qwen3-8B and GPT-5.4-nano.  COMPASS
+achieves the highest six-task aggregate among the compared methods for both
+models.  On Qwen3-8B, the programs selected by COMPASS for each task reach $63.33\%$ on AIME-2025,
 $43.37\%$ on IFBench, $73.96\%$ on LiveBench-Math, and $54.67\%$ on HoVer.
-These scores exceed published GEPA by $31.33$, $4.76$, $22.01$, and $2.34$
-percentage points, respectively.
+These scores exceed GEPA by $31.33$, $4.76$, $22.01$, and $2.34$
+percentage points, respectively.  Qwen3-8B ablations show that relative credit
+and proposal matching both improve the six-task aggregate.
 
-This paper makes four contributions.
+This paper makes three contributions.
 \begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=3pt]
-  \item \emph{Provenance-constrained evidence routing} formulates fixed-budget
-  search and final selection with proposal history tracked throughout each
-  lineage (\Cref{sec:setting}).
+  \item We introduce \method{} for textual-program optimization under a fixed
+  rollout budget.  It combines relative credit for candidate selection,
+  maximum-weight proposal matching, and paired admission outside each
+  candidate's proposal history.
 
-  \item \method{} converts eligible same-instance comparisons into relative
-  credit and updates that credit when new results arrive
-  (\Cref{sec:global_credit,sec:lineage_compression}).
+  \item We analyze paired admission and characterize when relative credit
+  preserves sample-mean rankings.  We also derive a finite-pool regret bound
+  for candidates selected by relative credit.
 
-  \item Relative credit selects proposal parents, and maximum-weight matching
-  assigns their batches using recorded score gaps.  Paired admission evaluates
-  each resulting revision (\Cref{sec:proposal_allocation}).
-
-  \item Evaluations under fixed published budgets cover two models and six
-  tasks.  COMPASS has the highest six-task aggregate in both model comparisons
-  (\Cref{sec:experiments}).
+  \item Across six benchmarks, \method{} achieves the highest aggregate for both
+  Qwen3-8B and GPT-5.4-nano.  Ablations on Qwen3-8B show aggregate gains from
+  both relative credit and proposal matching.
 \end{enumerate}
 
-\section{Provenance-Constrained Evidence Routing}
+\newpage
+\section{Problem formulation}
 \label{sec:setting}
 
 \subsection{Budgeted textual-program optimization}
 
 Given a seed textual program $p_0$, a benchmark evaluator, and a rollout
-budget $B$, a complete run $\pi$ specifies the proposal and admission decisions
-made within that budget.  Each attempt in the run uses a proposal batch $P$ of
+budget $B$, COMPASS generates and evaluates candidates, then returns one final
+program.  Each attempt uses a proposal batch $P$ of
 $b_P$ instances to generate a candidate and a separate admission batch $A$ of
 $b_A$ instances to evaluate it.  Proposal generation and admission evaluation
-share the rollout budget.  COMPASS starts a new wave while the cumulative
+share the rollout budget.  Proposal attempts are grouped into waves.
+COMPASS starts a new wave while the cumulative
 proposal and evaluation cost remains below $B$, then completes that wave before
-stopping.  Every generated child is evaluated on $b_A$ admission instances.
+stopping.
 
-Let $\Pi(B,b_P,b_A)$ be the set of complete runs with proposal batch size
-$b_P$, admission batch size $b_A$, and budget $B$.  Let
+Let $\pi$ denote a complete run of proposal and admission decisions, and let
+$\Pi(B,b_P,b_A)$ contain such runs with budget $B$ and batch sizes $b_P$ and
+$b_A$.  Let
 $p_{\mathrm{out}}(\pi)$ denote the final program returned by run $\pi$.
 Let $R(p)$ denote the expected benchmark utility of program $p$, and let
 $R^\star$ denote the best utility reachable under the search model.  The
@@ -137,102 +136,83 @@ budgeted optimization problem is
 R^\star-R\!\left(p_{\mathrm{out}}(\pi)\right)
 \right].
 \]
-
-At optimization step $t$, let $\Pcal_t=\{p_0,\ldots,p_{m_t-1}\}$ contain the
-accepted textual programs.  Every candidate after $p_0$ records a parent,
-inducing a directed acyclic lineage.  The \emph{benchmark evaluator} runs each
-program using the benchmark's official data, execution procedure, scoring
-metric, and aggregation rule.
-Executing program $p_s$ on optimization instance $x$ yields a bounded reward in
-$[0,1]$, an output, and an execution trace.  The committed cache is a partial
-table $q_t(s,x)$ containing the highest valid, finite score observed for each
-evaluated pair, with unevaluated pairs represented by missing entries.  A new
-observation replaces an existing score and its associated output only when its
-score is strictly higher.  Thus each candidate--instance pair retains one
-record.  Let
-$P_a^{\mathrm{birth}}$ be the proposal batch that created candidate $a$, with
-$P_0^{\mathrm{birth}}=\varnothing$, and let $\operatorname{Anc}(s)$ contain the
-transitive ancestors of $s$.  The proposal history of candidate $s$ is
-\[
-\mathcal B_s=\bigcup_{a\in\operatorname{Anc}(s)\cup\{s\}}
-P_a^{\mathrm{birth}}
-\]
-The credit-eligible evidence set is
-$\Omega_t(s)=\{x\mid q_t(s,x)\text{ exists and }x\notin\mathcal B_s\}$.
-Relative credit for candidate $s$ therefore draws exclusively from observations
-outside the batches that shaped its lineage.
-
-The benchmark evaluator supplies the optimization observations stored in the cache and,
-after selection, an independent frozen test.
+After selection, the returned program is evaluated on an independent frozen
+test.
 
 \subsection{Separating proposal and admission evidence}
 
-For a child proposed from parent $s$ on batch $P$, its proposal history combines
-$\mathcal B_s$ with the current batch.
+Admission excludes the proposal batches used to generate a candidate or its
+ancestors, because the candidate can inherit changes made using those batches.
+
+Each accepted candidate after $p_0$ records its parent and proposal batch.  Let
+$P_a^{\mathrm{birth}}$ be the proposal batch that created candidate $a$, with
+$P_0^{\mathrm{birth}}=\varnothing$, and let $\operatorname{Anc}(s)$ contain all
+ancestors of $s$.  The proposal history of candidate $s$ is
+\[
+\mathcal B_s=\bigcup_{a\in\operatorname{Anc}(s)\cup\{s\}}
+P_a^{\mathrm{birth}}.
+\]
+A child proposed from parent $s$ on batch $P$ inherits $\mathcal B_s$ and adds
+$P$, giving
 \begin{equation}
-X(s,P)=P\cup
-\bigcup_{a\in\operatorname{Anc}(s)\cup\{s\}}P_a^{\mathrm{birth}}
+X(s,P)=\mathcal B_s\cup P.
 \label{eq:recursive_exclusion}
 \end{equation}
-A legal admission batch satisfies $A\cap X(s,P)=\varnothing$.  For example,
-suppose the three diagnostic cases help produce $p_1$ from $p_0$, and $p_2$ is
-later revised from $p_1$ using another batch.  The original cases remain in
-$p_2$'s inherited proposal history.  Admission for both $p_1$ and $p_2$ therefore
-draws outside the history that shaped each candidate, while the proposal traces
-remain available for diagnosis.
+Its admission batch satisfies $A\cap X(s,P)=\varnothing$.  If accepted, the
+child records $X(s,P)$ as its proposal history.
 
-\subsection{Choosing the next search actions}
+\subsection{Reusing execution results}
 
-Let $\mathcal H_t$ contain the lineage, proposal batches, committed cache,
-remaining budget, and persistent routing state.  A routing action
-$a_t=(\A_t,\mathbf z_t,Y_t)$ chooses active candidates, proposal parents,
-and a one-to-one assignment of their proposal slots to batches.
-Relative credit selects candidates, and matching assigns batches using their
-recorded score gaps.  Each fixed child receives a separately sampled admission
-batch outside its proposal history.  The frozen benchmark test is reserved for
-final evaluation.
+COMPASS uses earlier execution results to select proposal parents and assign
+proposal batches.  Executing program $p_s$ on an optimization instance $x$
+yields a score in $[0,1]$, an output, and an execution trace.  At step $t$, the
+cache retains one record for each observed
+candidate--instance pair.  The score $q_t(s,x)$ is the highest valid, finite
+score observed for that pair, and unevaluated pairs remain missing.
 
-A feasible COMPASS run enforces this exclusion, the wave-level stopping rule,
-one cached record per candidate--instance pair, and a separate final test.  The
-best such run minimizes expected simple regret for the returned program.
+Relative credit also uses only observations outside a candidate's proposal
+history.  The instances with eligible observations form the set
+\[
+\Omega_t(s)=\{x\mid q_t(s,x)\text{ exists and }x\notin\mathcal B_s\}.
+\]
+Relative credit guides parent selection.  Proposal matching uses cached scores,
+including those on instances in a parent's proposal history, to identify where
+that parent falls behind other candidates.
 
+\newpage
 \section{Candidate Selection, Matching, and Admission in \method{}}
 \label{sec:method}
-
-Each wave selects proposal parents and assigns them batches using the current
-cache.  The resulting traces guide revisions, which are evaluated on legal
-admission batches with fixed references.  Accepted outcomes update the
-comparison state and guide the next wave.  The following sections define the
-credit, parent selection, matching, and admission steps.
 
 \subsection{Relative credit from shared observations}
 \label{sec:global_credit}
 
-Per-instance credit captures distinctions among candidates on the same instance.  For
-example, if three candidates all succeed or all fail on a binary-scored
+On a shared instance, a candidate receives more per-instance credit for attaining
+the highest score when a smaller fraction of the other candidates attain it.
+For example, if three candidates all succeed or all fail on a binary-scored
 instance, each receives zero credit.  A single success gives credits
 $(1,-\tfrac12,-\tfrac12)$. Two successes give
-$(\tfrac12,\tfrac12,-1)$, with successful candidates listed first.  The
-following definition extends this comparison to every legally observed frontier.
+$(\tfrac12,\tfrac12,-1)$, with successful candidates listed first.
 
 Let $\F_t(x)$ be the \emph{frontier}.  It contains the candidates with the
 highest cached score among those for which $x\in\Omega_t(s)$, including all
 ties.
 In the all-failure example above, every candidate is on the frontier and each
-receives zero per-instance credit.  Define the legally observed comparison
-set and the number of candidates on the frontier by
+receives zero per-instance credit.  Define the comparison set, its size,
+frontier membership, and the frontier size by
 \[
 \mathcal C_t(x)=\{u\mid x\in\Omega_t(u)\},\qquad
 N_x=|\mathcal C_t(x)|,\qquad
 y_{sx}=\ind\{s\in\F_t(x)\},\qquad
 K_x=\sum_{u\in\mathcal C_t(x)}y_{ux}.
 \]
-When $N_x\ge2$, candidate $s$ receives the per-instance credit
+Per-instance credit subtracts the fraction of other candidates on the frontier
+from the candidate's own frontier indicator.  When $N_x\ge2$, this gives
 \[
 r_{sx}=y_{sx}-\frac{K_x-y_{sx}}{N_x-1}
 =\frac{N_xy_{sx}-K_x}{N_x-1}.
 \]
-Only comparable exposures enter the aggregate.
+COMPASS averages per-instance credit over instances with at least two eligible
+observations to obtain relative credit $G_s$.
 \begin{equation}
 \begin{aligned}
 \Omega_t^{\mathrm{cmp}}(s)&=\{x\in\Omega_t(s)\mid N_x\ge2\},
@@ -242,22 +222,22 @@ R_s&=\sum_{x\in\Omega_t^{\mathrm{cmp}}(s)}r_{sx},
 \end{aligned}
 \label{eq:global_key}
 \end{equation}
-The relative credit $G_s$ is the average per-instance credit.  It records how
-often $s$ is on the current frontier relative to the
-other legally observed candidates on the same instances.  An observation with
-$N_x=1$ remains in the committed table but contributes no relative credit until
-another candidate is legally observed on $x$.  Missing entries remain missing,
-and $G_s$ is undefined when $E_s^{\mathrm{cmp}}=0$ rather than being set to
-zero.  Whenever a commit changes an observation or a frontier, COMPASS
-recomputes $N_x$, $K_x$, all affected per-instance credits, and the resulting $G_s$ values.
+An observation with $N_x=1$ remains in the cache and begins contributing relative
+credit when another candidate has an eligible observation on that instance.
+The relative credit $G_s$ is undefined when $E_s^{\mathrm{cmp}}=0$.
+
+New comparisons can change relative credit even when existing cached scores do
+not change.  Whenever a cache update changes an observation or a frontier,
+COMPASS recomputes $N_x$, $K_x$, all affected per-instance credits, and the
+resulting $G_s$ values.
 
 \subsection{A credit-ranked active set}
 \label{sec:lineage_compression}
 
-At each wave, COMPASS considers all accepted candidates whose relative credit is
-defined.  It keeps the highest-credit candidates up to the active-rank cutoff
-$\rho$, including every candidate tied at the cutoff.  Parents and descendants
-are considered together.  If fewer than $\rho$ candidates have defined credit,
+At each wave, COMPASS ranks all accepted candidates with defined relative credit
+to select proposal parents.  The active set $\A_t$ contains the highest-credit candidates up to the
+active-rank cutoff $\rho$, including every candidate tied at the cutoff.  Parents
+and descendants are considered together.  If fewer than $\rho$ candidates have defined credit,
 all of them remain active.  The tie rule can therefore leave more than $\rho$
 active programs, and a parent and its descendant can remain active at the same
 time.  If no candidate has defined credit, COMPASS uses the seed.
@@ -266,16 +246,14 @@ Proposal parents are selected from the active set in decreasing $G_s$ order,
 with candidate index breaking exact ties.  The order is traversed cyclically
 across waves, and each proposal slot defines one revision attempt.
 
-\subsection{Turning credit into proposal work and legal admission}
+\subsection{Proposal matching and admission}
 \label{sec:proposal_allocation}
 \label{sec:admission_allocation}
 \label{sec:commit}
 
-Relative credit $G_s$ selects which candidates to revise, and matching determines
-which proposal batches they receive.  COMPASS draws $w$ proposal batches and
-matches them one-to-one to the $w$ proposal slots.  Proposal observations
-remain available for diagnosis, so matching uses the full cache, including
-observations excluded from the parent's credit.  The matching weight $H(s,P)$
+COMPASS assigns proposal batches to address each parent's weaknesses.  Higher
+cached scores from other active candidates on the same instances indicate where
+to focus revision.  The matching weight $H(s,P)$
 averages $s$'s gap to the highest cached score among active candidates,
 computed separately for each instance in $P$.
 \begin{equation}
@@ -288,10 +266,24 @@ H(s,P)=\frac{1}{|P|}\sum_{x\in P}
 \label{eq:repairable_gap}
 \end{equation}
 Here $[v]_+=\max\{v,0\}$.  Missing parent observations contribute zero to this
-matching weight and remain missing in the cache.  Let
-$\mathcal I_w=\{0,\ldots,w-1\}$ index the drawn slots $z_i$ and proposal
-minibatches $P_j$.  \method{} solves the maximum-weight matching, written as the binary
-program
+matching weight and remain missing in the cache.
+
+COMPASS draws $w$ proposal batches for the $w$ proposal slots.  Several slots
+may favor the same batch, so COMPASS assigns the batches jointly.  For example,
+two proposal slots may have the following matching weights.
+\[
+\begin{array}{c|cc}
+ & P_1 & P_2\\ \hline
+a & 0.40 & 0.30\\
+b & 0.35 & 0.05
+\end{array}
+\]
+Both prefer $P_1$.  Assigning $P_1$ to $a$ leaves $P_2$ for $b$, for a total
+weight of $0.45$.  Assigning $P_2$ to $a$ and $P_1$ to $b$ gives $0.65$.
+
+COMPASS therefore solves the maximum-weight matching problem over all proposal
+slots and batches.  Let $\mathcal I_w=\{0,\ldots,w-1\}$, with $z_i$ denoting
+the parent of slot $i$ and $P_j$ the $j$-th proposal batch.
 \begin{equation}
 \begin{aligned}
 Y^\star\in\argmax_{Y\in\{0,1\}^{w\times w}}\quad
@@ -303,69 +295,49 @@ Y^\star\in\argmax_{Y\in\{0,1\}^{w\times w}}\quad
 \end{aligned}
 \label{eq:proposal_assignment}
 \end{equation}
-Thus distinct slots receive distinct proposal batches even when two slots
-carry the same parent label.  The assignment maximizes the sum of their
-matching weights.
+Distinct slots receive distinct proposal batches even when they have the same
+parent.
 
-Proposal evaluation updates the existing parent's cached observations.
-Tasks with usable execution traces and reflection data proceed to child
-generation.  When perfect-score skipping is enabled, a task also requires at
-least one proposal score below the configured maximum.  Write $m\le w$ for
-the number of these remaining tasks, with parent $s_i$ and proposal batch $P_i$.
-For each task independently, the benchmark evaluator samples an admission batch
-$A_i$ satisfying
-\[
-A_i\cap X(s_i,P_i)=\varnothing.
-\]
-The evaluator freezes $A_i$ and, for
-each $x\in A_i$, selects a reference from the current frontier with
-defined $G$, preferring the largest $G$ and using seeded randomness for an
-exact tie.  If no frontier candidate has defined credit, the sampled parent $s_i$ is the
-reference.  Denote this choice by $r_i(x)$.  Missing reference observations are
-evaluated before the child is generated and stored using the highest-score
-cache rule.  The admission instances, references, and outcomes remain hidden
-from the generator.
+Each assigned parent is evaluated on its proposal batch, updating its cached
+observations and providing execution traces for revision.  Proposal tasks that
+proceed to child generation receive an admission batch and fixed references for
+comparison.
 
-After the generator fixes child $p_i$ from $(s_i,P_i)$, the evaluator scores it
-on $A_i$ and compares its scores with the frozen reference scores.  In this
-gate, $q(p_i,x)$ is the child's new score and $q(r_i(x),x)$ is the fixed reference
-score on the same instance.  The paired aggregate gate is
+For such a task with parent $s_i$ and proposal batch $P_i$, the evaluator
+independently samples its admission batch $A_i$ outside $X(s_i,P_i)$.
+On each admission instance $x$, it selects a current frontier candidate with
+the largest defined relative credit as reference, using the parent if no frontier candidate has defined
+credit.  Denote this reference by $r_i(x)$.  Missing reference observations are
+evaluated and stored in the cache.  The evaluator fixes the admission batch,
+references, and reference scores before generation and keeps them hidden from
+the generator.
+
+Once the generator fixes child $p_i$, the evaluator scores it on $A_i$.  The
+child is admitted when its total score exceeds that of the fixed references.  Let
+$q(p_i,x)$ be the child's score and $q(r_i(x),x)$ the fixed reference score on
+the same instance.  The admission rule is
 \begin{equation}
 \Delta_i=\sum_{x\in A_i}\left[q(p_i,x)-q(r_i(x),x)\right],
 \qquad
 \operatorname{admit}(p_i)\iff\Delta_i>0.
 \label{eq:admission_gate}
 \end{equation}
-Proposal and reference evaluations update existing programs' cached scores.
-Only credit-eligible entries affect their credit.  An accepted child's
-admission observations enter the cache with that child.  Its proposal batch
-joins the inherited proposal history, and later observations outside that set can
-also contribute to its credit.
-COMPASS then recomputes every affected $G_s$, the tie-inclusive active set,
-and the queue.  At the budget boundary, COMPASS selects the program with the
-largest defined $G_s$, with earliest index breaking an exact tie.  The selected
-program then receives independent benchmark evaluation.  Expanded execution
-details appear in \Cref{app:algorithm}.
 
-\section{How \method{} Turns Evidence into Search}
+An accepted child enters the candidate pool with its proposal history, and its
+admission observations enter the cache.  COMPASS then recomputes the affected
+$G_s$ values and updates the active set and queue.  At the budget boundary,
+COMPASS returns the program with the largest defined $G_s$, with earliest index
+breaking an exact tie.  Expanded execution details appear in
+\Cref{app:algorithm}.
+
+\section{Analysis of admission, credit, and final selection}
 \label{sec:mechanism}
 
-To see how the components fit together, follow one revision through the search
-loop.  A proposal batch reveals a parent's failures and shapes a child.  Since
-those examples helped create the child, different evidence must establish that
-the revision is useful.  The admission outcomes are compared with other
-candidates on the same instances to update their relative credit, which selects
-parents for the next proposal attempts.  The formal statements below support
-three intuitions needed to read this loop.  Admission tests a fixed revision,
-credit records relative performance on shared instances, and a fixed
-rollout budget supports both candidate generation and evaluation.
+\subsection{Proposal history and paired admission}
 
-\subsection{A revision is judged by paired evaluation}
-
-Admission asks whether a fixed revision improves the total score on its
-evaluation batch.  The child and its references are compared on the same
- instances, and the child is admitted when the total paired difference is
- positive.
+A candidate that succeeds on every instance in its proposal batch and fails
+elsewhere will score perfectly when evaluated on that batch again.  Its expected
+benchmark utility can still be arbitrarily small.
 
 \begin{proposition}[Reusing proposal examples can overstate performance]
 \label{prop:self_cert_leakage}
@@ -375,25 +347,24 @@ program, and scores one when those examples are reused for evaluation,
 although the program's population utility is at most $\epsilon$.
 \end{proposition}
 
-A descendant can inherit behavior adapted to an ancestor's proposal examples.
-COMPASS therefore carries the exclusion forward along the lineage.  The
-construction in \Cref{app:proofs} illustrates this with memorization.
+The construction in \Cref{app:proofs} uses memorization.  A descendant can
+inherit this behavior, which explains why admission excludes the full proposal
+history.
 
-\paragraph{Paired evaluation.}
-The proposal batch guides revision of the parent.  The evaluator samples the
-admission batch outside $X(s,P)$, fixes its per-instance references, and hides
-this plan from the generator.  Once the child is fixed, the gate in
-\Cref{eq:admission_gate} compares it with those references on the same
-instances.  \Cref{thm:paired_admission} establishes lineage exclusion and
-bounds the deviation of the mean paired difference from the average
-conditional mean.
+Admission in \Cref{eq:admission_gate} uses the total paired score difference
+between a fixed child and its references.  Averaging these differences over the
+admission batch preserves the sign and hence the admission decision.
+\Cref{thm:paired_admission} bounds the deviation of this mean paired difference
+from the average conditional mean.  At a fixed confidence level, the bound
+decreases with admission batch size.
 
-\subsection{Admission outcomes become relative credit}
+\subsection{Relative credit}
 
-Admission decides whether a particular child enters the pool.  Routing asks
-which accepted candidates have shown distinctions worth pursuing further.
-COMPASS answers it by comparing candidates on the same instance before
-aggregating across the partial cache.
+Paired admission decides whether a child enters the candidate pool.  Relative
+credit ranks the accepted candidates for further revision and final selection.
+Per-instance credit rewards candidates that reach the frontier when others do
+not.  The positive credit they receive is exactly balanced by the negative
+credit assigned to the remaining candidates.
 
 \begin{proposition}[Instance-wise credit conservation]
 \label{prop:credit_conservation}
@@ -404,37 +375,13 @@ before \Cref{eq:global_key} satisfy
 \]
 \end{proposition}
 
-This conservation law assigns credit to differences between candidates.  If all
-$N_x$ compared candidates are on the frontier, the instance assigns
-zero per-instance credit to every candidate.  If one
-candidate is the only one on the frontier, it receives credit of one and each of the
-other $N_x-1$ candidates receives $-1/(N_x-1)$.  Thus being on the frontier
-receives more credit when it distinguishes a candidate from its observed peers.
-
-New results can change relative credit even when the cached scores of existing
-candidates do not change.  When another candidate becomes comparable on an
-instance, COMPASS recomputes that instance's frontier and credits.  An instance
-with one legal observation begins contributing relative credit when a second
-candidate becomes comparable there.
-
-\subsection{Credit directs the next wave}
-
-Matching accounts for parents competing for the same proposal batch.
-
-For illustration, suppose two parent slots have the following matching weights.
-\[
-\begin{array}{c|cc}
- & P_1 & P_2\\ \hline
-a & 0.40 & 0.30\\
-b & 0.35 & 0.05
-\end{array}
-\]
-Both prefer $P_1$.  Assigning $P_1$ to $a$ leaves $P_2$ for $b$, for a total
-weight of $0.45$.  Assigning $P_2$ to $a$ and $P_1$ to $b$ gives $0.65$.
-Maximum-weight matching accounts for these competing preferences across the
-whole wave.  After paired admission, accepted outcomes update the credit used
-in the next wave.
-At the budget boundary, the program with maximal defined $G_s$ is returned.
+With complete shared binary observations and one score per
+candidate--instance pair, relative credit preserves the sample-mean ranking
+and ties.  On each instance, per-instance credit equals the candidate's score
+minus the mean score of the other candidates.  Averaging over the shared
+instances gives its sample mean minus the average sample mean of the other
+candidates.  Equivalently, every candidate's sample mean undergoes the same
+centering and positive scaling (\Cref{eq:binary_credit_mean}).
 
 \subsection{Search and final selection}
 \label{sec:search_selection}
@@ -452,16 +399,22 @@ R^\star-R(\hat p_B)
 \underbrace{\max_{p\in\Pcal_B}R(p)-R(\hat p_B)}_{\text{selection gap}}.
 \label{eq:terminal_regret_decomposition}
 \end{equation}
-Credit-ranked slots and proposal matching allocate candidate-generation work.
-paired admission determines which revisions enter the pool.
-To relate selection by relative credit to selection by sample mean,
-\Cref{prop:bandwidth_precision} first bounds the error of mean-based selection.
-\Cref{cor:g_selection} then connects it to the candidate chosen by $G$.
-Consider $M$ candidates,
-each fixed before receiving $n$ conditionally independent and identically
-distributed rewards under a common benchmark distribution, with mean $R(p_i)$.
-Let $\widehat R_n(p_i)$ be the arithmetic mean of these rewards and let
-$\widehat p_G$ maximize defined credit in this pool.  Define
+Relative credit and proposal matching guide candidate generation, while paired
+admission determines which candidates enter the pool.  The resulting pool
+determines the search gap, and the final choice within it determines the
+selection gap.
+
+To bound the selection gap, consider $M$ candidates, each fixed before receiving
+$n$ conditionally independent and identically distributed rewards under a
+common benchmark distribution, with mean $R(p_i)$.  Let $\widehat R_n(p_i)$ be the
+arithmetic mean of these rewards and let $\widehat p_G$ maximize defined relative
+credit in this pool.
+
+The proof of \Cref{prop:bandwidth_precision} bounds all sample-mean errors
+simultaneously.  The error bounds for the candidate with the highest expected utility
+and the selected candidate give the selection-noise term.  For selection by
+relative credit, the bound also includes the difference between the highest
+sample mean and that of $\widehat p_G$,
 \begin{equation}
 \xi_G=\max_{i\le M}\widehat R_n(p_i)-\widehat R_n(\widehat p_G).
 \label{eq:g_selection_gap}
@@ -474,53 +427,56 @@ R^\star-R(\widehat p_G)
 +\underbrace{2\sqrt{\frac{\log(2M/\delta)}{2n}}+\xi_G}_{\text{selection gap bound}}.
 \label{eq:g_selection_regret}
 \end{equation}
-The term $\xi_G$ is the difference in sample mean between the highest-mean
-candidate and the candidate selected by $G$.  With complete shared binary observations and one score
-per candidate--instance pair, the two rankings coincide and $\xi_G=0$
-(\Cref{eq:binary_credit_mean}).
+With $M$ and the confidence level fixed, increasing $n$ reduces the
+selection-noise term.  With the shared binary observations considered above,
+$\xi_G=0$.
 
 \section{Experiments}
 \label{sec:experiments}
 
-\subsection{Evaluation questions}
-
-The experiments evaluate whether provenance-constrained routing improves held-out benchmark
-utility under a fixed budget and whether the result persists across models and
-tasks.
+We evaluate whether COMPASS improves held-out benchmark utility under fixed
+rollout budgets across models and tasks.  We also examine the contributions of
+relative credit and proposal matching.
 
 \subsection{Tasks, models, and evaluation}
 
 The study spans AIME-2025 and LiveBench-Math mathematical reasoning, IFBench
 instruction following with unseen constraint types, HotPotQA question
-answering, HoVer multi-hop fact verification, PUPA privacy-conscious
+answering, HoVer multi-hop fact verification, and PUPA privacy-conscious
 delegation
 \citep{ifbench_bench,aime_2025,livebench,hotpotqa_bench,hover_bench,
 papillon_bench}.  The models are Qwen3-8B~\citep{qwen3_technical_report} and
-GPT-5.4-nano.  PUPA retains its official GPT-4.1-mini judge for response quality
-and leakage of personally identifiable information (PII).  This judge remains
-fixed throughout optimization and testing.
+GPT-5.4-nano.  In the GPT-5.4-nano comparison, both task execution and reflection
+use GPT-5.4-nano.  PUPA retains its official GPT-4.1-mini judge for response
+quality and leakage of personally identifiable information (PII).  This judge
+remains fixed throughout optimization and testing.
 
-Official evaluation is separated from optimization.  Optimization uses the
-per-task rollout budgets reported for GEPA~\citep{gepa}.  The budgets are 6,871
+The benchmark evaluator runs each program using the benchmark's official data,
+execution procedure, scoring metric, and aggregation rule.  Candidate selection
+uses optimization data, followed by one evaluation of the selected program on
+the held-out test split.
+
+HoVer uses 150/300/300 training, validation, and test instances, and
+LiveBench-Math uses its frozen 126-problem test.  The Qwen3-8B tests also include
+300 HotPotQA instances, 294 IFBench instances, 221 PUPA instances, and all
+150 AIME-2025 problems.
+
+Optimization uses the per-task rollout budgets reported for GEPA~\citep{gepa}.
+The budgets are 6,871
 for HotPotQA, 3,593 for IFBench, 7,051 for HoVer, 2,426 for PUPA, 1,839 for
-AIME-2025, and 1,839 for LiveBench-Math.  The Qwen3-8B AIME variant is
-evaluated on all 150 benchmark problems.  HoVer uses 150/300/300 train,
-validation, and test instances.  LiveBench-Math uses its frozen 126-problem
-test.  Candidate selection uses optimization data, followed by one evaluation
-on the held-out test split.
+AIME-2025, and 1,839 for LiveBench-Math.
 
 \subsection{Comparison across six tasks with Qwen3-8B}
 
 Table~\ref{tab:qwen_results} compares Qwen3-8B evaluations on all six shared
 tasks.  Seed, GRPO, MIPROv2, GEPA, and GEPA+Merge reuse published GEPA-study
-task scores.  We compare two COMPASS ablations.  \mbox{\emph{w/o Credit \& Matching}}
-selects top-ranked candidates using frontier frequency over legal exposures
-($F/E$) and omits skill-proposal matching.
-\mbox{\emph{w/o Matching}} retains ranking by $G_s$ in \Cref{eq:global_key} and omits
-only matching in \Cref{eq:proposal_assignment}.
-The COMPASS row reports the program selected for each task.  COMPASS
-has the highest six-task aggregate and the highest score on all six tasks,
-including PUPA, where it exceeds GEPA by $1.19$ percentage points.
+task scores.  The COMPASS row reports the test scores of the program selected
+for each task.  Selected-candidate records are listed in \Cref{app:protocol}.
+
+We compare two COMPASS ablations.  \mbox{\emph{w/o Credit \& Matching}} selects
+top-ranked candidates using frontier frequency over legal exposures ($F/E$)
+and omits proposal matching.  \mbox{\emph{w/o Matching}} retains relative credit
+ranking and omits proposal matching.
 
 \begin{table}[H]
 \caption{\textbf{Qwen3-8B evaluation across all shared tasks (\%).}
@@ -529,7 +485,7 @@ mean over the six tasks, and $\Delta$ Seed is the aggregate improvement in
 percentage points.  Both are computed from the displayed task scores before
 rounding to two decimal places.  The first five rows reuse GEPA-study task
 scores.  Ablation names indicate the removed components.  Credit denotes
-$G_s$ ranking, and Matching denotes skill-proposal matching.
+$G_s$ ranking, and Matching denotes proposal matching.
 TextGrad and Trace were not reported for Qwen3-8B.}
 \label{tab:qwen_results}
 \begin{center}
@@ -551,24 +507,20 @@ w/o~Matching & 65.33 & 40.82 & 50.67 & 88.85 & 60.67 & 67.68 & 62.34 & +17.10 \\
 \end{center}
 \end{table}
 
+COMPASS has the highest six-task aggregate and the highest score on all six
+tasks, including PUPA, where it exceeds GEPA by $1.19$ percentage points.
+
 The ablations separate the effects of credit ranking and matching.
 \mbox{\emph{w/o Credit \& Matching}}, \mbox{\emph{w/o Matching}}, and COMPASS attain aggregate
 scores of $61.26\%$, $62.34\%$, and $65.90\%$, respectively.  Comparing the two
 ablations evaluates the ranking signal, while comparing \mbox{\emph{w/o Matching}} with
-COMPASS evaluates the addition of skill-proposal matching.
-
-The six tests contain 300, 294, 300, 221, 150, and 126 instances for HotPotQA,
-IFBench, HoVer, PUPA, AIME-2025, and LiveBench-Math, respectively.  Candidate
-selection precedes the official test.  The selected-candidate records are
-listed in \Cref{app:protocol}.
+COMPASS evaluates the addition of proposal matching.
 
 \subsection{Same-model comparison with GPT-5.4-nano}
 
-Table~\ref{tab:nano_results} reports the GPT-5.4-nano comparison.  Both task
-execution and reflection use GPT-5.4-nano.  PUPA keeps the fixed
-benchmark scorer described above.  COMPASS has the highest six-task aggregate
-and the highest score on four tasks.  MIPROv2 is higher on HotPotQA, and GEPA is
-higher on HoVer.
+With GPT-5.4-nano, COMPASS has the highest six-task aggregate and the highest
+score on four tasks (Table~\ref{tab:nano_results}).  MIPROv2 is higher on
+HotPotQA, and GEPA is higher on HoVer.
 
 \begin{table}[H]
 \caption{\textbf{GPT-5.4-nano evaluation across all shared tasks (\%).}

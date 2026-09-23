@@ -3,7 +3,7 @@
 
 \subsection{Eligible exposure and frontiers}
 
-At a fixed routing state $t$, reuse the credit-eligible set
+At optimization step $t$, reuse the credit-eligible set
 $\Omega_t(s)=\{x\mid q_t(s,x)\text{ exists and }x\notin\mathcal B_s\}$ from
 \Cref{sec:setting}.  The frontier is
 \[
@@ -27,9 +27,9 @@ R_s=\sum_{x\in\Omega_t^{\mathrm{cmp}}(s)}r_{sx},\qquad
 G_s=R_s/E_s^{\mathrm{cmp}}.
 \end{gathered}
 \]
-An $N_x=1$ observation remains committed but does not enter the aggregate.
-Whenever a new finite observation changes $\mathcal C_t(x)$ or $\F_t(x)$, the
-router recomputes $N_x$, $K_x$, and every affected candidate contribution on
+An $N_x=1$ observation remains in the cache but does not enter the aggregate.
+Whenever a new finite observation changes $\mathcal C_t(x)$ or $\F_t(x)$,
+COMPASS recomputes $N_x$, $K_x$, and every affected candidate contribution on
 that instance.  Candidates with $E_s^{\mathrm{cmp}}=0$ have undefined credit.
 
 \subsection{Inherited proposal history}
@@ -46,41 +46,50 @@ P_a^{\mathrm{birth}}.
 Proposal history records the instances used in a candidate's own and its
 ancestors' proposal batches.  Admission observations retain their role as evaluation evidence.
 The proposal history $\mathcal B_s$
-governs which committed observations may contribute to candidate $s$'s relative
+governs which cached observations may contribute to candidate $s$'s relative
 credit, and $X(s,P)$ extends that exclusion to the prospective child's admission.
 
 \section{Algorithmic Details}
 \label{app:algorithm}
 
-\subsection{Proposal allocation implementation}
+\subsection{Proposal matching implementation}
 
 \Cref{eq:repairable_gap,eq:proposal_assignment} define the
 proposal objective.  The implementation builds the complete slot--batch
-weight matrix from the committed cache and solves the resulting
+weight matrix from the cache and solves the resulting
 maximum-weight assignment exactly.  Duplicate parent labels remain distinct
 left-side slot vertices.  Missing cache entries remain unchanged during assignment.
 
 \subsection{Direct legal admission implementation}
 
-For each of the $m\le w$ remaining proposal tasks, the benchmark evaluator samples
-one batch $A_i$ from that task's admission sampler after removing every
+Proposal tasks with usable execution traces and reflection data proceed to child
+generation.  When perfect-score skipping is enabled, a task also requires at
+least one proposal score below the configured maximum.  Let $m\le w$ be the
+number of remaining tasks.  For each task independently, the benchmark evaluator
+samples one batch $A_i$ from that task's admission sampler after removing every
 instance in $X(s_i,P_i)$.  For each instance in the sampled batch, the evaluator
 selects the frontier candidate with defined, maximal
 $G$ as reference, using seeded randomness for an exact tie and the sampled
-parent when no frontier candidate has defined credit.  The resulting plan is hidden from the
-generator, required missing reference observations are filled on the existing
-reference programs, and the fixed child is admitted exactly when the paired
-aggregate in \Cref{eq:admission_gate} is positive.
+parent when no frontier candidate has defined credit.  Missing reference
+observations are evaluated before child generation and stored using the
+highest-score cache rule.  The admission instances, references, and outcomes
+remain hidden from the generator.  The fixed child is admitted exactly when the
+paired aggregate in \Cref{eq:admission_gate} is positive.
 
 \subsection{Wave execution}
+
+Let $\mathcal H_t$ contain the lineage, proposal batches, cache,
+remaining budget, and persistent search state.  A new observation replaces an
+existing score and its associated output only when its score is strictly higher.
+Each observed candidate--instance pair therefore retains one record.
 
 \begin{algorithm}[H]
 \caption{One \method{} wave}
 \label{alg:compass_wave}
 \begin{algorithmic}[1]
-\Require committed routing state $\mathcal H_t$, wave width $w$, active cutoff $\rho$
+\Require committed search state $\mathcal H_t$, wave width $w$, active cutoff $\rho$
 \Ensure updated committed state $\mathcal H_{t+1}$
-\State Recompute every defined $G_s$ from the committed cache
+\State Recompute every defined $G_s$ from the cache
 \State $\A_t \gets$ tie-inclusive Top-$\rho$ candidates, sorted by $G_s$ and candidate index
 \State If $\A_t=\varnothing$, set $\A_t\gets\{0\}$ \Comment{Seed fallback}
 \State $(z_i)_{i\in\mathcal I_w} \gets \text{next $w$ parents from $\A_t$, continuing from the saved position}$
@@ -320,7 +329,7 @@ G_s=\frac{M}{M-1}\left(
 This is a shared positive affine transformation of the sample means, so
 their rankings and ties coincide and $\xi_G=0$.
 
-\subsection{Structural properties of the router}
+\subsection{Properties of parent selection and proposal matching}
 
 \begin{proposition}[Proposal turns for a fixed active set]
 For a fixed ordered active set of size $m$, every block of $m$ consecutive
@@ -337,13 +346,13 @@ including a block that wraps around the end of the queue.
 \end{proof}
 
 \begin{proposition}[Maximum-weight proposal matching]
-Conditional on the $w$ drawn parent slots and $w$ proposal minibatches,
+Conditional on the $w$ drawn parent slots and $w$ proposal batches,
 \Cref{eq:proposal_assignment} maximizes total matching weight over all
-one-to-one slot--minibatch assignments.
+one-to-one slot--batch assignments.
 \end{proposition}
 
 \begin{proof}[Proof of maximum-weight proposal matching]
-The $w$ parent slots and $w$ minibatches define a complete bipartite graph
+The $w$ parent slots and $w$ proposal batches define a complete bipartite graph
 with edge weight $H(z_i,P_j)$.  A feasible binary matrix in
 \Cref{eq:proposal_assignment} is exactly a perfect matching, or equivalently a
 permutation matrix.  Selecting the maximum-weight feasible matrix therefore

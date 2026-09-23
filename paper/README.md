@@ -43,7 +43,8 @@ powershell -ExecutionPolicy Bypass -File paper/scripts/build-paper.ps1
 ```
 
 The script builds both standalone figure PDFs and then `main.pdf`.
-The radar uses the six method rows and six task columns of Table 1.
+The radar uses the Seed, GRPO, MIPROv2, GEPA, GEPA+Merge, and COMPASS rows
+and the six task columns of Table 1. The FE and G ablations are omitted.
 Each axis has its own labeled linear score range, from center to rim.
 Its `\radardata` lines preserve raw scores in the table's column order;
 `\axismin` and `\axismax` control only the plotted ranges.
