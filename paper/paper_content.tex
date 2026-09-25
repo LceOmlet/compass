@@ -12,7 +12,7 @@ using the selected candidates' score gaps to the best score recorded among them
 on each instance.  Each new candidate is evaluated on instances that were not
 used to generate it or its ancestors.  Across six benchmarks, \method{}
 achieves the highest average score among the compared methods for both
-Qwen3-8B and GPT-5.4-nano.  On Qwen3-8B, it improves over GEPA by $11.1$
+Qwen3-8B and GPT-5.4-nano.  On Qwen3-8B, it improves over GEPA by $10.3$
 percentage points on average and $31.3$ points on AIME-2025.  Ablations on
 Qwen3-8B show that both relative credit and matching improve the average score
 across the six benchmarks.
@@ -85,8 +85,8 @@ lineage-excluded observations.}
 We evaluate COMPASS on six benchmarks with Qwen3-8B and GPT-5.4-nano.  COMPASS
 achieves the highest six-task aggregate among the compared methods for both
 models.  On Qwen3-8B, the programs selected by COMPASS for each task reach $63.33\%$ on AIME-2025,
-$43.37\%$ on IFBench, $73.96\%$ on LiveBench-Math, and $54.67\%$ on HoVer.
-These scores exceed GEPA by $31.33$, $4.76$, $22.01$, and $2.34$
+$43.37\%$ on IFBench, $69.53\%$ on LiveBench-Math, and $54.67\%$ on HoVer.
+These scores exceed GEPA by $31.33$, $4.76$, $17.58$, and $2.34$
 percentage points, respectively.  Qwen3-8B ablations show that relative credit
 and proposal matching both improve the six-task aggregate.
 
@@ -440,38 +440,54 @@ relative credit and proposal matching.
 
 \subsection{Tasks, models, and evaluation}
 
-The study spans AIME-2025 and LiveBench-Math mathematical reasoning, IFBench
-instruction following with unseen constraint types, HotPotQA question
-answering, HoVer multi-hop fact verification, and PUPA privacy-conscious
-delegation
-\citep{ifbench_bench,aime_2025,livebench,hotpotqa_bench,hover_bench,
-papillon_bench}.  The models are Qwen3-8B~\citep{qwen3_technical_report} and
-GPT-5.4-nano.  In the GPT-5.4-nano comparison, both task execution and reflection
-use GPT-5.4-nano.  PUPA retains its official GPT-4.1-mini judge for response
-quality and leakage of personally identifiable information (PII).  This judge
-remains fixed throughout optimization and testing.
+We evaluate COMPASS on six benchmarks with
+Qwen3-8B~\citep{qwen3_technical_report} and GPT-5.4-nano.  The tasks,
+test sizes, and rollout budgets are summarized in
+Table~\ref{tab:experiment_setup}.  For each task, we use the rollout budget
+reported for GEPA~\citep{gepa}.
 
-The benchmark evaluator runs each program using the benchmark's official data,
-execution procedure, scoring metric, and aggregation rule.  Candidate selection
-uses optimization data, followed by one evaluation of the selected program on
-the held-out test split.
+\begin{table}[H]
+\caption{\textbf{Experimental setup.}}
+\label{tab:experiment_setup}
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.36\linewidth}>{\raggedright\arraybackslash}Xrr@{}}
+\toprule
+Benchmark & Task & Test instances & Budget \\
+\midrule
+HotPotQA~\citep{hotpotqa_bench} & Question answering & 300 & 6,871 \\
+IFBench~\citep{ifbench_bench} & Instruction following & 294 & 3,593 \\
+HoVer~\citep{hover_bench} & Multi-hop fact verification & 300 & 7,051 \\
+PUPA~\citep{papillon_bench} & Privacy-conscious delegation & 221 & 2,426 \\
+AIME~\citep{aime_2025} & Mathematical reasoning & 150 & 1,839 \\
+LiveBench~\citep{livebench} & Mathematical reasoning & 126 & 1,839 \\
+\bottomrule
+\end{tabularx}
+\par\smallskip
+\begin{minipage}{\linewidth}
+HoVer uses 150 training and 300 validation instances.  The AIME test
+includes all 150 problems, and LiveBench uses its frozen 126-problem test.
+\end{minipage}
+\end{table}
 
-HoVer uses 150/300/300 training, validation, and test instances, and
-LiveBench-Math uses its frozen 126-problem test.  The Qwen3-8B tests also include
-300 HotPotQA instances, 294 IFBench instances, 221 PUPA instances, and all
-150 AIME-2025 problems.
+In the GPT-5.4-nano experiments, GPT-5.4-nano performs both task execution and
+reflection.  PUPA uses its official GPT-4.1-mini judge to assess response
+quality and leakage of personally identifiable information (PII) throughout
+optimization and testing.
 
-Optimization uses the per-task rollout budgets reported for GEPA~\citep{gepa}.
-The budgets are 6,871
-for HotPotQA, 3,593 for IFBench, 7,051 for HoVer, 2,426 for PUPA, 1,839 for
-AIME-2025, and 1,839 for LiveBench-Math.
+We use each benchmark's official data and evaluation procedure, including its
+scoring and aggregation rules.  Candidates are selected using optimization
+data, and the selected program is then evaluated once on the held-out test
+split.
 
 \subsection{Comparison across six tasks with Qwen3-8B}
 
 Table~\ref{tab:qwen_results} compares Qwen3-8B evaluations on all six shared
 tasks.  Seed, GRPO, MIPROv2, GEPA, and GEPA+Merge reuse published GEPA-study
 task scores.  The COMPASS row reports the test scores of the program selected
-for each task.  Selected-candidate records are listed in \Cref{app:protocol}.
+for each task.  \Cref{app:protocol} lists the selected candidates.
 
 We compare two COMPASS ablations.  \mbox{\emph{w/o Credit \& Matching}} selects
 top-ranked candidates using frontier frequency over legal exposures ($F/E$)
@@ -492,7 +508,7 @@ TextGrad and Trace were not reported for Qwen3-8B.}
 \setlength{\tabcolsep}{3.3pt}
 \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrrrrrr@{}}
 \toprule
-Method & HotPotQA & IFBench & HoVer & PUPA & \shortstack[r]{AIME-\\2025} & \shortstack[r]{LiveBench-\\Math} & Aggregate & $\Delta$ Seed \\
+Method & HotPotQA & IFBench & HoVer & PUPA & AIME & LiveBench & Aggregate & $\Delta$ Seed \\
 \midrule
 Seed & 42.33 & 36.90 & 35.33 & 80.82 & 27.33 & 48.70 & 45.24 & -- \\
 GRPO & 43.33 & 35.88 & 38.67 & 86.66 & 38.00 & 51.26 & 48.97 & +3.73 \\
@@ -501,7 +517,7 @@ GEPA & 62.33 & 38.61 & 52.33 & 91.85 & 32.00 & 51.95 & 54.85 & +9.61 \\
 GEPA+Merge & 64.33 & 28.23 & 51.67 & 86.26 & 32.00 & 51.95 & 52.41 & +7.17 \\
 \begin{tabular}[c]{@{}l@{}}w/o~Credit \\ \& Matching\end{tabular} & 64.67 & 40.31 & 51.67 & 86.91 & 57.33 & 66.67 & 61.26 & +16.03 \\
 w/o~Matching & 65.33 & 40.82 & 50.67 & 88.85 & 60.67 & 67.68 & 62.34 & +17.10 \\
-\method{} & \textbf{67.00} & \textbf{43.37} & \textbf{54.67} & \textbf{93.04} & \textbf{63.33} & \textbf{73.96} & \textbf{65.90} & \textbf{+20.66} \\
+\method{} & \textbf{67.00} & \textbf{43.37} & \textbf{54.67} & \textbf{93.04} & \textbf{63.33} & \textbf{69.53} & \textbf{65.16} & \textbf{+19.92} \\
 \bottomrule
 \end{tabular*}
 \end{center}
@@ -512,9 +528,28 @@ tasks, including PUPA, where it exceeds GEPA by $1.19$ percentage points.
 
 The ablations separate the effects of credit ranking and matching.
 \mbox{\emph{w/o Credit \& Matching}}, \mbox{\emph{w/o Matching}}, and COMPASS attain aggregate
-scores of $61.26\%$, $62.34\%$, and $65.90\%$, respectively.  Comparing the two
+scores of $61.26\%$, $62.34\%$, and $65.16\%$, respectively.  Comparing the two
 ablations evaluates the ranking signal, while comparing \mbox{\emph{w/o Matching}} with
 COMPASS evaluates the addition of proposal matching.
+
+\paragraph{Program changes during search.}
+Figure~\ref{fig:aime_evolution} traces how the selected AIME program develops
+from the seed.  The revisions introduce a solving checklist, checks on
+substitutions, and explicit output requirements.  They also remove earlier
+instructions.  Candidate 5 drops the integer-output requirement introduced
+by candidate 3.  Candidate 9 reintroduces it with examples, and candidate 11
+keeps the requirement while removing the two conversion examples and the
+list of incorrect outputs.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/aime_evolution/aime_evolution.pdf}
+\caption{\textbf{Program evolution on AIME with Qwen3-8B.}
+Red arrows trace the path from the seed to the selected program, which
+achieves a test score of $63.33\%$.  Gray nodes show other candidates.
+Annotations summarize changes to general instructions at each step.}
+\label{fig:aime_evolution}
+\end{figure}
 
 \subsection{Same-model comparison with GPT-5.4-nano}
 
@@ -533,7 +568,7 @@ evaluations.}
 \setlength{\tabcolsep}{3.3pt}
 \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrrrrrr@{}}
 \toprule
-Method & HotPotQA & IFBench & HoVer & PUPA & \shortstack[r]{AIME-\\2025} & \shortstack[r]{LiveBench-\\Math} & Aggregate & $\Delta$ Seed \\
+Method & HotPotQA & IFBench & HoVer & PUPA & AIME & LiveBench & Aggregate & $\Delta$ Seed \\
 \midrule
 Seed & 31.33 & 48.98 & 45.33 & 74.86 & 15.33 & 35.09 & 41.82 & -- \\
 MIPROv2 & \textbf{61.67} & 47.79 & 53.00 & 75.45 & 30.00 & 43.66 & 51.93 & +10.11 \\

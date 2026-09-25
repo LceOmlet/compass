@@ -52,19 +52,19 @@ credit, and $X(s,P)$ extends that exclusion to the prospective child's admission
 \section{Algorithmic Details}
 \label{app:algorithm}
 
-\subsection{Proposal matching implementation}
+\subsection{Proposal matching}
 
 \Cref{eq:repairable_gap,eq:proposal_assignment} define the
-proposal objective.  The implementation builds the complete slot--batch
+proposal objective.  COMPASS builds the complete slot--batch
 weight matrix from the cache and solves the resulting
 maximum-weight assignment exactly.  Duplicate parent labels remain distinct
 left-side slot vertices.  Missing cache entries remain unchanged during assignment.
 
-\subsection{Direct legal admission implementation}
+\subsection{Admission}
 
 Proposal tasks with usable execution traces and reflection data proceed to child
-generation.  When perfect-score skipping is enabled, a task also requires at
-least one proposal score below the configured maximum.  Let $m\le w$ be the
+generation.  An optional step skips tasks whose parent attains the maximum
+score on every proposal instance.  Let $m\le w$ be the
 number of remaining tasks.  For each task independently, the benchmark evaluator
 samples one batch $A_i$ from that task's admission sampler after removing every
 instance in $X(s_i,P_i)$.  For each instance in the sampled batch, the evaluator
@@ -79,7 +79,7 @@ paired aggregate in \Cref{eq:admission_gate} is positive.
 \subsection{Wave execution}
 
 Let $\mathcal H_t$ contain the lineage, proposal batches, cache,
-remaining budget, and persistent search state.  A new observation replaces an
+remaining budget, and position in the active-set order.  A new observation replaces an
 existing score and its associated output only when its score is strictly higher.
 Each observed candidate--instance pair therefore retains one record.
 
@@ -87,8 +87,8 @@ Each observed candidate--instance pair therefore retains one record.
 \caption{One \method{} wave}
 \label{alg:compass_wave}
 \begin{algorithmic}[1]
-\Require committed search state $\mathcal H_t$, wave width $w$, active cutoff $\rho$
-\Ensure updated committed state $\mathcal H_{t+1}$
+\Require search state $\mathcal H_t$, wave width $w$, active cutoff $\rho$
+\Ensure updated search state $\mathcal H_{t+1}$
 \State Recompute every defined $G_s$ from the cache
 \State $\A_t \gets$ tie-inclusive Top-$\rho$ candidates, sorted by $G_s$ and candidate index
 \State If $\A_t=\varnothing$, set $\A_t\gets\{0\}$ \Comment{Seed fallback}
@@ -99,7 +99,8 @@ Each observed candidate--instance pair therefore retains one record.
   \State Evaluate $s_i$ on $P_i$ and construct its reflection data
   \State Update the cache with new pairs or strictly higher parent scores
 \EndFor
-\State $\mathcal T\gets$ tasks with usable traces and reflection data, after configured perfect-score skipping
+\State Optionally skip tasks with maximal parent scores on every proposal instance
+\State $\mathcal T\gets$ remaining tasks with usable traces and reflection data
 \State $m\gets|\mathcal T|\le w$
 \ForAll{$(s_i,P_i)\in\mathcal T$ \textbf{in parallel}}
   \State $A_i\gets\Call{SampleAdmission}{s_i,P_i}$ subject to $A_i\cap X(s_i,P_i)=\varnothing$
@@ -108,16 +109,15 @@ Each observed candidate--instance pair therefore retains one record.
   \State $p_i\gets\Call{Reflect}{s_i,P_i}$, then evaluate $p_i$ on $A_i$
   \State $\Delta_i\gets\sum_{x\in A_i}[q(p_i,x)-q(r_i(x),x)]$
   \If{$\Delta_i>0$}
-    \State Commit $p_i$ and its lineage-eligible admission evidence
+    \State Add $p_i$ to the candidate pool and its eligible admission evidence to the cache
   \EndIf
 \EndFor
-\State Update the logical budget, frontiers, credits, and queue cursor, then persist $\mathcal H_{t+1}$
+\State Update the remaining budget, frontiers, credits, and position in the active-set order
 \end{algorithmic}
 \end{algorithm}
 
-Repeat \Cref{alg:compass_wave} while the cumulative logical call count is below
-$B$, and complete the final wave before stopping.  Report both the target $B$
-and actual calls.  Request-level retries add no logical task result.
+Repeat \Cref{alg:compass_wave} while cumulative proposal and evaluation cost
+remains below $B$, and complete the final wave before stopping.
 
 \section{Properties of Admission, Credit, and Selection}
 \label{app:proofs}
@@ -370,37 +370,15 @@ The method in \Cref{sec:method} uses
 relative credit, applies the tie-inclusive Top-$\rho$ cutoff
 to all candidates with defined credit, uses the exact proposal assignment in
 \Cref{eq:proposal_assignment}, and samples admission batches independently for
-each remaining proposal task.  The implementation names this credit
-\texttt{leave\_one\_out\_frontier\_credit}.  The protocol evaluates the selected
-program once.
+each remaining proposal task.  The selected program is evaluated once.
 
-The Qwen3-8B runs select candidates 55, 78, 34, and 30 for HotPotQA,
-IFBench, PUPA, and LiveBench-Math, respectively.  GEPA's
-GPT-5.4-nano AIME-2025 result uses its first completed official evaluation.
-Each saved run records rollout counts, candidate indices, tokens, and costs.
-Its checkpoint retains lineage, queue, assignment, and cache updates for
-analysis of the search mechanism.
+The Qwen3-8B runs select candidates 55, 78, 34, and 28 for HotPotQA,
+IFBench, PUPA, and LiveBench-Math, respectively.
 
 \subsection{Official evaluation protocol}
 
-Reported results use the candidate fixed at the end of optimization and a
-complete official evaluation.  Each run records the selected program, source
-version, configuration, and model.  IFBench requires 294 finite example scores
-whose mean equals the aggregate.  AIME requires all 150 benchmark
-problems.  HoVer requires 300 finite binary scores, and LiveBench-Math requires
-all 126 frozen test positions under its official aggregation.
-
-Evaluation uses the selected candidate with its matching implementation and
-configuration.  Service failures are recorded separately from benchmark scores.
-Preflight runs and intermediate checkpoints remain separate from the final
-evaluation, and the candidate is fixed before its test scores are observed.
-
-\subsection{Resource accounting}
-
-Logical task calls and final-wave overshoot are reported separately from physical
-language-model calls.  The latter include input/output tokens and route-priced
-cost.  A local task deadline can produce a benchmark failure score when that
-outcome is defined by the evaluator.  Other provider, schema, serialization,
-and engineering errors terminate the evaluation
-batch.  A resumable run must preserve the exact source, config, cache,
-checkpoint, and random-number-generator state.
+The selected candidate is fixed at the end of optimization, before its test
+scores are observed, and evaluated on the complete test split.  IFBench reports
+the mean score over 294 instances.  AIME uses all 150 benchmark problems.
+HoVer uses 300 instances with binary scores, and LiveBench-Math uses its
+frozen 126-problem test with the official aggregation rule.

@@ -1,0 +1,9 @@
+{
+  "task": "AIME",
+  "model": "Qwen3-8B",
+  "source": "Accepted-run checkpoint and final test summary",
+  "parents": [null, 0, 1, 1, 2, 3, 3, 0, 5, 8, 3, 9, 6, 9, 9, 14],
+  "chain": [0, 1, 3, 5, 8, 9, 11],
+  "selected_candidate_idx": 11,
+  "final_test_score": 63.333333333333336
+}
